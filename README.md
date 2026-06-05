@@ -1,4 +1,4 @@
 # Worst Image Format (.wimf)
 TODO:
 - Add compression.
-- Make it simple as possible.
+- Don't overcomplicate the code.
