@@ -119,7 +119,7 @@ def decode_lossy(data, w, h, channels):
 
 # --- AWIF / LWIF (ANIMATION & LIVE PHOTO) ---
 
-def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", is_live_photo=False):
+def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", is_live_photo=False, audio_bytes=None):
     """
     Encodes multiple frames. 
     Frame 0: I-Frame (Full Lossy Encode)
@@ -128,10 +128,19 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", is_liv
     out_payload = bytearray()
     out_payload.extend(struct.pack('<I', len(frames)))
     
-    # Optional Audio Payload for Live Photos (Dummy 1KB silence for proof of concept)
-    audio_data = b'\x00' * 1024 if is_live_photo else b''
-    out_payload.extend(struct.pack('<I', len(audio_data)))
-    out_payload.extend(audio_data)
+    # Opus Audio Payload Structure for Live Photos
+    if is_live_photo:
+        if audio_bytes:
+            # Embed actual Opus/OGG bitstream with OPUS magic identifier
+            audio_payload = b'OPUS' + struct.pack('<I', len(audio_bytes)) + audio_bytes
+        else:
+            # Dummy Opus payload placeholder
+            audio_payload = b'OPUS' + struct.pack('<I', 4) + b'\x00\x00\x00\x00'
+    else:
+        audio_payload = b''
+        
+    out_payload.extend(struct.pack('<I', len(audio_payload)))
+    out_payload.extend(audio_payload)
 
     prev_arr = None
     for i, frame in enumerate(frames):
