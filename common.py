@@ -263,7 +263,7 @@ import glob
 import os
 from PIL import Image
 
-def extract_video_data(video_path, max_duration=5, fps=12):
+def extract_video_data(video_path, max_duration=5, fps=12, target_w=None, target_h=None):
     """
     Parses an MP4/MOV file using FFMPEG.
     Limits to max_duration (default 5s) for Live Photo efficiency.
@@ -283,7 +283,11 @@ def extract_video_data(video_path, max_duration=5, fps=12):
                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
     # Extract frames at a reasonable fps (Live Photos don't need 60fps)
-    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-t', str(max_duration), '-vf', f'fps={fps}', frames_pattern], 
+    vf_args = f'fps={fps}'
+    if target_w and target_h:
+        vf_args += f',scale={target_w}:{target_h}'
+        
+    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-t', str(max_duration), '-vf', vf_args, frames_pattern], 
                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
     audio_bytes = b''
