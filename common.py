@@ -1,10 +1,11 @@
 import numpy as np
 import lzma
 import json
+import struct
 
-# --- WIMF OPEN-SOURCE ENGINE v18.0 (The Big Bang Update) ---
-# Features: True Lossless, Progressive Wavelets, Smart Focus ROI, Depth-Maps, and Animation Support.
+# --- WIMF OPEN-SOURCE ENGINE v18.2 (Animated & Live Photo Update) ---
 
+# --- CORE MATH (ARM-Optimized via NumPy) ---
 def paeth_predictor(a, b, c):
     p = a + b - c
     pa, pb, pc = np.abs(p - a), np.abs(p - b), np.abs(p - c)
@@ -16,8 +17,7 @@ def encode_lossless(pixels, w, h, channels):
     res[0, 0] = arr[0, 0]
     res[0, 1:] = arr[0, 1:] - arr[0, :-1]
     res[1:, 0] = arr[1:, 0] - arr[:-1, 0]
-    a, b, c = arr[1:, :-1], arr[:-1, 1:], arr[:-1, :-1]
-    res[1:, 1:] = arr[1:, 1:] - paeth_predictor(a, b, c)
+    res[1:, 1:] = arr[1:, 1:] - paeth_predictor(arr[1:, :-1], arr[:-1, 1:], arr[:-1, :-1])
     return lzma.compress(res.astype(np.uint8).tobytes(), preset=9)
 
 def decode_lossless(data, w, h, channels):
@@ -35,8 +35,6 @@ def decode_lossless(data, w, h, channels):
             arr[y, x] = (res[y, x] + pr) % 256
     return arr.astype(np.uint8).tobytes()
 
-# --- HYPER-TECH LOSSY ENGINE ---
-
 def haar_level(b):
     LL = (b[:,:,0::2,0::2] + b[:,:,0::2,1::2] + b[:,:,1::2,0::2] + b[:,:,1::2,1::2]) / 4.0
     HL = (b[:,:,0::2,0::2] - b[:,:,0::2,1::2] + b[:,:,1::2,0::2] - b[:,:,1::2,1::2]) / 4.0
@@ -49,16 +47,6 @@ def ihaar_level(LL, HL, LH, HH):
     b[:,:,0::2,0::2], b[:,:,0::2,1::2] = LL + HL + LH + HH, LL - HL + LH - HH
     b[:,:,1::2,0::2], b[:,:,1::2,1::2] = LL + HL - LH - HH, LL - HL - LH + HH
     return b
-
-def get_roi_mask(luma, quality):
-    """Smart Focus ROI: Sobel-like edge detection to preserve detail where it matters."""
-    dx = np.abs(luma[:,:,1:,:] - luma[:,:,:-1,:])
-    dy = np.abs(luma[:,:,:,1:] - luma[:,:,:,:-1])
-    edges = np.zeros_like(luma)
-    edges[:,:,:-1,:] += dx
-    edges[:,:,:,:-1] += dy
-    # High energy areas get a quality boost
-    return (edges.mean(axis=(2,3)) > 15).astype(np.float32) * (quality * 0.5)
 
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3):
     arr = np.frombuffer(pixels, dtype=np.uint8).reshape((h, w, channels)).astype(np.float32)
@@ -73,105 +61,137 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3):
     cr = (128 + 0.5 * blocks[...,0] - 0.418688 * blocks[...,1] - 0.081312 * blocks[...,2]) - 128
     cb_res, cr_res = cb - (y * 0.1), cr - (y * 0.1)
     
-    roi_bonus = get_roi_mask(y, quality) # Smart Focus Matrix
-    
-    def process_channel(data, q_base, is_alpha=False, is_depth=False):
+    def process_channel(data, q_base):
         L1_LL, L1_HL, L1_LH, L1_HH = haar_level(data)
         L2_LL, L2_HL, L2_LH, L2_HH = haar_level(L1_LL)
         
-        q_eff = q_base + roi_bonus if not is_alpha and not is_depth else q_base
-        q1 = np.maximum(1, 45 - (q_eff * 4))[:,:,None,None]
-        q2 = np.maximum(1, 25 - (q_eff * 2))[:,:,None,None]
+        noise_floor = max(1.0, 6.0 - (q_base * 0.5))
+        L1_HL[np.abs(L1_HL) < noise_floor] = 0; L1_LH[np.abs(L1_LH) < noise_floor] = 0; L1_HH[np.abs(L1_HH) < noise_floor] = 0
+        
+        q1 = np.maximum(1, 30 - (q_base * 3))[:,:,None,None]
+        q2 = np.maximum(1, 15 - (q_base * 1.5))[:,:,None,None]
         
         L2_LL_q = np.round(L2_LL).astype(np.int16)
         L2_HL_q, L2_LH_q, L2_HH_q = np.round(L2_HL/q2).astype(np.int16), np.round(L2_LH/q2).astype(np.int16), np.round(L2_HH/q2).astype(np.int16)
         L1_HL_q, L1_LH_q, L1_HH_q = np.round(L1_HL/q1).astype(np.int16), np.round(L1_LH/q1).astype(np.int16), np.round(L1_HH/q1).astype(np.int16)
         
-        # Progressive Restructuring: Base shapes first, details last
-        prog_base = b"".join([x.tobytes() for x in [L2_LL_q]])
-        prog_mid = b"".join([x.tobytes() for x in [L2_HL_q, L2_LH_q, L2_HH_q]])
-        prog_fine = b"".join([x.tobytes() for x in [L1_HL_q, L1_LH_q, L1_HH_q]])
-        return prog_base, prog_mid, prog_fine
+        return b"".join([x.tobytes() for x in [L2_LL_q, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]])
 
-    yb, ym, yf = process_channel(y, quality)
-    cbb, cbm, cbf = process_channel(cb_res, quality - 2)
-    crb, crm, crf = process_channel(cr_res, quality - 2)
-    
-    # Progressive Interleaving
-    base_layer = yb + cbb + crb
-    mid_layer = ym + cbm + crm
-    fine_layer = yf + cbf + crf
-    
-    extra_layers = b""
-    if channels >= 4: # Alpha or Depth
-        ab, am, af = process_channel(blocks[...,3] - 128, 10, is_alpha=True)
-        extra_layers += ab + am + af
-    if channels == 5: # Depth
-        db, dm, df = process_channel(blocks[...,4] - 128, quality, is_depth=True)
-        extra_layers += db + dm + df
-
-    meta = bytes([quality << 4 | 6])
+    yb, ym, yf = process_channel(y, quality)[:3]
+    meta = bytes([quality << 4 | 5])
     lvl = 9 if preset == "Extreme" else 2
-    # LZMA crushes the progressive layered bitstream
-    return lzma.compress(meta + base_layer + mid_layer + fine_layer + extra_layers, preset=lvl)
+    return lzma.compress(meta + process_channel(y, quality) + process_channel(cb_res, quality-2) + process_channel(cr_res, quality-2), preset=lvl)
 
 def decode_lossy(data, w, h, channels):
     payload = lzma.decompress(data)
     quality = payload[0] >> 4
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
+    sz_L2, sz_L1 = bc * 16 * 2, bc * 64 * 2
+    ch_sz = (sz_L2 * 4) + (sz_L1 * 3)
     
-    sz_L2 = bc * 16 * 2
-    sz_L1 = bc * 64 * 2
-    ch_b_sz = sz_L2
-    ch_m_sz = sz_L2 * 3
-    ch_f_sz = sz_L1 * 3
-    
-    layer_b_sz = ch_b_sz * 3
-    layer_m_sz = ch_m_sz * 3
-    layer_f_sz = ch_f_sz * 3
-    
-    # Simulate Progressive Decoding (We unpack everything here, but structure supports streaming)
-    base_stream = payload[1 : 1 + layer_b_sz]
-    mid_stream = payload[1 + layer_b_sz : 1 + layer_b_sz + layer_m_sz]
-    fine_stream = payload[1 + layer_b_sz + layer_m_sz : 1 + layer_b_sz + layer_m_sz + layer_f_sz]
-    extra_stream = payload[1 + layer_b_sz + layer_m_sz + layer_f_sz :]
-    
-    # (Reconstruction logic simplified for brevity while keeping structure intact)
-    # The actual math reverses the ROI and quantization steps perfectly.
-    
-    # Fallback to standard fast reconstruction for the Big Bang commit
-    def recon_dummy(c): return np.zeros((gh, gw, 16, 16), dtype=np.float32)
-    y_rec = recon_dummy(0)
-    cb_rec = recon_dummy(1)
-    cr_rec = recon_dummy(2)
-    
-    # We will assume successful decompression to RGB arrays here
-    img = np.zeros((gh * 16, gw * 16, channels), dtype=np.uint8)
-    return img[:h, :w, :].tobytes()
+    def reconstruct_channel(start, q_base):
+        q1 = max(1, 30 - (q_base * 3))
+        q2 = max(1, 15 - (q_base * 1.5))
+        o = start
+        L2_LL = np.frombuffer(payload[o:o+sz_L2], dtype=np.int16).reshape((gh, gw, 4, 4)).astype(np.float32); o += sz_L2
+        L2_HL = np.frombuffer(payload[o:o+sz_L2], dtype=np.int16).reshape((gh, gw, 4, 4)).astype(np.float32)*q2; o += sz_L2
+        L2_LH = np.frombuffer(payload[o:o+sz_L2], dtype=np.int16).reshape((gh, gw, 4, 4)).astype(np.float32)*q2; o += sz_L2
+        L2_HH = np.frombuffer(payload[o:o+sz_L2], dtype=np.int16).reshape((gh, gw, 4, 4)).astype(np.float32)*q2; o += sz_L2
+        L1_LL = ihaar_level(L2_LL, L2_HL, L2_LH, L2_HH)
+        L1_HL = np.frombuffer(payload[o:o+sz_L1], dtype=np.int16).reshape((gh, gw, 8, 8)).astype(np.float32)*q1; o += sz_L1
+        L1_LH = np.frombuffer(payload[o:o+sz_L1], dtype=np.int16).reshape((gh, gw, 8, 8)).astype(np.float32)*q1; o += sz_L1
+        L1_HH = np.frombuffer(payload[o:o+sz_L1], dtype=np.int16).reshape((gh, gw, 8, 8)).astype(np.float32)*q1; o += sz_L1
+        return ihaar_level(L1_LL, L1_HL, L1_LH, L1_HH)
 
-def process_animated(frames, w, h, quality, preset):
-    """Motion-WIMF: Inter-frame Prediction"""
-    compressed_frames = []
-    prev_frame = None
-    for frame in frames:
-        if prev_frame is None:
-            # I-Frame
-            compressed_frames.append(encode_lossy(frame, w, h, quality, preset))
+    y_rec = reconstruct_channel(1, quality)
+    cb_rec = reconstruct_channel(1 + ch_sz, quality - 2) + (y_rec * 0.1)
+    cr_rec = reconstruct_channel(1 + ch_sz * 2, quality - 2) + (y_rec * 0.1)
+    
+    y, cb, cr = y_rec + 128, cb_rec + 128, cr_rec + 128
+    cb_f, cr_f = cb - 128, cr - 128
+    r = np.clip(y + 1.402 * cr_f, 0, 255)
+    g = np.clip(y - 0.344136 * cb_f - 0.714136 * cr_f, 0, 255)
+    b = np.clip(y + 1.772 * cb_f, 0, 255)
+    
+    img = np.stack([r, g, b], axis=-1).astype(np.uint8)
+    return img.swapaxes(1, 2).reshape(gh * 16, gw * 16, 3)[:h, :w, :].tobytes()
+
+# --- AWIF / LWIF (ANIMATION & LIVE PHOTO) ---
+
+def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", is_live_photo=False):
+    """
+    Encodes multiple frames. 
+    Frame 0: I-Frame (Full Lossy Encode)
+    Frame N: P-Frame (Inter-frame Delta encoded via LZMA)
+    """
+    out_payload = bytearray()
+    out_payload.extend(struct.pack('<I', len(frames)))
+    
+    # Optional Audio Payload for Live Photos (Dummy 1KB silence for proof of concept)
+    audio_data = b'\x00' * 1024 if is_live_photo else b''
+    out_payload.extend(struct.pack('<I', len(audio_data)))
+    out_payload.extend(audio_data)
+
+    prev_arr = None
+    for i, frame in enumerate(frames):
+        if i == 0:
+            # I-Frame (Keyframe)
+            compressed = encode_lossy(frame, w, h, quality, preset, channels)
+            out_payload.extend(struct.pack('<I', len(compressed)))
+            out_payload.extend(compressed)
+            prev_arr = np.frombuffer(frame, dtype=np.uint8).astype(np.int16)
         else:
-            # P-Frame (Delta)
-            delta = np.frombuffer(frame, dtype=np.uint8).astype(np.int16) - np.frombuffer(prev_frame, dtype=np.uint8).astype(np.int16)
-            # Compress the delta (mostly zeros if still)
-            compressed_frames.append(lzma.compress(delta.astype(np.int8).tobytes(), preset=9))
-        prev_frame = frame
-    return compressed_frames
+            # P-Frame (Motion Delta)
+            curr_arr = np.frombuffer(frame, dtype=np.uint8).astype(np.int16)
+            delta = curr_arr - prev_arr
+            # Extremely efficient LZMA compression on motion deltas
+            compressed = lzma.compress(delta.astype(np.int8).tobytes(), preset=9)
+            out_payload.extend(struct.pack('<I', len(compressed)))
+            out_payload.extend(compressed)
+            prev_arr = curr_arr
+
+    return bytes(out_payload)
+
+def decode_animated(data, w, h, channels):
+    """Returns a list of frame byte arrays."""
+    offset = 0
+    num_frames = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
+    audio_len = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
+    
+    audio_data = data[offset : offset + audio_len]; offset += audio_len
+    
+    frames = []
+    prev_arr = None
+    
+    for i in range(num_frames):
+        frame_len = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
+        frame_data = data[offset : offset + frame_len]; offset += frame_len
+        
+        if i == 0:
+            # I-Frame
+            decompressed = decode_lossy(frame_data, w, h, channels)
+            frames.append(decompressed)
+            prev_arr = np.frombuffer(decompressed, dtype=np.uint8).astype(np.int16)
+        else:
+            # P-Frame
+            delta = np.frombuffer(lzma.decompress(frame_data), dtype=np.int8).astype(np.int16)
+            curr_arr = prev_arr + delta
+            # Ensure valid byte range after delta addition
+            curr_arr = np.clip(curr_arr, 0, 255).astype(np.uint8)
+            frames.append(curr_arr.tobytes())
+            prev_arr = curr_arr.astype(np.int16)
+            
+    return frames, audio_data
 
 # --- STANDARD I/O ---
 
 def loadImage(filename):
     with open(filename, 'rb') as f:
         header = f.read(4)
-        if header != b"WIMF": raise ValueError("Not WIMF")
+        if header not in [b"WIMF", b"AWIF", b"LWIF"]: 
+            raise ValueError(f"Invalid Magic Byte: {header}")
+            
         w, h = int.from_bytes(f.read(4), 'little'), int.from_bytes(f.read(4), 'little')
         flags = int.from_bytes(f.read(1), 'little')
         mlen = int.from_bytes(f.read(4), 'little')
@@ -179,35 +199,50 @@ def loadImage(filename):
         data = f.read()
         
         channels = meta.get('channels', 3)
+        
+        # Determine if we are returning a single frame or a list of frames
+        if header in [b"AWIF", b"LWIF"]:
+            frames, audio = decode_animated(data, w, h, channels)
+            meta['is_animated'] = True
+            if header == b"LWIF": meta['is_live_photo'] = True
+            return w, h, frames, meta
+            
+        # Single frame logic
         if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags == 6: pix = decode_lossy(data, w, h, channels)
+        elif flags in [5, 6]: pix = decode_lossy(data, w, h, channels)
         else: pix = data
         return w, h, pix, meta
 
 def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, preset="Balanced"):
-    channels = len(pixels) // (w * h)
     if metadata is None: metadata = {}
+    
+    is_animated = isinstance(pixels, list)
+    is_live = metadata.get("is_live_photo", False)
+    
+    channels = len(pixels[0]) // (w * h) if is_animated else len(pixels) // (w * h)
     metadata['channels'] = channels
     
-    if metadata.get("is_animated", False):
-        metadata['feature'] = "Motion-WIMF"
-    if channels == 5:
-        metadata['feature'] = "3D Depth-Map WIMF"
-        
     m_bytes = json.dumps(metadata).encode('utf-8')
     
-    if compression == 2:
-        data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels)
-        final_flags = 6
-    elif compression == 1:
-        data = encode_lossless(pixels, w, h, channels)
-        final_flags = 1
+    # Determine Magic Byte
+    magic = b"LWIF" if is_live else (b"AWIF" if is_animated else b"WIMF")
+    
+    if is_animated or is_live:
+        data = encode_animated(pixels if is_animated else [pixels], w, h, channels, quality, preset, is_live)
+        final_flags = 7 # Animated Flag
     else:
-        data = pixels
-        final_flags = 0
+        if compression == 2:
+            data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels)
+            final_flags = 6
+        elif compression == 1:
+            data = encode_lossless(pixels, w, h, channels)
+            final_flags = 1
+        else:
+            data = pixels
+            final_flags = 0
         
     with open(filename, 'wb') as f:
-        f.write(b"WIMF")
+        f.write(magic)
         f.write(w.to_bytes(4, 'little') + h.to_bytes(4, 'little'))
         f.write(final_flags.to_bytes(1, 'little'))
         f.write(len(m_bytes).to_bytes(4, 'little') + m_bytes + data)

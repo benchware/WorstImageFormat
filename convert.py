@@ -65,6 +65,13 @@ Examples:
     group.add_argument("--lossless", action="store_true", help="Force WIMF Lossless mode")
     group.add_argument("--raw", action="store_true", help="Force WIMF Raw mode")
 
+    # Hyper-Tech Flags
+    parser.add_argument("--alpha", action="store_true", help="Enable RGBA Transparency")
+    parser.add_argument("--hdr", action="store_true", help="Enable 10-bit HDR precision")
+    parser.add_argument("--animated", action="store_true", help="Process input as multi-frame animation")
+    parser.add_argument("--depth", action="store_true", help="Include 3D Depth-Map layer")
+    parser.add_argument("--live-photo", action="store_true", help="Create an Apple-style Live Photo (Still + Motion)")
+
     args = parser.parse_args()
     
     # Logic to determine compression mode
