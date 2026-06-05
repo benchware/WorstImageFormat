@@ -294,6 +294,13 @@ class WorstImageFormatApp:
         ]
         p = filedialog.asksaveasfilename(filetypes=file_types, defaultextension=".wimf")
         if p: self.output_path.set(p)
+
+    def browse_motion(self):
+        file_types = [("Video Files", "*.mp4 *.mov *.avi *.mkv")]
+        p = filedialog.askopenfilename(filetypes=file_types)
+        if p:
+            self.motion_path.set(p)
+            self.log(f"Motion Linked: {os.path.basename(p)}")
         
     # Audio browser removed as FFMPEG handles it now
 
