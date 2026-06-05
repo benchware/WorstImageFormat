@@ -252,10 +252,10 @@ class WorstImageFormatApp:
 
     def toggle_live(self):
         if self.opt_live.get():
-            self.audio_frame.grid(row=1, column=2, sticky="w", padx=5, pady=(5,0))
+            self.motion_frame.grid(row=2, column=2, sticky="w", padx=5, pady=(5,0))
             self.opt_anim.set(False) # Live photo implies animated
         else:
-            self.audio_frame.grid_forget()
+            self.motion_frame.grid_forget()
 
     def log(self, m):
         self.console.config(state="normal")
