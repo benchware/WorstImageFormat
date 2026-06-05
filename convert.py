@@ -25,7 +25,10 @@ def convert(input_path, output_path, compression=1, quality=5, author="Unknown",
                 pixels = pixels[0]
                 print(f"[WIMF] Note: Extracted first frame of animated sequence.")
                 
-            img = Image.frombytes('RGB', (w, h), pixels)
+            channels = loaded_meta.get('channels', 3)
+            img_mode = 'RGBA' if channels == 4 else 'RGB'
+            
+            img = Image.frombytes(img_mode, (w, h), pixels)
             img.save(output_path)
             print(f"[WIMF] Extraction complete: {output_path}")
             print(f"[WIMF] Metadata - Author: {loaded_meta.get('author', 'Unknown')}")

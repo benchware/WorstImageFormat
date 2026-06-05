@@ -20,13 +20,16 @@ class WIMFViewer:
             self.is_animated = self.meta.get('is_animated', False)
             self.is_live_photo = self.meta.get('is_live_photo', False)
             
+            channels = self.meta.get('channels', 3)
+            img_mode = 'RGBA' if channels == 4 else 'RGB'
+            
             if self.is_animated:
                 # pixel_data is a list of frame bytes
-                self.frames = [Image.frombytes('RGB', (self.w, self.h), frame_bytes) for frame_bytes in pixel_data]
+                self.frames = [Image.frombytes(img_mode, (self.w, self.h), frame_bytes) for frame_bytes in pixel_data]
                 self.current_frame = 0
                 self.playing = True
             else:
-                self.orig_image = Image.frombytes('RGB', (self.w, self.h), pixel_data)
+                self.orig_image = Image.frombytes(img_mode, (self.w, self.h), pixel_data)
             
             self.canvas = tk.Canvas(root, bg="#0a0a0a", highlightthickness=0)
             self.canvas.pack(expand=True, fill="both")
