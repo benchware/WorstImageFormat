@@ -68,8 +68,8 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3):
         noise_floor = max(1.0, 6.0 - (q_base * 0.5))
         L1_HL[np.abs(L1_HL) < noise_floor] = 0; L1_LH[np.abs(L1_LH) < noise_floor] = 0; L1_HH[np.abs(L1_HH) < noise_floor] = 0
         
-        q1 = np.maximum(1, 30 - (q_base * 3))[:,:,None,None]
-        q2 = np.maximum(1, 15 - (q_base * 1.5))[:,:,None,None]
+        q1 = max(1, 30 - (q_base * 3))
+        q2 = max(1, 15 - (q_base * 1.5))
         
         L2_LL_q = np.round(L2_LL).astype(np.int16)
         L2_HL_q, L2_LH_q, L2_HH_q = np.round(L2_HL/q2).astype(np.int16), np.round(L2_LH/q2).astype(np.int16), np.round(L2_HH/q2).astype(np.int16)
@@ -154,8 +154,9 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", is_liv
             # P-Frame (Motion Delta)
             curr_arr = np.frombuffer(frame, dtype=np.uint8).astype(np.int16)
             delta = curr_arr - prev_arr
-            # Extremely efficient LZMA compression on motion deltas
-            compressed = lzma.compress(delta.astype(np.int8).tobytes(), preset=9)
+            # Extremely efficient LZMA compression on motion deltas (Lower preset for speed)
+            p_level = 6 if preset == "Extreme" else 2
+            compressed = lzma.compress(delta.astype(np.int8).tobytes(), preset=p_level)
             out_payload.extend(struct.pack('<I', len(compressed)))
             out_payload.extend(compressed)
             prev_arr = curr_arr
@@ -222,7 +223,7 @@ def loadImage(filename):
         else: pix = data
         return w, h, pix, meta
 
-def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, preset="Balanced"):
+def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, preset="Balanced", audio_bytes=None):
     if metadata is None: metadata = {}
     
     is_animated = isinstance(pixels, list)
@@ -237,7 +238,7 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
     magic = b"LWIF" if is_live else (b"AWIF" if is_animated else b"WIMF")
     
     if is_animated or is_live:
-        data = encode_animated(pixels if is_animated else [pixels], w, h, channels, quality, preset, is_live)
+        data = encode_animated(pixels if is_animated else [pixels], w, h, channels, quality, preset, is_live, audio_bytes)
         final_flags = 7 # Animated Flag
     else:
         if compression == 2:
@@ -255,3 +256,55 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
         f.write(w.to_bytes(4, 'little') + h.to_bytes(4, 'little'))
         f.write(final_flags.to_bytes(1, 'little'))
         f.write(len(m_bytes).to_bytes(4, 'little') + m_bytes + data)
+
+import subprocess
+import tempfile
+import glob
+import os
+from PIL import Image
+
+def extract_video_data(video_path, max_duration=5, fps=12):
+    """
+    Parses an MP4/MOV file using FFMPEG.
+    Limits to max_duration (default 5s) for Live Photo efficiency.
+    Returns: width, height, list of RGB frame bytes, audio bytes (opus).
+    """
+    try:
+        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    except Exception:
+        raise RuntimeError("FFMPEG is required to import video files. Please install FFMPEG and add it to your system PATH.")
+        
+    temp_dir = tempfile.mkdtemp()
+    audio_path = os.path.join(temp_dir, 'audio.opus')
+    frames_pattern = os.path.join(temp_dir, 'frame_%04d.bmp')
+    
+    # Extract audio (convert to opus directly)
+    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-t', str(max_duration), '-c:a', 'libopus', '-b:a', '64k', audio_path], 
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    # Extract frames at a reasonable fps (Live Photos don't need 60fps)
+    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-t', str(max_duration), '-vf', f'fps={fps}', frames_pattern], 
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    audio_bytes = b''
+    if os.path.exists(audio_path):
+        with open(audio_path, 'rb') as f:
+            audio_bytes = f.read()
+            
+    frame_files = sorted(glob.glob(os.path.join(temp_dir, 'frame_*.bmp')))
+    if not frame_files:
+        raise RuntimeError("Failed to extract frames from video. Check if the file is valid.")
+        
+    frames = []
+    w, h = None, None
+    for ff in frame_files:
+        img = Image.open(ff).convert('RGB')
+        if w is None:
+            w, h = img.width, img.height
+        frames.append(img.tobytes())
+        os.remove(ff)
+        
+    if os.path.exists(audio_path): os.remove(audio_path)
+    os.rmdir(temp_dir)
+    
+    return w, h, frames, audio_bytes

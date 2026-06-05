@@ -211,10 +211,18 @@ class WorstImageFormatApp:
         # METADATA
         meta_f = tk.Frame(content, bg=self.colors["bg"])
         meta_f.pack(fill="x", pady=(0, 10))
-        tk.Label(meta_f, text="AUTHOR TAG", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).pack(anchor="w")
+        
+        # Split into two columns for Author and GPS
+        tk.Label(meta_f, text="AUTHOR TAG", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=0, sticky="w")
         self.author_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
-        self.author_entry.pack(fill="x", ipady=8, pady=5)
-        self.author_entry.insert(0, "BenchWare User")
+        self.author_entry.grid(row=1, column=0, sticky="ew", ipady=8, pady=5, padx=(0, 10))
+        
+        tk.Label(meta_f, text="GPS COORDS", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=1, sticky="w")
+        self.gps_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.gps_entry.grid(row=1, column=1, sticky="ew", ipady=8, pady=5)
+        
+        meta_f.columnconfigure(0, weight=1)
+        meta_f.columnconfigure(1, weight=1)
 
         # CONSOLE
         self.console = tk.Text(content, height=4, bg="#000000", fg=self.colors["neon"], font=("Consolas", 10), padx=20, pady=15, bd=0)
@@ -265,9 +273,9 @@ class WorstImageFormatApp:
 
     def browse_input(self):
         file_types = [
-            ("All Supported", "*.wimf *.wif *.awif *.lwif *.png *.jpg *.jpeg *.bmp *.webp *.ppm *.mp4 *.mov"),
+            ("All Supported", "*.wimf *.wif *.awif *.lwif *.png *.jpg *.jpeg *.bmp *.webp *.ppm *.mp4 *.mov *.gif"),
             ("Worst IMage Format", "*.wimf *.wif *.awif *.lwif"),
-            ("Standard Images", "*.png *.jpg *.jpeg *.bmp *.webp *.ppm"),
+            ("Standard Images", "*.png *.jpg *.jpeg *.bmp *.webp *.ppm *.gif"),
             ("Video Files (For Live Photo)", "*.mp4 *.mov")
         ]
         p = filedialog.askopenfilename(filetypes=file_types)
@@ -280,6 +288,10 @@ class WorstImageFormatApp:
             elif ext in ['.mp4', '.mov']:
                 self.output_path.set(base + ".lwif")
                 self.opt_live.set(True) # Auto-check Live Photo
+            elif ext == '.gif':
+                self.output_path.set(base + ".awif")
+                self.opt_anim.set(True) # Auto-check Animated
+                self.log("Detected GIF: Auto-enabled ANIMATED mode.")
             else:
                 self.output_path.set(base + ".wimf")
             self.log(f"Linked: {os.path.basename(p)}")
@@ -352,15 +364,17 @@ class WorstImageFormatApp:
                     if m_path and os.path.exists(m_path):
                         self.root.after(0, lambda: self.log("Extracting motion frames & Opus audio via FFMPEG..."))
                         from common import extract_video_data
-                        vw, vh, vframes, audio_bytes = extract_video_data(m_path)
+                        vw, vh, vframes, audio_bytes = extract_video_data(m_path, target_w=w, target_h=h)
                         
-                        # True Apple Live Photo: Still Image (I-Frame) + Resized Video Frames (P-Frames)
+                        # True Apple Live Photo: Still Image (I-Frame) + Hardware-Resized Video Frames (P-Frames)
                         pixels = [pixels]
                         self.root.after(0, lambda: self.log(f"Aligning {len(vframes)} motion frames to keyframe..."))
                         for vf in vframes:
-                            v_img = Image.frombytes('RGB', (vw, vh), vf).resize((w, h), Image.Resampling.LANCZOS)
-                            if self.opt_alpha.get(): v_img = v_img.convert('RGBA')
-                            pixels.append(v_img.tobytes())
+                            if self.opt_alpha.get():
+                                v_img = Image.frombytes('RGB', (w, h), vf).convert('RGBA')
+                                pixels.append(v_img.tobytes())
+                            else:
+                                pixels.append(vf)
                     else:
                         raise ValueError("Live Photo requires a valid Motion Video (MP4/MOV) path.")
                 
