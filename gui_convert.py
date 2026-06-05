@@ -338,7 +338,9 @@ class WorstImageFormatApp:
                     pix = pix[0]
                     self.root.after(0, lambda: self.log("Extracted Keyframe from sequence."))
                 
-                mode = 'RGBA' if meta.get('alpha') else 'RGB'
+                channels = meta.get('channels', 3)
+                mode = 'RGBA' if channels == 4 else 'RGB'
+                
                 Image.frombytes(mode, (w, h), pix).save(out_p)
                 self.root.after(0, lambda: self.done(f"Extraction finalized."))
                 
@@ -348,8 +350,13 @@ class WorstImageFormatApp:
                     raise ValueError("Please select a STILL IMAGE as the Source Asset. To create a Live Photo, check the 'LIVE PHOTO' box and attach a Motion Video.")
                 
                 img = Image.open(in_p)
-                if self.opt_alpha.get():
+                
+                # Auto-Detect Transparency
+                has_transparency = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+                
+                if self.opt_alpha.get() or has_transparency:
                     img = img.convert('RGBA')
+                    self.opt_alpha.set(True) # Update UI to reflect auto-detection
                 else:
                     img = img.convert('RGB')
                     
