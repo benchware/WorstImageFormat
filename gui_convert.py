@@ -192,7 +192,11 @@ class WorstImageFormatApp:
         
         # Row 2 Checkboxes
         tk.Checkbutton(ht_frame, text="DEPTH MAP", variable=self.opt_depth, **cb_style).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
-        tk.Checkbutton(ht_frame, text="LIVE PHOTO", variable=self.opt_live, command=self.toggle_live, **cb_style).grid(row=2, column=1, sticky="w", padx=5, pady=(5,0))
+        
+        # Disabled Live Photo until Hardware Acceleration
+        live_cb = tk.Checkbutton(ht_frame, text="LIVE PHOTO", variable=self.opt_live, command=self.toggle_live, **cb_style)
+        live_cb.grid(row=2, column=1, sticky="w", padx=5, pady=(5,0))
+        live_cb.config(state="disabled")
 
         # Descriptions (Row 1 & 3)
         lbl_style = {"bg": self.colors["surface"], "fg": "#666666", "font": ("Segoe UI", 7)}
@@ -200,7 +204,7 @@ class WorstImageFormatApp:
         tk.Label(ht_frame, text="High precision color", **lbl_style).grid(row=1, column=1, sticky="w", padx=25)
         tk.Label(ht_frame, text="Motion delta P-frames", **lbl_style).grid(row=1, column=2, sticky="w", padx=25)
         tk.Label(ht_frame, text="5-Channel 3D data", **lbl_style).grid(row=3, column=0, sticky="w", padx=25)
-        tk.Label(ht_frame, text="Attach MP4/MOV to Image", **lbl_style).grid(row=3, column=1, sticky="w", padx=25)
+        tk.Label(ht_frame, text="(Awaiting GPU Compute)", **lbl_style).grid(row=3, column=1, sticky="w", padx=25)
 
         # Motion Path (Hidden by default)
         self.motion_frame = tk.Frame(ht_frame, bg=self.colors["surface"])
