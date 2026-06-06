@@ -14,10 +14,9 @@
 </p>
 
 This project is just a fancy image format that absolutely seems to have no use... (for now)
-
+> Note: This is CLI-only! You could use the web port by *ddwmv* (contributor)
 ## Features
-- **Image Converter**, including GUI and CLI versions.
-- **Image Viewer**: Type an image path into the input, and your image will pop up instantly in no time.
+
 - **Progressive Loading**: Chunked Bitstream structure allows for the low resolution image to improve gradually as the file loads.
 - **HDR10 Support**: Full support for HDR data and light level metadata (MaxCLL/MaxFALL)
 - Full **Alpha Channel** support.
