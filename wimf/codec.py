@@ -74,7 +74,7 @@ def decode_lossless(data, w, h, channels):
     for ch, c_arr in enumerate(results):
         arr[..., ch] = c_arr
         
-    return arr.tobytes()
+    return arr.astype(np.uint8).tobytes()
 
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, gpu_mode=None):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
@@ -130,13 +130,13 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         # In-place quantization
         L2_LL = np.round(L2_LL).astype(np.int16)
         
-        np.divide(L2_HL, q2, out=L2_HL); L2_HL_q = np.round(L2_HL).astype(np.int16)
-        np.divide(L2_LH, q2, out=L2_LH); L2_LH_q = np.round(L2_LH).astype(np.int16)
-        np.divide(L2_HH, q2, out=L2_HH); L2_HH_q = np.round(L2_HH).astype(np.int16)
+        L2_HL_q = np.round(L2_HL / q2).astype(np.int16)
+        L2_LH_q = np.round(L2_LH / q2).astype(np.int16)
+        L2_HH_q = np.round(L2_HH / q2).astype(np.int16)
         
-        np.divide(L1_HL, q1, out=L1_HL); L1_HL_q = np.round(L1_HL).astype(np.int16)
-        np.divide(L1_LH, q1, out=L1_LH); L1_LH_q = np.round(L1_LH).astype(np.int16)
-        np.divide(L1_HH, q1, out=L1_HH); L1_HH_q = np.round(L1_HH).astype(np.int16)
+        L1_HL_q = np.round(L1_HL / q1).astype(np.int16)
+        L1_LH_q = np.round(L1_LH / q1).astype(np.int16)
+        L1_HH_q = np.round(L1_HH / q1).astype(np.int16)
         
         return [L2_LL, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]
 
