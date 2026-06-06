@@ -34,7 +34,7 @@ def stream_load(filename):
             pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth)
             yield w, h, pix, meta, True
 
-def loadImage(filename, target_layer=2):
+def loadImage(filename, target_layer=2, roi=None):
     with open(filename, 'rb') as f:
         header = f.read(4)
         if header not in [b"WIMF", b"AWIF"]: raise ValueError(f"Invalid Magic Byte: {header}")
@@ -51,7 +51,7 @@ def loadImage(filename, target_layer=2):
             meta['is_animated'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags in [5, 6, 8, 9]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer)
+        elif flags in [5, 6, 8, 9, 10]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, roi=roi)
         else: pix = data
         return w, h, pix, meta
 
@@ -85,10 +85,10 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
         final_flags = 7
     else:
         if compression == 2:
-            data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels, bit_depth=bit_depth)
+            data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels, bit_depth=bit_depth, metadata=metadata)
             final_flags = 9 # Mode 9: Progressive YCoCg-R
         elif compression == 1:
-            data = encode_lossless(pixels, w, h, channels)
+            data = encode_lossless(pixels, w, h, channels, preset=preset)
             final_flags = 1
         else:
             data = pixels
