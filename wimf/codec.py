@@ -76,16 +76,21 @@ def decode_lossless(data, w, h, channels):
         
     return arr.astype(np.uint8).tobytes()
 
+from .hwaccel import get_gpu_manager
+
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, gpu_mode=None):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, channels))
     arr = arr_full[..., :3].astype(np.int32) # Use int32 for YCoCg math
     
     # --- HARDWARE ACCELERATION CHECK ---
-    if gpu_mode:
-        print(f"[WIMF] Hardware Acceleration Enabled: {gpu_mode}")
-        # TODO: Implement Vulkan/OpenGL shaders here
-        print(f"[WIMF] Warning: Shaders not yet implemented, falling back to CPU.")
+    gpu = get_gpu_manager(gpu_mode or 'off')
+    if gpu.enabled:
+        print(f"[WIMF] Hardware Acceleration Active: {gpu.get_info()}")
+        # TODO: Implement actual shader dispatch here
+        print(f"[WIMF] Note: Shaders not yet fully dispatched, using CPU fallback.")
+    elif gpu_mode and gpu_mode != 'off':
+        print(f"[WIMF] GPU requested ({gpu_mode}) but not available. Using CPU.")
     
     # --- REVERSIBLE YCoCg-R TRANSFORM ---
     r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
@@ -189,8 +194,9 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
     return bytes(final_payload)
 
 def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, gpu_mode=None):
-    if gpu_mode:
-        # Fallback placeholder for now
+    gpu = get_gpu_manager(gpu_mode or 'off')
+    if gpu.enabled:
+        # Placeholder for GPU reconstruction
         pass
     
     gh, gw = (h + 15) // 16, (w + 15) // 16
