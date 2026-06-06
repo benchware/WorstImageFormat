@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3">
   <img src="https://img.shields.io/badge/python-3.10+-aff.svg" alt="Python: 3.10+">
   <img src="https://img.shields.io/badge/format-.wimf%20%7C%20.wif-orange" alt="Format: .wimf | .wif">
-  <img src="https://img.shields.io/badge/RMSE-0.7071%20Buggy-red" alt="RMSE Score: Buggy 0.7071">
+  <img src="https://img.shields.io/badge/RMSE-Fixed-green" alt="RMSE Score: Fixed">
 </p>
 
 This project is just a fancy image format that absolutely seems to have no use... (for now)
