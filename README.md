@@ -14,7 +14,8 @@
 </p>
 
 This project is just a fancy image format that absolutely seems to have no use... (for now)
-> Note: This is CLI-only! You could use the web port by *ddwmv* (contributor)
+> Note: This is CLI-only! You could use the web port by *US* *FUCK DDWMV* (contributor)
+> yo fuck off dude ddwmv you dog
 ## Features
 
 - **Progressive Loading**: Chunked Bitstream structure allows for the low resolution image to improve gradually as the file loads.
