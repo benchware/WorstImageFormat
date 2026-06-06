@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wimf"
-version = "1.2.0"
+version = "1.3.0"
 authors = [
   { name="BenchWare", email="contact@benchware.com" },
 ]
@@ -23,7 +23,8 @@ dependencies = [
 [project.scripts]
 wimf-convert = "wimf.cli:main"
 wimf-view = "wimf.viewer:main"
-wimf-gui = "wimf.gui:main"
+wimf-meta = "wimf.meta_tool:main"
+wimf-cat = "wimf.cat:main"
 
 [project.license]
 text = "GPL-3.0-or-later"
