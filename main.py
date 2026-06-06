@@ -21,7 +21,7 @@ def createProceduralImage(filename, width, height, start_col, end_col):
 if __name__ == "__main__":
     createProceduralImage('procedural.wif', 128, 128, [255, 0, 0], [0, 0, 255])
 
-    w, h, pixels = loadImage('procedural.wif')
+    w, h, pixels, _ = loadImage('procedural.wif')
     print(f'W: {w}, H: {h}, Data size: {len(pixels)} bytes (compressed on disk)')
     # NO PRINT MANY PIXELS
     print(f'First 10 bytes: {pixels[:10]}')
