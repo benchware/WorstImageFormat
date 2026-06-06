@@ -14,7 +14,7 @@
 
 # WIMF: Worst Image Format
 
-WIMF is a technically sophisticated image codec designed for high-precision data storage, data analysis, and VFX workflows. It prioritizes mathematical integrity and structural preservation over standard compatibility.
+WIMF is an experimental image format that provides advanced features like self-healing, undo history, and fast region loading. It uses modern color math and wavelets to store your images with high precision and density.
 
 ## Core Features
 
@@ -23,7 +23,7 @@ WIMF is a technically sophisticated image codec designed for high-precision data
 - **Chrono-Layers**: Delta-compressed historical state tracking, allowing a single file to store a complete undo history.
 - **Progressive Loading**: Chunked bitstream structure allows image quality to improve gradually during transit.
 - **Advanced Watermarking**: Invisible secret embedding directly within wavelet frequency layers.
-- **VFX & HDR Support**: Full 10-bit and 16-bit precision pipelines with native support for 5-channel data (RGBA + Depth).
+- **High Precision & Extra Channels**: Full 10-bit and 16-bit precision pipelines with native support for 5-channel data (RGBA + Depth).
 
 ## The Technology
 
