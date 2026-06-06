@@ -20,12 +20,23 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
         else:
             curr_arr = np.frombuffer(frame, dtype=dtype).astype(np.int32)
             delta = curr_arr - prev_arr
+            
+            # --- LOSSY DELTA THRESHOLDING (NOISE GATE) ---
+            # If the change is small, we round it to zero.
+            # Higher quality = lower threshold.
+            threshold = max(0, 5 - (quality // 2))
+            if threshold > 0:
+                delta[np.abs(delta) <= threshold] = 0
+            
             p_level = 6 if preset == "Extreme" else 2
             # Use int16 for deltas to handle range [-1023, 1023] or [-255, 255]
             compressed = lzma.compress(delta.astype(np.int16).tobytes(), preset=p_level)
             out_payload.extend(struct.pack('<I', len(compressed)))
             out_payload.extend(compressed)
-            prev_arr = curr_arr
+            
+            # Important: Update prev_arr with the reconstructed (thresholded) frame
+            # to prevent error accumulation.
+            prev_arr = np.clip(prev_arr + delta, 0, 2**bit_depth - 1)
     return bytes(out_payload)
 
 def decode_animated(data, w, h, channels, bit_depth=8):
