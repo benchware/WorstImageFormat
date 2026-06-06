@@ -30,8 +30,120 @@ jobs:
         
     - name: Run Exhaustive Tests
       run: |
-        python -m unittest discover tests -v 2>&1 | tee test_output.log
+        cat << 'EOF' > test_core.py
+        import os
+        import time
+        import json
+        import numpy as np
+        from PIL import Image
+        import unittest
+        import wimf
+        import io
+        import base64
+        from unittest.mock import patch
+
+        class TestWIMF(unittest.TestCase):
+            @classmethod
+            def setUpClass(cls):
+                cls.img_data = np.random.randint(0, 255, (256, 256, 4), dtype=np.uint8)
+                cls.img_pil = Image.fromarray(cls.img_data, 'RGBA')
+                cls.img_pil.save('test_input.png')
+                
+            def test_high_level_api(self):
+                wimf.save("test.wimf", self.img_pil, quality=7)
+                loaded = wimf.open("test.wimf")
+                self.assertEqual(loaded.size, (256, 256))
+                self.assertEqual(loaded.metadata['author'], 'WIMF_User')
+
+            def test_vectorized_lossless(self):
+                wimf.save("lossless.wimf", self.img_pil, lossless=True)
+                loaded = wimf.open("lossless.wimf")
+                self.assertTrue(np.array_equal(np.array(self.img_pil), loaded.to_numpy()))
+
+            def test_anti_rot(self):
+                encoder = wimf.WIMFEncoder(self.img_pil)
+                encoder.set_anti_rot(True)
+                data = encoder.encode()
+                mutable = bytearray(data)
+                mutable[1000] = (mutable[1000] + 1) % 256
+                decoder = wimf.WIMFDecoder(bytes(mutable))
+                repaired = decoder.decode()
+                self.assertEqual(repaired.size, (256, 256))
+
+            def test_roi_and_mip(self):
+                wimf.save("roi_mip.wimf", self.img_pil, quality=5)
+                decoder = wimf.WIMFDecoder("roi_mip.wimf")
+                mip2 = decoder.decode(mip_level=2)
+                self.assertEqual(mip2.size, (64, 64))
+                roi = decoder.decode(roi=(50, 50, 100, 100))
+                self.assertEqual(roi.size, (100, 100))
+
+            def test_chrono_layers(self):
+                state1 = Image.new('RGB', (100, 100), (255, 0, 0))
+                state2 = Image.new('RGB', (100, 100), (0, 255, 0))
+                enc = wimf.WIMFEncoder(state1)
+                enc.add_chrono_state(state2)
+                data = enc.encode()
+                dec = wimf.WIMFDecoder(data)
+                ext = dec.decode_chrono_state(index=1)
+                self.assertTrue(np.all(np.array(ext.pil) == [0, 255, 0]))
+
+            def test_depth_map(self):
+                depth_data = np.random.randint(0, 255, (256, 256), dtype=np.uint8)
+                pixels_5ch = np.dstack((np.array(self.img_pil), depth_data))
+                wimf.save("depth.wimf", pixels_5ch, lossless=True, depth=True)
+                dec = wimf.WIMFDecoder("depth.wimf")
+                img = dec.decode()
+                self.assertTrue(np.array_equal(img.depth_map, depth_data))
+
+            def test_steganography(self):
+                secret = "WIMF-SECRET-KEY"
+                enc = wimf.WIMFEncoder(self.img_pil)
+                enc.set_metadata(watermark_payload=secret)
+                data = enc.encode(quality=7)
+                f = io.StringIO()
+                with patch('sys.stdout', f):
+                    dec = wimf.WIMFDecoder(data)
+                    dec.decode()
+                self.assertIn(secret, f.getvalue())
+
+            def test_base64_integration(self):
+                enc = wimf.WIMFEncoder(self.img_pil)
+                b64 = enc.to_base64()
+                dec = wimf.WIMFDecoder.from_base64(b64)
+                self.assertEqual(dec.width, 256)
+
+            def test_metadata_surgery(self):
+                wimf.save("surgery.wimf", self.img_pil)
+                with wimf.edit_meta("surgery.wimf") as meta:
+                    meta['new_tag'] = "SurgicalValue"
+                info = wimf.info("surgery.wimf")
+                self.assertEqual(info['new_tag'], "SurgicalValue")
+
+            def test_10bit_pipeline(self):
+                wimf.save("hdr.wimf", self.img_pil, bit10=True)
+                dec = wimf.WIMFDecoder("hdr.wimf")
+                self.assertEqual(dec.bit_depth, 10)
+                img = dec.decode()
+                self.assertEqual(img.size, (256, 256))
+
+            @classmethod
+            def tearDownClass(cls):
+                for f in ['test_input.png', 'test.wimf', 'lossless.wimf', 'roi_mip.wimf', 
+                          'depth.wimf', 'surgery.wimf', 'hdr.wimf']:
+                    if os.path.exists(f): os.remove(f)
+
+        if __name__ == '__main__':
+            unittest.main()
+        EOF
+        python test_core.py -v 2>&1 | tee test_output.log
         
+    - name: Run Benchmark
+      if: success()
+      run: |
+        python -c "import numpy as np; from PIL import Image; data = np.random.randint(0, 255, (512, 512, 3), dtype=np.uint8); Image.fromarray(data).save('bench_input.png')"
+        python -m wimf.cli -i bench_input.png -o bench_output.wimf --benchmark -p Fast | tee benchmark.log
+
     - name: Generate Validation Report
       if: always()
       run: |
@@ -48,6 +160,13 @@ jobs:
         grep -q "test_steganography" test_output.log && echo "| Hidden Watermarking | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| Hidden Watermarking | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
         grep -q "test_10bit_pipeline" test_output.log && echo "| 10-bit HDR Pipeline | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| 10-bit HDR Pipeline | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
         
+        if [ -f benchmark.log ]; then
+          echo -e "\n### 📊 Performance Benchmark (512x512)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          cat benchmark.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+
         echo -e "\n**Environment**: Python ${{ matrix.python-version }} on Ubuntu-Latest" >> $GITHUB_STEP_SUMMARY
         if grep -q "OK" test_output.log; then
           echo "#### ✅ Status: BUILD STABLE" >> $GITHUB_STEP_SUMMARY
