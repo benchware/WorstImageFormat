@@ -1,6 +1,8 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 from .io import loadImage, stream_load
+import sys
+import os
 
 class WIMFViewer:
     def __init__(self, root, filename):

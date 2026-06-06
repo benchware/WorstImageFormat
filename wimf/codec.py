@@ -256,11 +256,9 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
     if channels == 4:
         if mode == 9:
             # Alpha data is after the 3 progressive chunks in 'data'
-            # (offset was already tracked in the mode == 9 block)
             alpha_data = data[offset:]
         else:
             # Legacy: Alpha is at the end of the decompressed payload
-            # (In legacy Mode 8, payload = lzma.decompress(data))
             alpha_data = payload[offset:]
             
         alpha_channel = decode_lossless_channel(alpha_data, w, h)
