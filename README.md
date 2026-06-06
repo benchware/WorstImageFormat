@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/format-.wimf%20%7C%20.wif-orange" alt="Format: .wimf | .wif">
 </p>
 
-# WIMF: Worst Image Format
+# WIMF: Worst IMage Format
 
 WIMF is an experimental image format that provides advanced features like self-healing, undo history, and fast region loading. It uses modern color math and wavelets to store your images with high precision and density.
 
