@@ -31,8 +31,13 @@ class GPUManager:
             logging.warning("[WIMF] Failed to initialize GLFW. GPU acceleration disabled.")
             return
 
-        # Hidden window for offscreen compute
+        # Mandatory for modern features on some drivers (Intel/Mesa)
         glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
+        glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+        glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+        glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
+        
         self.context = glfw.create_window(1, 1, "WIMF Compute Context", None, None)
         if not self.context:
             logging.warning("[WIMF] Failed to create OpenGL context.")
@@ -275,5 +280,9 @@ _gpu_manager = None
 def get_gpu_manager(mode='auto'):
     global _gpu_manager
     if _gpu_manager is None:
+        _gpu_manager = GPUManager(mode)
+    elif mode != 'auto' and _gpu_manager.mode != mode:
+        # Re-initialize if a specific mode is requested that differs from the current one
+        _gpu_manager.cleanup()
         _gpu_manager = GPUManager(mode)
     return _gpu_manager
