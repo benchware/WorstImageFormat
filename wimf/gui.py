@@ -13,30 +13,34 @@ def modern_file_picker(title="Select File", mode="open", default_ext=".wimf", in
         if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
         return filedialog.askopenfilename(title=title)
 
-    res = None
-    if os.path.exists("/usr/bin/zenity"):
-        try:
-            cmd = ["zenity", "--file-selection", f"--title={title}"]
-            if mode == "save":
-                cmd.extend(["--save", "--confirm-overwrite"])
-                if initial_file: cmd.append(f"--filename={initial_file}")
-            res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-            if res: return res
-        except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return "" 
-        except: pass
+    # Simplified but strict provider logic
+    providers = []
+    if os.path.exists("/usr/bin/zenity"): providers.append("zenity")
+    if os.path.exists("/usr/bin/kdialog"): providers.append("kdialog")
 
-    if not res and os.path.exists("/usr/bin/kdialog"):
+    for provider in providers:
         try:
-            cmd = ["kdialog", "--title", title]
-            if mode == "save": cmd.extend(["--getsavefilename", initial_file or ".", f"*{default_ext}"])
-            else: cmd.append("--getopenfilename")
+            if provider == "zenity":
+                cmd = ["zenity", "--file-selection", f"--title={title}"]
+                if mode == "save":
+                    cmd.append("--save")
+                    cmd.append("--confirm-overwrite")
+                    if initial_file: cmd.append(f"--filename={initial_file}")
+            else:
+                cmd = ["kdialog", "--title", title]
+                if mode == "save":
+                    cmd.extend(["--getsavefilename", initial_file or ".", f"*{default_ext}"])
+                else:
+                    cmd.append("--getopenfilename")
+            
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-            if res: return res
+            if res: return res # Succeeded
+            if not res: return "" # Cancelled (Empty string from Zenity on cancel)
         except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return ""
-        except: pass
+            if e.returncode == 1: return "" # Explicitly Cancelled
+        except: continue # Move to next provider if it crashed/missing
 
+    # Fallback only if providers are missing
     if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
     return filedialog.askopenfilename(title=title)
 
@@ -83,7 +87,7 @@ class CustomButton(tk.Canvas):
         c = color or self.current_color
         if self.is_disabled: c = "#222"
         self.create_rectangle(0, 0, w, h, fill=c, outline="")
-        self.create_text(w//2, h//2, text=self.text, fill="#000" if not self.is_disabled else "#555", font=("Segoe UI Bold", 10))
+        self.create_text(w//2, h//2, text=self.text, fill="#000" if not self.is_disabled else "#555", font=("Segoe UI Bold", 11))
     def on_enter(self, e): 
         if not self.is_disabled: self.current_color = self.hover_color; self.draw()
     def on_leave(self, e): 
@@ -122,7 +126,7 @@ class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Worst IMage Format Converter")
-        self.root.geometry("1100x820")
+        self.root.geometry("1100x850")
         self.root.configure(bg="#050505")
         
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
@@ -268,6 +272,13 @@ class WorstImageFormatApp:
             self.input_path.set(p); self.log(f"Linked: {os.path.basename(p)}")
             base, ext = os.path.splitext(p)
             self.output_path.set(base + (".awif" if ext.lower() == ".gif" else ".wimf"))
+            try:
+                with Image.open(p) as img:
+                    if img.mode in ('I;16', 'RGB;16', 'RGBA;16') or 'hdr' in p.lower():
+                        self.opt_hdr.set(True); self.opt_10bit.set(False)
+                        self.check_hdr.draw(); self.check_10bit.draw(); self.log("HDR Profile Detected.")
+                    if getattr(img, "is_animated", False): self.opt_anim.set(True); self.check_anim.draw()
+            except: pass
             self.on_setting_change()
 
     def browse_output(self):

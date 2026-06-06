@@ -56,23 +56,13 @@ class GPUManager:
 
         self.enabled = True
         self._load_shaders()
+        
+        # DETACH CONTEXT from main thread so worker threads can use it
+        glfw.make_context_current(None)
 
     def _init_vulkan(self):
-        try:
-            import vulkan as vk
-            # Basic device listing for Vulkan
-            inst_info = vk.VkInstanceCreateInfo(sType=vk.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO)
-            instance = vk.vkCreateInstance(inst_info, None)
-            p_devices = vk.vkEnumeratePhysicalDevices(instance)
-            self.devices = []
-            for d in p_devices:
-                props = vk.vkGetPhysicalDeviceProperties(d)
-                self.devices.append(props.deviceName)
-            vk.vkDestroyInstance(instance, None)
-            # For now, we still use OpenGL for compute as the Vulkan path is a placeholder
-            self._init_opengl()
-        except:
-            self._init_opengl()
+        # Placeholder for Vulkan - currently defaults to OpenGL for compute
+        self._init_opengl()
 
     def _load_shaders(self):
         ycocg_fwd_src = """
@@ -112,6 +102,50 @@ class GPUManager:
             self.shader_ycocg_inv = compileProgram(compileShader(ycocg_inv_src, GL_COMPUTE_SHADER))
         except: self.enabled = False
 
+    def dispatch_ycocg_fwd(self, data_np, w, h):
+        if not self.enabled: return None
+        glfw.make_context_current(self.context)
+        try:
+            tex_in = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, tex_in)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGB, GL_FLOAT, data_np.astype(np.float32))
+            glBindImageTexture(0, tex_in, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F)
+            tex_out = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, tex_out)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, None)
+            glBindImageTexture(1, tex_out, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F)
+            glUseProgram(self.shader_ycocg_fwd)
+            glDispatchCompute((w + 15) // 16, (h + 15) // 16, 1)
+            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
+            res = np.empty((h, w, 4), dtype=np.float32)
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, res)
+            glDeleteTextures(2, [tex_in, tex_out])
+            return res
+        finally:
+            glfw.make_context_current(None)
+
+    def dispatch_ycocg_inv(self, data_np, w, h):
+        if not self.enabled: return None
+        glfw.make_context_current(self.context)
+        try:
+            tex_in = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, tex_in)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, data_np.astype(np.float32))
+            glBindImageTexture(0, tex_in, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F)
+            tex_out = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, tex_out)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, None)
+            glBindImageTexture(1, tex_out, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F)
+            glUseProgram(self.shader_ycocg_inv)
+            glDispatchCompute((w + 15) // 16, (h + 15) // 16, 1)
+            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
+            res = np.empty((h, w, 4), dtype=np.float32)
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, res)
+            glDeleteTextures(2, [tex_in, tex_out])
+            return res
+        finally:
+            glfw.make_context_current(None)
+
     def get_info(self):
         if not self.enabled: return "Disabled (CPU Only)"
         dev = self.devices[self.device_index] if self.device_index < len(self.devices) else "Unknown"
@@ -122,6 +156,7 @@ class GPUManager:
 
     def cleanup(self):
         if self.context:
+            glfw.make_context_current(self.context)
             glfw.destroy_window(self.context)
             glfw.terminate()
             self.context = None
