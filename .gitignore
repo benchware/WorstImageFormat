@@ -1,3 +1,8 @@
+.venv/
 __pycache__/
 *.py[cod]
+*.wimf
+*.awif
+*.wif
+test_depth_alpha.wimf
 procedural.wif

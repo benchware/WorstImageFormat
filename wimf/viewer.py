@@ -1,6 +1,6 @@
 import tkinter as tk
 from PIL import Image, ImageTk
-from common import loadImage
+from .io import loadImage
 import sys
 import os
 
@@ -121,7 +121,7 @@ class WIMFViewer:
         txt = f"[{mode}] {self.w}x{self.h}  •  {self.zoom_level:.2f}x  •  {auth}"
         self.status_left.config(text=txt.upper())
 
-if __name__ == "__main__":
+def main():
     if len(sys.argv) > 1:
         p = sys.argv[1]
     else:
@@ -133,3 +133,6 @@ if __name__ == "__main__":
         root.mainloop()
     else:
         print(f"File not found: {p}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wimf"
+version = "1.1.0"
+authors = [
+  { name="BenchWare", email="contact@benchware.com" },
+]
+description = "Worst IMage Format - A high-performance wavelet-based image codec"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
+dependencies = [
+    "numpy",
+    "pillow",
+]
+
+[project.scripts]
+wimf-convert = "wimf.cli:main"
+wimf-view = "wimf.viewer:main"
+wimf-gui = "wimf.gui:main"
+
+[project.license]
+text = "GPL-3.0-or-later"
+
+[project.urls]
+"Homepage" = "https://github.com/benchware/wimf"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["wimf*"]

@@ -1,13 +1,11 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
-from common import saveImage, loadImage
+from .io import saveImage, loadImage
 from PIL import Image, ImageTk
 import threading
 import time
 import numpy as np
-
-# --- ULTIMATE MODERN WIDGETS ---
 
 class CustomButton(tk.Canvas):
     def __init__(self, master, text, command=None, color="#bb86fc", **kwargs):
@@ -90,13 +88,12 @@ class ModernSlider(tk.Canvas):
         self.val = int(self.from_ + ratio * (self.to - self.from_))
         if self.command: self.command(self.val)
 
-# --- THE ERGONOMIC APP ---
 
 class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Worst IMage Format (WIMF)")
-        self.root.geometry("800x950") # Expanded for Hyper-Tech Modules
+        self.root.geometry("800x950")
         self.root.configure(bg="#0a0a0a")
         
         self.colors = {"bg": "#0a0a0a", "surface": "#161616", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#888888"}
@@ -107,7 +104,6 @@ class WorstImageFormatApp:
         self.compression_mode = tk.IntVar(value=2)
         self.preset = tk.StringVar(value="Extreme")
         
-        # Hyper-Tech Variables
         self.opt_alpha = tk.BooleanVar()
         self.opt_hdr = tk.BooleanVar()
         self.opt_anim = tk.BooleanVar()
@@ -140,14 +136,12 @@ class WorstImageFormatApp:
         self.create_modern_io(content, "SOURCE ASSET (IMAGE/WIMF)", self.input_path, self.browse_input)
         self.create_modern_io(content, "EXPORT DESTINATION", self.output_path, self.browse_output)
 
-        # SETTINGS CARD
         self.card = tk.Frame(content, bg=self.colors["surface"], padx=35, pady=20, highlightthickness=1, highlightbackground="#252525")
         self.card.pack(fill="x", pady=15)
 
         r1 = tk.Frame(self.card, bg=self.colors["surface"])
         r1.pack(fill="x")
 
-        # Modes
         m_f = tk.Frame(r1, bg=self.colors["surface"])
         m_f.pack(side="left")
         tk.Label(m_f, text="ENCODING METHOD", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
@@ -298,7 +292,7 @@ class WorstImageFormatApp:
             
             if in_ext in ['.wimf', '.wif', '.awif']:
                 # Extraction mode
-                from common import loadImage
+                from .io import loadImage
                 w, h, pix, meta = loadImage(in_p)
                 if isinstance(pix, list):
                     pix = pix[0]
@@ -338,7 +332,7 @@ class WorstImageFormatApp:
                     pixels = [pixels, pixels] # Mock 2-frame loop for testing still images as animation
                 
                 self.root.after(0, lambda: self.log("Compressing data stream..."))
-                from common import saveImage
+                from .io import saveImage
                 saveImage(out_p, w, h, pixels, 
                           compression=self.compression_mode.get(), quality=self.slider.val,
                           metadata=meta, preset=self.preset.get())
@@ -356,7 +350,7 @@ class WorstImageFormatApp:
         self.btn_run.config_state("normal", "START ENCODING SEQUENCE")
         messagebox.showinfo("WIMF", "Task finished.")
 
-if __name__ == "__main__":
+def main():
     root = tk.Tk()
     try:
         from ctypes import windll
@@ -364,3 +358,6 @@ if __name__ == "__main__":
     except: pass
     app = WorstImageFormatApp(root)
     root.mainloop()
+
+if __name__ == "__main__":
+    main()

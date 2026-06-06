@@ -1,5 +1,5 @@
 import numpy as np
-from common import saveImage, loadImage
+from wimf import saveImage, loadImage
 import os
 
 def generate_test_wimf():

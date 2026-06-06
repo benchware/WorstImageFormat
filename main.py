@@ -1,5 +1,5 @@
 import numpy as np
-from common import saveImage, loadImage
+from wimf import saveImage, loadImage
 
 def createProceduralImage(filename, width, height, start_col, end_col):
     # Numpy broadcast to optimize
