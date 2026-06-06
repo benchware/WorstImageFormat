@@ -199,14 +199,23 @@ class WorstImageFormatApp:
         meta_f = tk.Frame(content, bg=self.colors["bg"])
         meta_f.pack(fill="x", pady=(0, 10))
         
-        # Split into two columns for Author and GPS
+        # Row 1: Author and Copyright
         tk.Label(meta_f, text="AUTHOR TAG", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=0, sticky="w")
         self.author_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
         self.author_entry.grid(row=1, column=0, sticky="ew", ipady=8, pady=5, padx=(0, 10))
         
-        tk.Label(meta_f, text="GPS COORDS", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=1, sticky="w")
+        tk.Label(meta_f, text="COPYRIGHT", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=1, sticky="w")
+        self.copyright_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.copyright_entry.grid(row=1, column=1, sticky="ew", ipady=8, pady=5)
+
+        # Row 2: GPS and Description
+        tk.Label(meta_f, text="GPS COORDS", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=2, column=0, sticky="w", pady=(5,0))
         self.gps_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
-        self.gps_entry.grid(row=1, column=1, sticky="ew", ipady=8, pady=5)
+        self.gps_entry.grid(row=3, column=0, sticky="ew", ipady=8, pady=5, padx=(0, 10))
+
+        tk.Label(meta_f, text="DESCRIPTION", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=2, column=1, sticky="w", pady=(5,0))
+        self.desc_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.desc_entry.grid(row=3, column=1, sticky="ew", ipady=8, pady=5)
         
         meta_f.columnconfigure(0, weight=1)
         meta_f.columnconfigure(1, weight=1)
@@ -326,7 +335,13 @@ class WorstImageFormatApp:
                 w, h = img.size
                 pixels = img.tobytes()
                 
-                meta = {"author": self.author_entry.get(), "engine": "WIMF Open Suite v18.5"}
+                meta = {
+                    "author": self.author_entry.get(), 
+                    "copyright": self.copyright_entry.get(),
+                    "gps": self.gps_entry.get(),
+                    "description": self.desc_entry.get(),
+                    "engine": "WIMF Open Suite v19.0"
+                }
                 if self.opt_hdr.get(): meta['hdr'] = True
                 if self.opt_10bit.get(): meta['bit10'] = True
                 if self.opt_depth.get(): meta['depth'] = True

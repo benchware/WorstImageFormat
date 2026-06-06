@@ -20,7 +20,7 @@ class WIMFViewer:
             self.is_animated = self.meta.get('is_animated', False)
             
             channels = self.meta.get('channels', 3)
-            img_mode = 'RGBA' if channels == 4 else 'RGB'
+            img_mode = 'RGBA' if channels >= 4 else 'RGB'
             
             if self.is_animated:
                 # pixel_data is a list of frame bytes

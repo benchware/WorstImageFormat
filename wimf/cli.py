@@ -4,9 +4,11 @@ import sys
 import os
 import argparse
 
+from PIL import Image, ExifTags
+
 def convert(input_path, output_path, compression=1, quality=5, preset="Balanced", meta=None):
     try:
-        if meta is None: meta = {"author": "Unknown", "engine": "WIMF Open Suite v18.3"}
+        if meta is None: meta = {"author": "Unknown", "engine": "WIMF Open Suite v19.0"}
         in_ext = os.path.splitext(input_path)[1].lower()
         out_ext = os.path.splitext(output_path)[1].lower()
 
@@ -29,7 +31,26 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
         
         elif out_ext in ['.wimf', '.wif', '.awif']:
             # Encode Image to WIMF
-            img = Image.open(input_path).convert('RGB')
+            img = Image.open(input_path)
+            
+            # --- AUTO METADATA EXTRACTION (EXIF) ---
+            exif = img.getexif()
+            if exif:
+                for tag, value in exif.items():
+                    tag_name = ExifTags.TAGS.get(tag, tag)
+                    if isinstance(value, bytes): value = value.decode('utf-8', 'ignore')
+                    meta[f"exif_{tag_name}"] = str(value)
+
+            # --- TRANSPARENCY PRESERVATION ---
+            has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+            if has_alpha:
+                img = img.convert('RGBA')
+                channels = 4
+                print("[WIMF] Alpha channel detected and preserved.")
+            else:
+                img = img.convert('RGB')
+                channels = 3
+            
             w, h = img.size
             pixels = img.tobytes()
             
@@ -42,10 +63,28 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
             print(f"[WIMF] Encoding finalized: {output_path} (Quality: {quality})")
             print(f"[WIMF] Input: {orig_size:,} B | Output: {new_size:,} B | Ratio: {ratio:.2f}x")
         
-        else:
-            # Generic format conversion
-            Image.open(input_path).convert('RGB').save(output_path)
-            print(f"[WIMF] Format migration successful: {output_path}")
+        elif out_ext == '.gif':
+            # Support for AWIF/WIMF to GIF
+            in_ext = os.path.splitext(input_path)[1].lower()
+            if in_ext in ['.wimf', '.wif', '.awif']:
+                w, h, pixels, loaded_meta = loadImage(input_path)
+                channels = loaded_meta.get('channels', 3)
+                img_mode = 'RGBA' if channels == 4 else 'RGB'
+                
+                if isinstance(pixels, list):
+                    # Animated
+                    frames = [Image.frombytes(img_mode, (w, h), f) for f in pixels]
+                    frames[0].save(output_path, save_all=True, append_images=frames[1:], optimize=False, duration=33, loop=0)
+                    print(f"[WIMF] Animation exported to GIF: {output_path}")
+                else:
+                    # Still
+                    img = Image.frombytes(img_mode, (w, h), pixels)
+                    img.save(output_path)
+                    print(f"[WIMF] Image exported to GIF: {output_path}")
+            else:
+                # Generic
+                Image.open(input_path).save(output_path)
+                print(f"[WIMF] Format migration successful: {output_path}")
 
     except Exception as e:
         print(f"[WIMF] CRITICAL ERROR: {e}")
@@ -71,6 +110,12 @@ Examples:
     parser.add_argument("-q", "--quality", type=int, default=7, choices=range(1, 11), help="Quality level (1-10, default: 7)")
     parser.add_argument("-p", "--preset", choices=["Fast", "Balanced", "Extreme"], default="Balanced", help="Engine effort preset")
     parser.add_argument("-a", "--author", default="WIMF_User", help="Set author metadata tag")
+    parser.add_argument("--copyright", help="Set copyright metadata")
+    parser.add_argument("--desc", help="Set image description")
+    parser.add_argument("--make", help="Set camera make")
+    parser.add_argument("--model", help="Set camera model")
+    parser.add_argument("--cll", help="Set HDR MaxCLL (Content Light Level)")
+    parser.add_argument("--fall", help="Set HDR MaxFALL (Frame Average Light Level)")
     
     # Mode overrides
     group = parser.add_mutually_exclusive_group()
@@ -92,12 +137,20 @@ Examples:
     if args.raw: comp_mode = 0
 
     # Build metadata
-    meta = {"author": args.author, "engine": "WIMF Open Suite v18.3"}
+    meta = {"author": args.author, "engine": "WIMF Open Suite v19.0"}
     if args.hdr: meta['hdr'] = True
     if args.bit10: meta['bit10'] = True
     if args.alpha: meta['alpha'] = True
     if args.depth: meta['depth'] = True
     if args.animated: meta['is_animated'] = True
+    
+    # New metadata fields
+    if args.copyright: meta['copyright'] = args.copyright
+    if args.desc: meta['description'] = args.desc
+    if args.make: meta['make'] = args.make
+    if args.model: meta['model'] = args.model
+    if args.cll: meta['max_cll'] = args.cll
+    if args.fall: meta['max_fall'] = args.fall
         
     convert(args.input, args.output, compression=comp_mode, quality=args.quality, preset=args.preset, meta=meta)
 
