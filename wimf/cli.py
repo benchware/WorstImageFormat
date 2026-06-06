@@ -4,7 +4,7 @@ import sys
 import os
 import argparse
 
-from PIL import Image, ExifTags
+from PIL import Image, ExifTags, ImageSequence
 
 def convert(input_path, output_path, compression=1, quality=5, preset="Balanced", meta=None):
     try:
@@ -15,15 +15,27 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
         if in_ext in ['.wimf', '.wif', '.awif']:
             # Decode WIMF to Image
             w, h, pixels, loaded_meta = loadImage(input_path)
-            
+            channels = loaded_meta.get('channels', 3)
+            img_mode = 'RGBA' if channels >= 4 else 'RGB'
+
+            if out_ext == '.gif':
+                if isinstance(pixels, list):
+                    # Animated
+                    frames = [Image.frombytes(img_mode, (w, h), f) for f in pixels]
+                    frames[0].save(output_path, save_all=True, append_images=frames[1:], optimize=False, duration=33, loop=0)
+                    print(f"[WIMF] Animation exported to GIF: {output_path}")
+                else:
+                    # Still
+                    img = Image.frombytes(img_mode, (w, h), pixels)
+                    img.save(output_path)
+                    print(f"[WIMF] Image exported to GIF: {output_path}")
+                return
+
             # If animated, just extract the first frame for standard image conversion
             if isinstance(pixels, list):
                 pixels = pixels[0]
                 print(f"[WIMF] Note: Extracted first frame of animated sequence.")
                 
-            channels = loaded_meta.get('channels', 3)
-            img_mode = 'RGBA' if channels == 4 else 'RGB'
-            
             img = Image.frombytes(img_mode, (w, h), pixels)
             img.save(output_path)
             print(f"[WIMF] Extraction complete: {output_path}")
@@ -41,19 +53,31 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
                     if isinstance(value, bytes): value = value.decode('utf-8', 'ignore')
                     meta[f"exif_{tag_name}"] = str(value)
 
-            # --- TRANSPARENCY PRESERVATION ---
-            has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
-            if has_alpha:
-                img = img.convert('RGBA')
-                channels = 4
-                print("[WIMF] Alpha channel detected and preserved.")
+            # --- ANIMATION HANDLING (GIF to AWIF) ---
+            is_animated = getattr(img, "is_animated", False)
+            if is_animated or meta.get('is_animated'):
+                print(f"[WIMF] Animation sequence detected ({getattr(img, 'n_frames', 1)} frames).")
+                frames = []
+                for frame in ImageSequence.Iterator(img):
+                    # Maintain alpha if present
+                    f_mode = 'RGBA' if img.mode in ('RGBA', 'LA', 'P') else 'RGB'
+                    frames.append(frame.convert(f_mode).tobytes())
+                pixels = frames
+                meta['is_animated'] = True
+                meta['channels'] = 4 if img.mode in ('RGBA', 'LA', 'P') else 3
             else:
-                img = img.convert('RGB')
-                channels = 3
+                # --- TRANSPARENCY PRESERVATION ---
+                has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+                if has_alpha:
+                    img = img.convert('RGBA')
+                    channels = 4
+                    print("[WIMF] Alpha channel detected and preserved.")
+                else:
+                    img = img.convert('RGB')
+                    channels = 3
+                pixels = img.tobytes()
             
             w, h = img.size
-            pixels = img.tobytes()
-            
             saveImage(output_path, w, h, pixels, 
                       compression=compression, quality=quality, metadata=meta, preset=preset)
             
@@ -63,28 +87,10 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
             print(f"[WIMF] Encoding finalized: {output_path} (Quality: {quality})")
             print(f"[WIMF] Input: {orig_size:,} B | Output: {new_size:,} B | Ratio: {ratio:.2f}x")
         
-        elif out_ext == '.gif':
-            # Support for AWIF/WIMF to GIF
-            in_ext = os.path.splitext(input_path)[1].lower()
-            if in_ext in ['.wimf', '.wif', '.awif']:
-                w, h, pixels, loaded_meta = loadImage(input_path)
-                channels = loaded_meta.get('channels', 3)
-                img_mode = 'RGBA' if channels == 4 else 'RGB'
-                
-                if isinstance(pixels, list):
-                    # Animated
-                    frames = [Image.frombytes(img_mode, (w, h), f) for f in pixels]
-                    frames[0].save(output_path, save_all=True, append_images=frames[1:], optimize=False, duration=33, loop=0)
-                    print(f"[WIMF] Animation exported to GIF: {output_path}")
-                else:
-                    # Still
-                    img = Image.frombytes(img_mode, (w, h), pixels)
-                    img.save(output_path)
-                    print(f"[WIMF] Image exported to GIF: {output_path}")
-            else:
-                # Generic
-                Image.open(input_path).save(output_path)
-                print(f"[WIMF] Format migration successful: {output_path}")
+        else:
+            # Generic format conversion
+            Image.open(input_path).save(output_path)
+            print(f"[WIMF] Format migration successful: {output_path}")
 
     except Exception as e:
         print(f"[WIMF] CRITICAL ERROR: {e}")
