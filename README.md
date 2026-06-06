@@ -36,10 +36,10 @@ WIMF utilizes an advanced wavelet-based engine to outperform traditional block-b
 
 ## Developer Suite
 
-- **wimf Python Library**: Enterprise-grade API featuring stateful `WIMFDecoder` and `WIMFEncoder` classes.
+- **wimf Python Library**: API featuring stateful `WIMFDecoder` and `WIMFEncoder` classes.
 - **wimf-convert**: Robust CLI tool for batch conversion, format migration, and performance benchmarking.
-- **wimf-cat**: Native 24-bit TrueColor terminal image renderer.
-- **wimf-meta**: Surgical metadata editor for non-destructive header updates.
+- **wimf-cat**: View WIMF images in the CLI.
+- **wimf-meta**: Metadata editor for non-destructive header updates.
 
 ## Installation
 
