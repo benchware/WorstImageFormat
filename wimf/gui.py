@@ -1,99 +1,52 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
-import subprocess
+from .io import saveImage, loadImage
+from PIL import Image, ImageTk
 import threading
 import time
 import numpy as np
-from PIL import Image, ImageTk, ImageSequence
-import io
-
-def modern_file_picker(title="Select File", mode="open", default_ext=".wimf", initial_file=None):
-    if os.name == 'nt':
-        if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
-        return filedialog.askopenfilename(title=title)
-
-    res = None
-    if os.path.exists("/usr/bin/zenity"):
-        try:
-            cmd = ["zenity", "--file-selection", f"--title={title}"]
-            if mode == "save":
-                cmd.append("--save")
-                cmd.append("--confirm-overwrite")
-                if initial_file: cmd.append(f"--filename={initial_file}")
-            res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-            if res: return res 
-            if not res: return "" 
-        except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return "" 
-        except: pass
-
-    if not res and os.path.exists("/usr/bin/kdialog"):
-        try:
-            cmd = ["kdialog", "--title", title]
-            if mode == "save":
-                cmd.extend(["--getsavefilename", initial_file or ".", f"*{default_ext}"])
-            else:
-                cmd.append("--getopenfilename")
-            res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-            if res: return res
-        except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return ""
-        except: pass
-
-    if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
-    return filedialog.askopenfilename(title=title)
-
-class Tooltip:
-    def __init__(self, widget, text):
-        self.widget, self.text, self.tip_window = widget, text, None
-        widget.bind("<Enter>", self.show_tip); widget.bind("<Leave>", self.hide_tip)
-    def show_tip(self, event=None):
-        if self.tip_window or not self.text: return
-        x = self.widget.winfo_rootx() + 25; y = self.widget.winfo_rooty() + 20
-        self.tip_window = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True); tw.wm_geometry(f"+{x}+{y}")
-        tk.Label(tw, text=self.text, justify='left', background="#111", foreground="#fff", relief='solid', borderwidth=1, font=("Segoe UI", 8), padx=5, pady=3).pack()
-    def hide_tip(self, event=None):
-        tw = self.tip_window; self.tip_window = None
-        if tw: tw.destroy()
-
-class ModernCheckbox(tk.Canvas):
-    def __init__(self, master, text, variable, command=None, **kwargs):
-        super().__init__(master, width=160, height=30, bg="#050505", highlightthickness=0, cursor="hand2", **kwargs)
-        self.text, self.variable, self.command = text, variable, command
-        self.bind("<Button-1>", self.toggle); self.draw()
-    def toggle(self, event=None):
-        self.variable.set(not self.variable.get())
-        if self.command: self.command()
-        self.draw()
-    def draw(self):
-        self.delete("all")
-        v = self.variable.get()
-        accent = "#bb86fc" if v else "#222"
-        self.create_rectangle(5, 5, 25, 25, fill="#111", outline=accent, width=2)
-        if v: self.create_text(15, 15, text="✦", fill="#bb86fc", font=("Segoe UI Bold", 12))
-        self.create_text(35, 15, text=self.text, fill="#eee" if v else "#777", font=("Segoe UI Bold", 9), anchor="w")
 
 class CustomButton(tk.Canvas):
     def __init__(self, master, text, command=None, color="#bb86fc", **kwargs):
-        super().__init__(master, height=50, bg="#050505", highlightthickness=0, cursor="hand2", **kwargs)
-        self.text, self.command, self.base_color = text, command, color
-        self.hover_color, self.current_color, self.is_disabled = "#d7b7fd", color, False
-        self.bind("<Enter>", self.on_enter); self.bind("<Leave>", self.on_leave)
-        self.bind("<Button-1>", self.on_click); self.bind("<Configure>", lambda e: self.draw())
+        super().__init__(master, height=50, bg="#0a0a0a", highlightthickness=0, cursor="hand2", **kwargs)
+        self.text = text
+        self.command = command
+        self.base_color = color
+        self.hover_color = "#d7b7fd"
+        self.current_color = color
+        self.is_disabled = False
+        self.glow_strength = 0
+        
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<Button-1>", self.on_click)
+        self.bind("<Configure>", lambda e: self.draw())
+        self.pulse()
+
     def draw(self, color=None):
-        self.delete("all"); w, h = self.winfo_width(), self.winfo_height()
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
         c = color or self.current_color
-        if self.is_disabled: c = "#222"
+        if self.is_disabled: c = "#333333"
+        
         self.create_rectangle(0, 0, w, h, fill=c, outline="")
-        self.create_text(w//2, h//2, text=self.text, fill="#000" if not self.is_disabled else "#555", font=("Segoe UI Bold", 11))
+        text_c = "#000000" if not self.is_disabled else "#888888"
+        self.create_text(w//2, h//2, text=self.text, fill=text_c, font=("Segoe UI Bold", 11))
+
+    def pulse(self):
+        if not self.is_disabled:
+            self.glow_strength = (np.sin(time.time() * 3) + 1) / 2
+            self.draw()
+        self.after(50, self.pulse)
+
     def on_enter(self, e): 
-        if not self.is_disabled: self.current_color = self.hover_color; self.draw()
+        if not self.is_disabled: self.current_color = self.hover_color
     def on_leave(self, e): 
-        if not self.is_disabled: self.current_color = self.base_color; self.draw()
+        if not self.is_disabled: self.current_color = self.base_color
     def on_click(self, e):
         if not self.is_disabled and self.command: self.command()
+
     def config_state(self, state, text=None):
         self.is_disabled = (state == "disabled")
         if text: self.text = text
@@ -101,204 +54,301 @@ class CustomButton(tk.Canvas):
 
 class ModernSlider(tk.Canvas):
     def __init__(self, master, from_=1, to=10, initial=7, command=None, **kwargs):
-        super().__init__(master, height=45, bg="#0f0f0f", highlightthickness=0, **kwargs)
+        super().__init__(master, height=40, bg="#161616", highlightthickness=0, **kwargs)
         self.from_, self.to, self.val = from_, to, initial
-        self.command, self.padding, self.display_val = command, 30, float(initial)
-        self.bind("<Button-1>", self.click); self.bind("<B1-Motion>", self.click)
-        self.bind("<Configure>", lambda e: self.draw()); self.animate()
+        self.command = command
+        self.padding = 30
+        self.display_val = float(initial)
+        
+        self.bind("<Button-1>", self.click)
+        self.bind("<B1-Motion>", self.click)
+        self.bind("<Configure>", lambda e: self.draw())
+        self.animate_slider()
+
     def draw(self):
-        self.delete("all"); w, h = self.winfo_width(), self.winfo_height(); ty = h // 2
-        self.create_line(self.padding, ty, w-self.padding, ty, fill="#222", width=10, capstyle="round")
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        ty = h // 2
+        self.create_line(self.padding, ty, w-self.padding, ty, fill="#2a2a2a", width=8, capstyle="round")
         ratio = (self.display_val - self.from_) / (self.to - self.from_)
         vx = self.padding + ratio * (w - 2 * self.padding)
-        self.create_line(self.padding, ty, vx, ty, fill="#bb86fc", width=10, capstyle="round")
-        self.create_oval(vx-12, ty-12, vx+12, ty+12, fill="#fff", outline="#bb86fc", width=3)
-    def animate(self):
+        self.create_line(self.padding, ty, vx, ty, fill="#bb86fc", width=8, capstyle="round")
+        self.create_oval(vx-12, ty-12, vx+12, ty+12, fill="#ffffff", outline="#bb86fc", width=3)
+
+    def animate_slider(self):
         diff = self.val - self.display_val
-        if abs(diff) > 0.05: self.display_val += diff * 0.3; self.draw()
-        self.after(20, self.animate)
+        if abs(diff) > 0.05:
+            self.display_val += diff * 0.3
+            self.draw()
+        self.after(20, self.animate_slider)
+
     def click(self, event):
-        w = self.winfo_width(); ratio = max(0, min(1, (event.x - self.padding) / (w - 2 * self.padding)))
+        w = self.winfo_width()
+        ratio = max(0, min(1, (event.x - self.padding) / (w - 2 * self.padding)))
         self.val = int(self.from_ + ratio * (self.to - self.from_))
         if self.command: self.command(self.val)
+
 
 class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Worst IMage Format Converter")
-        self.root.geometry("1100x850")
-        self.root.configure(bg="#050505")
+        self.root.title("Worst IMage Format (WIMF)")
+        self.root.geometry("800x950")
+        self.root.configure(bg="#0a0a0a")
         
-        self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
+        self.colors = {"bg": "#0a0a0a", "surface": "#161616", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#888888"}
         
-        self.input_path, self.output_path = tk.StringVar(), tk.StringVar()
+        self.input_path = tk.StringVar()
+        self.output_path = tk.StringVar(value="")
+        
         self.compression_mode = tk.IntVar(value=2)
-        self.preset = tk.StringVar(value="Balanced")
-        self.opt_alpha = tk.BooleanVar(value=True)
-        self.opt_hdr, self.opt_10bit, self.opt_anim = [tk.BooleanVar() for _ in range(3)]
-        self.show_preview = tk.BooleanVar(value=True)
-        self.meta_author, self.meta_desc, self.meta_copyright = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        self.preset = tk.StringVar(value="Extreme")
         
-        self.preview_lock = threading.Lock()
-        self.setup_styles(); self.build_ui()
+        self.opt_alpha = tk.BooleanVar()
+        self.opt_hdr = tk.BooleanVar()
+        self.opt_10bit = tk.BooleanVar()
+        self.opt_anim = tk.BooleanVar()
+        self.opt_depth = tk.BooleanVar()
+        
+        self.setup_styles()
+        self.build_ui()
+        self.fade_in_elements()
 
     def setup_styles(self):
         style = ttk.Style()
-        style.theme_use('clam')
-        style.configure("TCombobox", fieldbackground="#111", background="#111", foreground="#fff", borderwidth=0, arrowcolor="#bb86fc")
-        style.map("TCombobox", fieldbackground=[('readonly', "#111")], background=[('readonly', "#111")])
-        self.root.option_add("*TCombobox*Listbox*Background", "#111")
+        style.theme_use('default')
+        style.configure("TCombobox", fieldbackground="#1a1a1a", background="#1a1a1a", foreground="white", borderwidth=0, arrowcolor="#bb86fc")
+        self.root.option_add("*TCombobox*Listbox*Background", "#1a1a1a")
         self.root.option_add("*TCombobox*Listbox*Foreground", "white")
 
     def build_ui(self):
-        header = tk.Frame(self.root, bg="#000", height=60); header.pack(fill="x")
-        tk.Label(header, text="WIMF", font=("Impact", 24), bg="#000", fg="#fff", padx=20).pack(side="left")
-        tk.Label(header, text="CONVERTER STUDIO", font=("Segoe UI Bold", 10), bg="#000", fg=self.colors["accent"]).pack(side="left", pady=(10,0))
-        
-        main = tk.Frame(self.root, bg="#050505", padx=30, pady=10); main.pack(expand=True, fill="both")
-        lp = tk.Frame(main, bg="#050505"); lp.pack(side="left", fill="both", expand=True)
-        rp = tk.Frame(main, bg="#050505", padx=20); rp.pack(side="right", fill="both")
+        self.main_container = tk.Frame(self.root, bg=self.colors["bg"])
+        self.main_container.pack(expand=True, fill="both")
 
-        self.create_io(lp, "SOURCE ASSET", self.input_path, self.browse_input)
-        self.create_io(lp, "EXPORT PATH", self.output_path, self.browse_output)
+        # HERO
+        hero = tk.Frame(self.main_container, bg=self.colors["bg"], pady=30)
+        hero.pack(fill="x")
+        tk.Label(hero, text="Worst IMage Format", font=("Segoe UI Semilight", 40), bg=self.colors["bg"], fg=self.colors["text"]).pack()
+        tk.Label(hero, text="CREATED BY BENCHWARE", font=("Segoe UI Bold", 9), bg=self.colors["bg"], fg=self.colors["accent"]).pack()
 
-        card = tk.Frame(lp, bg=self.colors["surface"], padx=25, pady=15, highlightthickness=1, highlightbackground="#1a1a1a")
-        card.pack(fill="x", pady=15)
-        
-        r1 = tk.Frame(card, bg=self.colors["surface"]); r1.pack(fill="x")
-        m_f = tk.Frame(r1, bg=self.colors["surface"]); m_f.pack(side="left")
-        tk.Label(m_f, text="ENGINE MODE", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
+        content = tk.Frame(self.main_container, bg=self.colors["bg"], padx=60)
+        content.pack(expand=True, fill="both")
+
+        self.create_modern_io(content, "SOURCE ASSET (IMAGE/WIMF)", self.input_path, self.browse_input)
+        self.create_modern_io(content, "EXPORT DESTINATION", self.output_path, self.browse_output)
+
+        self.card = tk.Frame(content, bg=self.colors["surface"], padx=35, pady=20, highlightthickness=1, highlightbackground="#252525")
+        self.card.pack(fill="x", pady=15)
+
+        r1 = tk.Frame(self.card, bg=self.colors["surface"])
+        r1.pack(fill="x")
+
+        m_f = tk.Frame(r1, bg=self.colors["surface"])
+        m_f.pack(side="left")
+        tk.Label(m_f, text="ENCODING METHOD", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
         for t, v in [("RAW", 0), ("LOSSLESS", 1), ("LOSSY", 2)]:
-            tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="#fff", font=("Segoe UI Bold", 9), selectcolor="#000", command=self.on_setting_change, activebackground=self.colors["surface"]).pack(side="left", padx=(0, 20))
+            tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="white", 
+                           font=("Segoe UI Bold", 9), selectcolor="#333333", activebackground=self.colors["surface"],
+                           activeforeground=self.colors["accent"], command=self.update_ui_states).pack(side="left", padx=(0, 15))
 
-        p_f = tk.Frame(r1, bg=self.colors["surface"]); p_f.pack(side="right")
-        tk.Label(p_f, text="PRESET", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
+        # Preset
+        p_f = tk.Frame(r1, bg=self.colors["surface"])
+        p_f.pack(side="right")
+        tk.Label(p_f, text="PRESET", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
         self.preset_cb = ttk.Combobox(p_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=12)
-        self.preset_cb.pack(pady=2); self.preset_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
+        self.preset_cb.pack(pady=5)
 
-        sf = tk.Frame(card, bg=self.colors["surface"]); sf.pack(fill="x", pady=(15, 0))
-        tk.Label(sf, text="COMPRESSION INTENSITY", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
-        self.q_label = tk.Label(sf, text="7", font=("Segoe UI Bold", 16), bg=self.colors["surface"], fg=self.colors["accent"]); self.q_label.pack(side="right")
-        self.slider = ModernSlider(card, from_=1, to=10, initial=7, command=self.on_slider_change); self.slider.pack(fill="x", pady=5)
-
-        tk.Label(lp, text="EXPERIMENTAL FEATURES", font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w", pady=(10, 5))
-        hf = tk.Frame(lp, bg="#050505"); hf.pack(fill="x")
-        self.check_alpha = ModernCheckbox(hf, "TRANSPARENCY", self.opt_alpha, command=self.on_setting_change); self.check_alpha.grid(row=0, column=0)
-        self.check_hdr = ModernCheckbox(hf, "HDR METADATA", self.opt_hdr, command=self.toggle_hdr); self.check_hdr.grid(row=0, column=1)
-        self.check_10bit = ModernCheckbox(hf, "10-BIT HDR", self.opt_10bit, command=self.toggle_10bit); self.check_10bit.grid(row=1, column=0)
-        self.check_anim = ModernCheckbox(hf, "ANIMATION", self.opt_anim, command=self.on_setting_change); self.check_anim.grid(row=1, column=1)
-        for c, t in [(self.check_alpha, "Lossless alpha layer."), (self.check_hdr, "HDR hints."), (self.check_10bit, "1024-step color."), (self.check_anim, "Motion deltas.")]: Tooltip(c, t)
-
-        tk.Label(lp, text="METADATA", font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w", pady=(10, 5))
-        meta_f = tk.Frame(lp, bg=self.colors["surface"], padx=15, pady=10, highlightthickness=1, highlightbackground="#1a1a1a")
-        meta_f.pack(fill="x")
-        for i, (l, v) in enumerate([("Author", self.meta_author), ("Copyright", self.meta_copyright), ("Description", self.meta_desc)]):
-            tk.Label(meta_f, text=l, font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg="#777").grid(row=0, column=i, sticky="w", padx=5)
-            tk.Entry(meta_f, textvariable=v, bg="#111", fg="#fff", bd=0, font=("Segoe UI", 9), insertbackground="#fff", width=20).grid(row=1, column=i, padx=5, pady=2, ipady=5)
-
-        tk.Label(rp, text="VISUAL PIPELINE", font=("Segoe UI Bold", 10), bg="#050505", fg=self.colors["sub"]).pack(pady=(0, 10))
-        self.pc = tk.Frame(rp, bg="#000", width=400, height=400, highlightthickness=2, highlightbackground="#111")
-        self.pc.pack_propagate(False); self.pc.pack()
-        self.pl = tk.Label(self.pc, bg="#000"); self.pl.pack(expand=True, fill="both")
+        # Slider
+        tk.Label(self.card, text="QUALITY", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(15, 0))
+        tk.Label(self.card, text="Note: 1 is smallest size, 10 is max fidelity.", font=("Segoe UI Italic", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0, 5))
         
-        stats = tk.Frame(rp, bg="#000", pady=15, highlightthickness=1, highlightbackground="#1a1a1a")
-        stats.pack(fill="x", pady=20)
-        self.rmse_l = tk.Label(stats, text="RMSE: 0.0000", font=("Consolas Bold", 14), bg="#000", fg=self.colors["neon"]); self.rmse_l.pack()
-        self.cb_preview = ModernCheckbox(rp, "REAL-TIME PREVIEW", self.show_preview, command=self.on_setting_change); self.cb_preview.pack(pady=5)
+        self.slider = ModernSlider(self.card, from_=1, to=10, initial=7, command=self.update_q_label)
+        self.slider.pack(fill="x", pady=5)
+        
+        self.q_label = tk.Label(self.card, text="LEVEL: 7", font=("Segoe UI Bold", 16), bg=self.colors["surface"], fg=self.colors["accent"])
+        self.q_label.pack()
 
-        self.console = tk.Text(lp, height=4, bg="#000", fg=self.colors["neon"], font=("Consolas", 10), padx=15, pady=10, bd=0)
+        # EXPERIMENTAL FEATURES
+        ht_frame = tk.LabelFrame(self.card, text=" EXPERIMENTAL FEATURES ", font=("Segoe UI Bold", 8), 
+                                 bg=self.colors["surface"], fg=self.colors["sub"], padx=15, pady=10, bd=1, highlightthickness=1)
+        ht_frame.config(highlightbackground="#222222")
+        ht_frame.pack(fill="x", pady=(15, 0))
+
+        cb_style = {"bg": self.colors["surface"], "fg": "white", "font": ("Segoe UI Bold", 8), 
+                    "selectcolor": "#222222", "activebackground": self.colors["surface"], 
+                    "activeforeground": self.colors["accent"]}
+
+        # Row 1 Checkboxes
+        tk.Checkbutton(ht_frame, text="ALPHA (RGBA)", variable=self.opt_alpha, **cb_style).grid(row=0, column=0, sticky="w", padx=5)
+        tk.Checkbutton(ht_frame, text="HDR", variable=self.opt_hdr, **cb_style).grid(row=0, column=1, sticky="w", padx=5)
+        tk.Checkbutton(ht_frame, text="10-BIT", variable=self.opt_10bit, **cb_style).grid(row=0, column=2, sticky="w", padx=5)
+        
+        # Row 2 Checkboxes
+        tk.Checkbutton(ht_frame, text="ANIMATED", variable=self.opt_anim, **cb_style).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
+        tk.Checkbutton(ht_frame, text="DEPTH MAP", variable=self.opt_depth, **cb_style).grid(row=2, column=1, sticky="w", padx=5, pady=(5,0))
+
+        # Descriptions (Row 1 & 3)
+        lbl_style = {"bg": self.colors["surface"], "fg": "#666666", "font": ("Segoe UI", 7)}
+        tk.Label(ht_frame, text="Lossless transparency", **lbl_style).grid(row=1, column=0, sticky="w", padx=25)
+        tk.Label(ht_frame, text="Tone-mapping hint", **lbl_style).grid(row=1, column=1, sticky="w", padx=25)
+        tk.Label(ht_frame, text="High precision", **lbl_style).grid(row=1, column=2, sticky="w", padx=25)
+        tk.Label(ht_frame, text="Motion delta P-frames", **lbl_style).grid(row=3, column=0, sticky="w", padx=25)
+        tk.Label(ht_frame, text="5-Channel 3D data", **lbl_style).grid(row=3, column=1, sticky="w", padx=25)
+
+        # METADATA
+        meta_f = tk.Frame(content, bg=self.colors["bg"])
+        meta_f.pack(fill="x", pady=(0, 10))
+        
+        # Row 1: Author and Copyright
+        tk.Label(meta_f, text="AUTHOR TAG", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=0, sticky="w")
+        self.author_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.author_entry.grid(row=1, column=0, sticky="ew", ipady=8, pady=5, padx=(0, 10))
+        
+        tk.Label(meta_f, text="COPYRIGHT", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=1, sticky="w")
+        self.copyright_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.copyright_entry.grid(row=1, column=1, sticky="ew", ipady=8, pady=5)
+
+        # Row 2: GPS and Description
+        tk.Label(meta_f, text="GPS COORDS", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=2, column=0, sticky="w", pady=(5,0))
+        self.gps_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.gps_entry.grid(row=3, column=0, sticky="ew", ipady=8, pady=5, padx=(0, 10))
+
+        tk.Label(meta_f, text="DESCRIPTION", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=2, column=1, sticky="w", pady=(5,0))
+        self.desc_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.desc_entry.grid(row=3, column=1, sticky="ew", ipady=8, pady=5)
+        
+        meta_f.columnconfigure(0, weight=1)
+        meta_f.columnconfigure(1, weight=1)
+
+        # CONSOLE
+        self.console = tk.Text(content, height=4, bg="#000000", fg=self.colors["neon"], font=("Consolas", 10), padx=20, pady=15, bd=0)
         self.console.pack(fill="x", pady=10)
-        self.btn_run = CustomButton(lp, text="START", command=self.run, color=self.colors["accent"]); self.btn_run.pack(fill="x")
 
-    def create_io(self, parent, label, var, cmd):
-        f = tk.Frame(parent, bg="#050505", pady=5); f.pack(fill="x")
-        tk.Label(f, text=label, font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w")
-        row = tk.Frame(f, bg="#050505"); row.pack(fill="x", pady=2)
-        tk.Entry(row, textvariable=var, bg="#111", fg="#fff", bd=0, font=("Segoe UI", 11), insertbackground="#fff").pack(side="left", fill="x", expand=True, ipady=10, padx=(0, 15))
-        tk.Button(row, text="SEARCH", command=cmd, bg="#111", fg=self.colors["accent"], font=("Segoe UI Bold", 9), relief="flat", padx=25, cursor="hand2").pack(side="right", fill="y")
+        # START BUTTON
+        self.btn_run = CustomButton(content, text="START ENCODING SEQUENCE", command=self.run, color=self.colors["accent"])
+        self.btn_run.pack(fill="x", pady=5)
 
-    def toggle_hdr(self):
-        if self.opt_hdr.get(): self.opt_10bit.set(False); self.check_10bit.draw()
-        self.on_setting_change()
-    def toggle_10bit(self):
-        if self.opt_10bit.get(): self.opt_hdr.set(False); self.check_hdr.draw()
-        self.on_setting_change()
-    def update_q_label(self, v): self.q_label.config(text=str(v))
-    def on_slider_change(self, v): self.update_q_label(v); self.on_setting_change()
+    def fade_in_elements(self):
+        self.main_container.place(relx=0.5, rely=0.55, anchor="center")
+        def slide_up(curr_y):
+            if curr_y > 0.5:
+                self.main_container.place(relx=0.5, rely=curr_y, anchor="center")
+                self.root.after(10, lambda: slide_up(curr_y - 0.005))
+        slide_up(0.6)
+
+    def create_modern_io(self, parent, label, var, cmd):
+        f = tk.Frame(parent, bg=self.colors["bg"], pady=10)
+        f.pack(fill="x")
+        tk.Label(f, text=label, font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).pack(anchor="w")
+        row = tk.Frame(f, bg=self.colors["bg"])
+        row.pack(fill="x", pady=5)
+        e = tk.Entry(row, textvariable=var, bg="#111111", fg="white", bd=0, font=("Segoe UI", 11), insertbackground="white")
+        e.pack(side="left", fill="x", expand=True, ipady=10, padx=(0, 15))
+        tk.Button(row, text="SEARCH", command=cmd, bg=self.colors["surface"], fg=self.colors["accent"], font=("Segoe UI Bold", 8), 
+                  relief="flat", padx=20, cursor="hand2", activebackground="#222222").pack(side="right", fill="y")
+
+    def update_q_label(self, v): self.q_label.config(text=f"LEVEL: {v}")
+
+    def update_ui_states(self):
+        is_l = self.compression_mode.get() == 2
+        self.q_label.config(fg=self.colors["accent"] if is_l else "#333333")
+        self.preset_cb.config(state="readonly" if is_l else "disabled")
+
+
     def log(self, m):
-        self.console.config(state="normal"); self.console.insert("end", f"▶ {m}\n"); self.console.see("end"); self.console.config(state="disabled")
-
-    def on_setting_change(self):
-        if self.show_preview.get() and self.input_path.get():
-            threading.Thread(target=self.trigger_preview, daemon=True).start()
-
-    def trigger_preview(self):
-        with self.preview_lock:
-            try:
-                from .codec import encode_lossy, decode_lossy
-                with Image.open(self.input_path.get()) as img:
-                    use_alpha = self.opt_alpha.get()
-                    img = img.convert("RGBA" if use_alpha else "RGB")
-                    img.thumbnail((400, 400))
-                    w, h = img.size; pixels = np.array(img)
-                    channels = 4 if use_alpha else 3
-                    bit_depth = 10 if self.opt_10bit.get() else 8
-                    enc = encode_lossy(pixels.tobytes(), w, h, quality=self.slider.val, preset=self.preset.get(), channels=channels, bit_depth=bit_depth)
-                    dec_bytes = decode_lossy(enc, w, h, channels, bit_depth=bit_depth)
-                    dtype = np.uint8 if bit_depth == 8 else np.uint16
-                    res = np.frombuffer(dec_bytes, dtype=dtype).reshape((h, w, channels))
-                    if bit_depth == 10: res = (res / 4).astype(np.uint8)
-                    preview_pil = Image.fromarray(res, "RGBA" if channels == 4 else "RGB")
-                    rmse = np.sqrt(np.mean((pixels.astype(np.float32) - res.astype(np.float32))**2))
-                    photo = ImageTk.PhotoImage(preview_pil)
-                    self.root.after(0, lambda: self.update_preview_ui(photo, rmse))
-            except: pass
-
-    def update_preview_ui(self, photo, rmse):
-        self.pl.config(image=photo); self.pl.image = photo
-        self.rmse_l.config(text=f"RMSE: {rmse:6.4f}")
+        self.console.config(state="normal")
+        self.console.insert("end", f"> {m}\n")
+        self.console.see("end")
+        self.console.config(state="disabled")
 
     def browse_input(self):
-        p = modern_file_picker(title="Select Asset", mode="open")
+        file_types = [
+            ("All Supported", "*.wimf *.wif *.awif *.png *.jpg *.jpeg *.bmp *.webp *.ppm *.gif"),
+            ("Worst IMage Format", "*.wimf *.wif *.awif"),
+            ("Standard Images", "*.png *.jpg *.jpeg *.bmp *.webp *.ppm *.gif")
+        ]
+        p = filedialog.askopenfilename(filetypes=file_types)
         if p:
-            self.input_path.set(p); self.log(f"Linked: {os.path.basename(p)}")
-            base, ext = os.path.splitext(p)
-            self.output_path.set(base + (".awif" if ext.lower() == ".gif" else ".wimf"))
-            try:
-                with Image.open(p) as img:
-                    if img.mode in ('I;16', 'RGB;16', 'RGBA;16') or 'hdr' in p.lower():
-                        self.opt_hdr.set(True); self.opt_10bit.set(False)
-                        self.check_hdr.draw(); self.check_10bit.draw(); self.log("HDR Profile Detected.")
-                    if getattr(img, "is_animated", False): self.opt_anim.set(True); self.check_anim.draw()
-            except: pass
-            self.on_setting_change()
+            self.input_path.set(p)
+            ext = os.path.splitext(p)[1].lower()
+            base = os.path.splitext(p)[0]
+            if ext in ['.wimf', '.wif', '.awif']:
+                self.output_path.set(base + ".png")
+            elif ext == '.gif':
+                self.output_path.set(base + ".awif")
+                self.opt_anim.set(True) # Auto-check Animated
+                self.log("Detected GIF: Auto-enabled ANIMATED mode.")
+            else:
+                self.output_path.set(base + ".wimf")
+            self.log(f"Linked: {os.path.basename(p)}")
 
     def browse_output(self):
-        initial = os.path.basename(self.output_path.get()) if self.output_path.get() else None
-        p = modern_file_picker(title="Export Asset", mode="save", default_ext=".wimf", initial_file=initial)
+        file_types = [
+            ("Worst IMage Format (.wimf)", "*.wimf"),
+            ("Worst Animated Format (.awif)", "*.awif"),
+            ("PNG Image", "*.png"),
+            ("JPEG Image", "*.jpg")
+        ]
+        p = filedialog.asksaveasfilename(filetypes=file_types, defaultextension=".wimf")
         if p: self.output_path.set(p)
 
     def run(self):
         if not self.input_path.get() or not self.output_path.get(): return
-        self.btn_run.config_state("disabled", "PROCESSING..."); threading.Thread(target=self.work, daemon=True).start()
+        self.btn_run.config_state("disabled", "PROCESSING...")
+        threading.Thread(target=self.work, daemon=True).start()
 
     def work(self):
         try:
-            in_p, out_p, use_alpha = self.input_path.get(), self.output_path.get(), self.opt_alpha.get()
-            with Image.open(in_p) as img:
-                img = img.convert("RGBA" if use_alpha else "RGB")
-                pixels = np.array(img); w, h = img.size
-            meta = {"author": self.meta_author.get(), "copyright": self.meta_copyright.get(), "description": self.meta_desc.get(), "bit10": self.opt_10bit.get(), "alpha": use_alpha, "is_animated": self.opt_anim.get()}
-            from .io import saveImage
-            self.root.after(0, lambda: self.log("Initializing..."))
-            saveImage(out_p, w, h, pixels, compression=self.compression_mode.get(), quality=self.slider.val, metadata=meta, preset=self.preset.get())
-            self.root.after(0, lambda: self.log("Done."))
+            in_p, out_p = self.input_path.get(), self.output_path.get()
+            
+            # Build metadata from GUI fields
+            meta = {
+                "author": self.author_entry.get(), 
+                "copyright": self.copyright_entry.get(),
+                "gps": self.gps_entry.get(),
+                "description": self.desc_entry.get(),
+                "engine": "WIMF Open Suite v19.0",
+                "hdr": self.opt_hdr.get(),
+                "bit10": self.opt_10bit.get(),
+                "alpha": self.opt_alpha.get(),
+                "depth": self.opt_depth.get(),
+                "is_animated": self.opt_anim.get()
+            }
+            
+            self.root.after(0, lambda: self.log("Initializing conversion backend..."))
+            
+            # Use the unified CLI convert engine
+            from .cli import convert
+            convert(
+                input_path=in_p, 
+                output_path=out_p, 
+                compression=self.compression_mode.get(), 
+                quality=self.slider.val, 
+                preset=self.preset.get(),
+                meta=meta
+            )
+                          
+            self.root.after(0, lambda: self.done("Task finalized via unified engine."))
+                
         except Exception as e:
-            self.root.after(0, lambda: self.log(f"ERROR: {e}"))
-        finally:
-            self.root.after(0, lambda: self.btn_run.config_state("normal", "START"))
+            msg = str(e)
+            self.root.after(0, lambda: self.log(f"FAIL: {msg}"))
+            self.root.after(0, lambda: self.btn_run.config_state("normal", "START ENCODING SEQUENCE"))
+
+    def done(self, m):
+        self.log(m)
+        self.log(f"Final Size: {os.path.getsize(self.output_path.get()):,} Bytes")
+        self.btn_run.config_state("normal", "START ENCODING SEQUENCE")
+        messagebox.showinfo("WIMF", "Task finished.")
 
 def main():
-    root = tk.Tk(); app = WorstImageFormatApp(root); root.mainloop()
+    root = tk.Tk()
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except: pass
+    app = WorstImageFormatApp(root)
+    root.mainloop()
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

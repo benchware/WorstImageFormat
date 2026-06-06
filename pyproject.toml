@@ -17,11 +17,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy",
-    "Pillow",
-    "PyOpenGL",
-    "glfw",
-    "tqdm",
-    "vulkan",
+    "pillow",
 ]
 
 [project.scripts]

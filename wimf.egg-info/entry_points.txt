@@ -1,4 +1,0 @@
-[console_scripts]
-wimf-convert = wimf.cli:main
-wimf-gui = wimf.gui:main
-wimf-view = wimf.viewer:main
