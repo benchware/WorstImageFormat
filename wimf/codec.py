@@ -3,7 +3,6 @@ import lzma
 import struct
 from .core import paeth_predictor, haar_level, ihaar_level
 from concurrent.futures import ThreadPoolExecutor
-from .hwaccel import get_gpu_manager
 
 def encode_lossless_channel(channel_2d):
     """Encodes a single 2D channel using Paeth prediction."""
@@ -76,31 +75,17 @@ def decode_lossless(data, w, h, channels):
         
     return arr.astype(np.uint8).tobytes()
 
-def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, gpu_mode=None):
+def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, -1))
     arr = arr_full[..., :3].astype(np.int32)
     
-    # --- HARDWARE ACCELERATION CHECK ---
-    gpu = get_gpu_manager(gpu_mode or 'off')
-    if gpu.enabled:
-        gpu_res = gpu.dispatch_ycocg_fwd(arr, w, h)
-        if gpu_res is not None:
-            y = gpu_res[..., 0]
-            co = gpu_res[..., 1]
-            cg = gpu_res[..., 2]
-        else:
-            r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-            co = r - b
-            tmp = b + (co >> 1)
-            cg = g - tmp
-            y = tmp + (cg >> 1)
-    else:
-        r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-        co = r - b
-        tmp = b + (co >> 1)
-        cg = g - tmp
-        y = tmp + (cg >> 1)
+    # --- REVERSIBLE YCoCg-R TRANSFORM (CPU) ---
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    co = r - b
+    tmp = b + (co >> 1)
+    cg = g - tmp
+    y = tmp + (cg >> 1)
     
     # Pad to 16x16 blocks
     ph, pw = (16 - h % 16) % 16, (16 - w % 16) % 16
@@ -183,7 +168,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         
     return bytes(final_payload)
 
-def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, gpu_mode=None):
+def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9):
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
     mid_point = 2**(bit_depth - 1)
@@ -259,8 +244,6 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     with ThreadPoolExecutor(max_workers=3) as executor:
         results = list(executor.map(reconstruct_channel, bands))
     
-    # Results are (gh, gw, 16, 16)
-    # Reassemble to (gh*16, gw*16)
     def reassemble(chan_blocks):
         return chan_blocks.swapaxes(1, 2).reshape(gh * 16, gw * 16)
 
@@ -268,15 +251,8 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     c1_rec = reassemble(results[1])
     c2_rec = reassemble(results[2])
     
-    gpu = get_gpu_manager(gpu_mode or 'off')
-    if mode_flag == 9 and gpu.enabled:
-        stack = np.stack([y_rec, c1_rec, c2_rec, np.ones_like(y_rec)], axis=-1)
-        gpu_res = gpu.dispatch_ycocg_inv(stack, stack.shape[1], stack.shape[0])
-        if gpu_res is not None:
-            r, g, b = gpu_res[..., 0], gpu_res[..., 1], gpu_res[..., 2]
-        else:
-            y_rec -= np.floor(c2_rec / 2.0); g = c2_rec + y_rec; y_rec -= np.floor(c1_rec / 2.0); r = y_rec + c1_rec; b = y_rec
-    elif mode_flag == 9:
+    if mode_flag == 9:
+        # Inverse YCoCg-R (CPU)
         y_rec -= np.floor(c2_rec / 2.0); g = c2_rec + y_rec; y_rec -= np.floor(c1_rec / 2.0); r = y_rec + c1_rec; b = y_rec
     else:
         y, cb, cr = y_rec + mid_point, c1_rec + mid_point, c2_rec + mid_point

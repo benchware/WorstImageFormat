@@ -129,12 +129,6 @@ class WorstImageFormatApp:
         self.root.geometry("1100x850")
         self.root.configure(bg="#050505")
         
-        # Dependency Check
-        from .hwaccel import OPENGL_AVAILABLE
-        if not OPENGL_AVAILABLE:
-            self.root.after(100, lambda: messagebox.showwarning("GPU Disabled", 
-                "GLFW, PyOpenGL and Vulkan is missing. Hardware acceleration is now disabled."))
-
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
         
         self.input_path, self.output_path = tk.StringVar(), tk.StringVar()
@@ -142,15 +136,10 @@ class WorstImageFormatApp:
         self.preset = tk.StringVar(value="Balanced")
         self.opt_alpha = tk.BooleanVar(value=True)
         self.opt_hdr, self.opt_10bit, self.opt_anim = [tk.BooleanVar() for _ in range(3)]
-        self.gpu_mode, self.gpu_dev, self.show_preview = tk.StringVar(value="auto"), tk.StringVar(value="Default"), tk.BooleanVar(value=True)
+        self.show_preview = tk.BooleanVar(value=True)
         self.meta_author, self.meta_desc, self.meta_copyright = tk.StringVar(), tk.StringVar(), tk.StringVar()
         
         self.preview_lock = threading.Lock()
-        
-        # PRE-INIT GPU in main thread
-        from .hwaccel import get_gpu_manager
-        get_gpu_manager()
-        
         self.setup_styles(); self.build_ui()
 
     def setup_styles(self):
@@ -183,17 +172,9 @@ class WorstImageFormatApp:
             tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="#fff", font=("Segoe UI Bold", 9), selectcolor="#000", command=self.on_setting_change, activebackground=self.colors["surface"]).pack(side="left", padx=(0, 20))
 
         p_f = tk.Frame(r1, bg=self.colors["surface"]); p_f.pack(side="right")
-        tk.Label(p_f, text="PRESET / GPU / DEVICE", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
-        cb_f = tk.Frame(p_f, bg=self.colors["surface"]); cb_f.pack()
-        self.preset_cb = ttk.Combobox(cb_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=9)
-        self.preset_cb.pack(side="left", padx=2); self.preset_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
-        self.gpu_cb = ttk.Combobox(cb_f, values=["off", "auto", "opengl", "vulkan"], textvariable=self.gpu_mode, state="readonly", width=7)
-        self.gpu_cb.pack(side="left", padx=2); self.gpu_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
-        
-        from .hwaccel import get_gpu_manager
-        gpu_mgr = get_gpu_manager()
-        self.dev_cb = ttk.Combobox(cb_f, values=gpu_mgr.list_devices(), textvariable=self.gpu_dev, state="readonly", width=12)
-        self.dev_cb.pack(side="left"); self.dev_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
+        tk.Label(p_f, text="PRESET", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
+        self.preset_cb = ttk.Combobox(p_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=12)
+        self.preset_cb.pack(pady=2); self.preset_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
 
         sf = tk.Frame(card, bg=self.colors["surface"]); sf.pack(fill="x", pady=(15, 0))
         tk.Label(sf, text="COMPRESSION INTENSITY", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
@@ -227,25 +208,7 @@ class WorstImageFormatApp:
 
         self.console = tk.Text(lp, height=4, bg="#000", fg=self.colors["neon"], font=("Consolas", 10), padx=15, pady=10, bd=0)
         self.console.pack(fill="x", pady=10)
-        
-        btn_f = tk.Frame(lp, bg="#050505")
-        btn_f.pack(fill="x")
-        self.btn_run = CustomButton(btn_f, text="START", command=self.run, color=self.colors["accent"], width=300)
-        self.btn_run.pack(side="left", expand=True, fill="x", padx=(0, 10))
-        self.btn_diag = CustomButton(btn_f, text="DIAGNOSTICS", command=self.run_diagnostics, color="#444", width=150)
-        self.btn_diag.pack(side="right")
-
-    def run_diagnostics(self):
-        from .hwaccel import OPENGL_AVAILABLE, GPUManager
-        self.log("Starting System Diagnostics...")
-        self.log(f"OS: {os.name}")
-        self.log(f"OpenGL Lib: {'FOUND' if OPENGL_AVAILABLE else 'MISSING'}")
-        gpu = GPUManager(mode='auto')
-        self.log(f"GPU Support: {'YES' if gpu.enabled else 'NO'}")
-        self.log(f"Active Renderer: {gpu.get_info()}")
-        if not gpu.enabled:
-            self.log("GLFW, PyOpenGL and Vulkan is missing. Hardware acceleration is now disabled.")
-        self.log("Diagnostics Complete.")
+        self.btn_run = CustomButton(lp, text="START", command=self.run, color=self.colors["accent"]); self.btn_run.pack(fill="x")
 
     def create_io(self, parent, label, var, cmd):
         f = tk.Frame(parent, bg="#050505", pady=5); f.pack(fill="x")
@@ -280,8 +243,8 @@ class WorstImageFormatApp:
                     w, h = img.size; pixels = np.array(img)
                     channels = 4 if use_alpha else 3
                     bit_depth = 10 if self.opt_10bit.get() else 8
-                    enc = encode_lossy(pixels.tobytes(), w, h, quality=self.slider.val, preset=self.preset.get(), channels=channels, bit_depth=bit_depth, gpu_mode=self.gpu_mode.get())
-                    dec_bytes = decode_lossy(enc, w, h, channels, bit_depth=bit_depth, gpu_mode=self.gpu_mode.get())
+                    enc = encode_lossy(pixels.tobytes(), w, h, quality=self.slider.val, preset=self.preset.get(), channels=channels, bit_depth=bit_depth)
+                    dec_bytes = decode_lossy(enc, w, h, channels, bit_depth=bit_depth)
                     dtype = np.uint8 if bit_depth == 8 else np.uint16
                     res = np.frombuffer(dec_bytes, dtype=dtype).reshape((h, w, channels))
                     if bit_depth == 10: res = (res / 4).astype(np.uint8)
@@ -325,7 +288,7 @@ class WorstImageFormatApp:
             with Image.open(in_p) as img:
                 img = img.convert("RGBA" if use_alpha else "RGB")
                 pixels = np.array(img); w, h = img.size
-            meta = {"author": self.meta_author.get(), "copyright": self.meta_copyright.get(), "description": self.meta_desc.get(), "bit10": self.opt_10bit.get(), "alpha": use_alpha, "is_animated": self.opt_anim.get(), "gpu_mode": self.gpu_mode.get()}
+            meta = {"author": self.meta_author.get(), "copyright": self.meta_copyright.get(), "description": self.meta_desc.get(), "bit10": self.opt_10bit.get(), "alpha": use_alpha, "is_animated": self.opt_anim.get()}
             from .io import saveImage
             self.root.after(0, lambda: self.log("Initializing..."))
             saveImage(out_p, w, h, pixels, compression=self.compression_mode.get(), quality=self.slider.val, metadata=meta, preset=self.preset.get())

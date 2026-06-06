@@ -18,21 +18,19 @@ def stream_load(filename):
         data = f.read()
         channels = meta.get('channels', 3)
         bit_depth = 10 if meta.get('bit10') else 8
-        gpu_mode = meta.get('gpu_mode')
         
         if flags == 1: # Lossless
             yield w, h, decode_lossless(data, w, h, channels), meta, True
             return
 
         # Check for Progressive Mode (9)
-        mode_val = data[0] & 0x0F # This is just for local check, we rely on flags
         if flags == 9:
             for layer in range(3):
-                pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=layer, mode_flag=flags, gpu_mode=gpu_mode)
+                pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=layer, mode_flag=flags)
                 yield w, h, pix, meta, (layer == 2)
         else:
             # Legacy or other
-            pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, mode_flag=flags, gpu_mode=gpu_mode)
+            pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, mode_flag=flags)
             yield w, h, pix, meta, True
 
 def loadImage(filename, target_layer=2):
@@ -46,14 +44,13 @@ def loadImage(filename, target_layer=2):
         data = f.read()
         channels = meta.get('channels', 3)
         bit_depth = 10 if meta.get('bit10') else 8
-        gpu_mode = meta.get('gpu_mode')
         
         if header == b"AWIF":
             frames = decode_animated(data, w, h, channels, bit_depth=bit_depth)
             meta['is_animated'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags in [5, 6, 8, 9]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, mode_flag=flags, gpu_mode=gpu_mode)
+        elif flags in [5, 6, 8, 9]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, mode_flag=flags)
         else: pix = data
         return w, h, pix, meta
 
@@ -61,7 +58,6 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
     if metadata is None: metadata = {}
     is_animated = isinstance(pixels, list)
     bit_depth = 10 if metadata.get('bit10') else 8
-    gpu_mode = metadata.get('gpu_mode')
     
     if is_animated:
         first_frame = pixels[0]
@@ -88,7 +84,7 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
         final_flags = 7
     else:
         if compression == 2:
-            data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels, bit_depth=bit_depth, gpu_mode=gpu_mode)
+            data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels, bit_depth=bit_depth)
             final_flags = 9 # Mode 9: Progressive YCoCg-R
         elif compression == 1:
             data = encode_lossless(pixels, w, h, channels)
