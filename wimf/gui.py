@@ -300,76 +300,35 @@ class WorstImageFormatApp:
     def work(self):
         try:
             in_p, out_p = self.input_path.get(), self.output_path.get()
-            in_ext = os.path.splitext(in_p)[1].lower()
             
-            if in_ext in ['.wimf', '.wif', '.awif']:
-                # Extraction mode
-                from .io import loadImage
-                w, h, pix, meta = loadImage(in_p)
-                if isinstance(pix, list):
-                    pix = pix[0]
-                    self.root.after(0, lambda: self.log("Extracted Keyframe from sequence."))
-                
-                channels = meta.get('channels', 3)
-                mode = 'RGBA' if channels == 4 else 'RGB'
-                
-                Image.frombytes(mode, (w, h), pix).save(out_p)
-                self.root.after(0, lambda: self.done(f"Extraction finalized."))
-                
-            else:
-                # Encoding mode
-                if in_ext in ['.mp4', '.mov']:
-                    raise ValueError("Video files are not supported as source assets.")
-                
-                img = Image.open(in_p)
-                
-from PIL import Image, ImageTk, ImageSequence
-
-...
-
-                # --- ANIMATION HANDLING (GIF to AWIF) ---
-                is_animated = getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1
-                if self.opt_anim.get() or is_animated:
-                    self.root.after(0, lambda: self.log(f"Extracting {getattr(img, 'n_frames', 1)} frames..."))
-                    frames = []
-                    # Check if ANY frame has transparency
-                    has_alpha = False
-                    if img.mode in ('RGBA', 'LA'): has_alpha = True
-                    elif img.mode == 'P' and 'transparency' in img.info: has_alpha = True
-                    
-                    target_mode = 'RGBA' if has_alpha else 'RGB'
-                    channels = 4 if has_alpha else 3
-                    
-                    for frame in ImageSequence.Iterator(img):
-                        frames.append(frame.convert(target_mode).tobytes())
-                    
-                    pixels = frames
-                    meta['is_animated'] = True
-                    meta['channels'] = channels
-                    self.opt_anim.set(True)
-                else:
-                    # --- TRANSPARENCY PRESERVATION (STILL) ---
-                    has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
-                    if self.opt_alpha.get() or has_alpha:
-                        img = img.convert('RGBA')
-                        channels = 4
-                        self.opt_alpha.set(True)
-                    else:
-                        img = img.convert('RGB')
-                        channels = 3
-                    
-                    w, h = img.size
-                    pixels = img.tobytes()
-                    meta['channels'] = channels
-                
-                w, h = img.size
-                self.root.after(0, lambda: self.log("Compressing data stream..."))
-                from .io import saveImage
-                saveImage(out_p, w, h, pixels, 
-                          compression=self.compression_mode.get(), quality=self.slider.val,
-                          metadata=meta, preset=self.preset.get())
+            # Build metadata from GUI fields
+            meta = {
+                "author": self.author_entry.get(), 
+                "copyright": self.copyright_entry.get(),
+                "gps": self.gps_entry.get(),
+                "description": self.desc_entry.get(),
+                "engine": "WIMF Open Suite v19.0",
+                "hdr": self.opt_hdr.get(),
+                "bit10": self.opt_10bit.get(),
+                "alpha": self.opt_alpha.get(),
+                "depth": self.opt_depth.get(),
+                "is_animated": self.opt_anim.get()
+            }
+            
+            self.root.after(0, lambda: self.log("Initializing conversion backend..."))
+            
+            # Use the unified CLI convert engine
+            from .cli import convert
+            convert(
+                input_path=in_p, 
+                output_path=out_p, 
+                compression=self.compression_mode.get(), 
+                quality=self.slider.val, 
+                preset=self.preset.get(),
+                meta=meta
+            )
                           
-                self.root.after(0, lambda: self.done("Encoding sequence successful."))
+            self.root.after(0, lambda: self.done("Task finalized via unified engine."))
                 
         except Exception as e:
             msg = str(e)
