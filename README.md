@@ -43,9 +43,25 @@ WIMF utilizes an advanced wavelet-based engine to outperform traditional block-b
 
 ## Installation
 
-```bash
-pip install wimf
-```
+WIMF is currently available as a source-only library. To install the developer suite:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/benchware/wimf.git
+   cd wimf
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install numpy pillow
+   ```
+
+3. Install in editable mode:
+   ```bash
+   pip install -e .
+   ```
+
+*(PyPI release coming soon)*
 
 ## Quick Start
 
