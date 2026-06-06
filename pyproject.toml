@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wimf"
-version = "1.3.0"
+version = "1.3.2"
 authors = [
-  { name="BenchWare", email="contact@benchware.com" },
+  { name="BenchWare", email="ivanm12453@gmail.com" },
 ]
 description = "Worst IMage Format - A high-performance wavelet-based image codec"
 readme = "README.md"
