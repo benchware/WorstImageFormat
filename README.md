@@ -10,7 +10,6 @@
   <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3">
   <img src="https://img.shields.io/badge/python-3.8+-aff.svg" alt="Python: 3.8+">
   <img src="https://img.shields.io/badge/format-.wimf%20%7C%20.wif-orange" alt="Format: .wimf | .wif">
-  <img src="https://img.shields.io/badge/RMSE-Fixed-green" alt="RMSE Score: Fixed">
 </p>
 
 # WIMF: Worst Image Format
