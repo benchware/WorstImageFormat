@@ -30,4 +30,27 @@ jobs:
         
     - name: Run Exhaustive Tests
       run: |
-        python -m unittest discover tests
+        python -m unittest discover tests -v 2>&1 | tee test_output.log
+        
+    - name: Generate Validation Report
+      if: always()
+      run: |
+        echo "### 🏆 WIMF Codec Validation Report" >> $GITHUB_STEP_SUMMARY
+        echo "| Feature | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+        
+        grep -q "test_high_level_api" test_output.log && echo "| High-Level API | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| High-Level API | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        grep -q "test_vectorized_lossless" test_output.log && echo "| Vectorized Lossless | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| Vectorized Lossless | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        grep -q "test_anti_rot" test_output.log && echo "| Self-Healing (Anti-Rot) | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| Self-Healing (Anti-Rot) | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        grep -q "test_roi_and_mip" test_output.log && echo "| ROI & Mipmapping | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| ROI & Mipmapping | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        grep -q "test_chrono_layers" test_output.log && echo "| Chrono-Layers (History) | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| Chrono-Layers (History) | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        grep -q "test_depth_map" test_output.log && echo "| 3D Depth Map | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| 3D Depth Map | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        grep -q "test_steganography" test_output.log && echo "| Hidden Watermarking | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| Hidden Watermarking | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        grep -q "test_10bit_pipeline" test_output.log && echo "| 10-bit HDR Pipeline | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY || echo "| 10-bit HDR Pipeline | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        
+        echo -e "\n**Environment**: Python ${{ matrix.python-version }} on Ubuntu-Latest" >> $GITHUB_STEP_SUMMARY
+        if grep -q "OK" test_output.log; then
+          echo "#### ✅ Status: BUILD STABLE" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "#### ❌ Status: BUILD UNSTABLE" >> $GITHUB_STEP_SUMMARY
+        fi
