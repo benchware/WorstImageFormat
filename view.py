@@ -18,7 +18,6 @@ class WIMFViewer:
 
             self.w, self.h, pixel_data, self.meta = loadImage(filename)
             self.is_animated = self.meta.get('is_animated', False)
-            self.is_live_photo = self.meta.get('is_live_photo', False)
             
             channels = self.meta.get('channels', 3)
             img_mode = 'RGBA' if channels == 4 else 'RGB'
@@ -94,10 +93,7 @@ class WIMFViewer:
         self.canvas.create_image(nw//2, nh//2, image=self.tk_image)
         self.canvas.config(scrollregion=(0, 0, nw, nh))
         
-        # Add Live Photo Badge if applicable
-        if self.is_live_photo:
-            self.canvas.create_oval(20, 20, 40, 40, fill="#bb86fc", outline="")
-            self.canvas.create_text(30, 30, text="LIVE", fill="black", font=("Segoe UI Bold", 7))
+
 
     def play_loop(self):
         if self.playing:
@@ -121,7 +117,7 @@ class WIMFViewer:
 
     def update_status(self):
         auth = self.meta.get('author', 'Unknown')
-        mode = "LIVE PHOTO" if self.is_live_photo else ("ANIMATED" if self.is_animated else "STILL")
+        mode = "ANIMATED" if self.is_animated else "STILL"
         txt = f"[{mode}] {self.w}x{self.h}  •  {self.zoom_level:.2f}x  •  {auth}"
         self.status_left.config(text=txt.upper())
 
@@ -129,7 +125,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         p = sys.argv[1]
     else:
-        p = input("Enter WIMF/AWIF/LWIF path: ")
+        p = input("Enter WIMF/AWIF path: ")
     
     if os.path.exists(p):
         root = tk.Tk()

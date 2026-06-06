@@ -49,16 +49,17 @@ def encode_lossless(pixels, w, h, channels):
 def decode_lossless(data, w, h, channels):
     res = np.frombuffer(lzma.decompress(data), dtype=np.uint8).reshape((h, w, channels)).astype(np.int16)
     arr = np.zeros_like(res)
-    arr[0, 0] = res[0, 0]
-    for x in range(1, w): arr[0, x] = (res[0, x] + arr[0, x-1]) % 256
-    for y in range(1, h): arr[y, 0] = (res[y, 0] + arr[y-1, 0]) % 256
-    for y in range(1, h):
-        for x in range(1, w):
-            a, b, c = arr[y, x-1], arr[y-1, x], arr[y-1, x-1]
-            p = a + b - c
-            pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-            pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
-            arr[y, x] = (res[y, x] + pr) % 256
+    for ch in range(channels):
+        arr[0, 0, ch] = res[0, 0, ch]
+        for x in range(1, w): arr[0, x, ch] = (res[0, x, ch] + arr[0, x-1, ch]) % 256
+        for y in range(1, h): arr[y, 0, ch] = (res[y, 0, ch] + arr[y-1, 0, ch]) % 256
+        for y in range(1, h):
+            for x in range(1, w):
+                a, b, c_val = arr[y, x-1, ch], arr[y-1, x, ch], arr[y-1, x-1, ch]
+                p = a + b - c_val
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c_val)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c_val)
+                arr[y, x, ch] = (res[y, x, ch] + pr) % 256
     return arr.astype(np.uint8).tobytes()
 
 def haar_level(b):
@@ -193,20 +194,11 @@ def decode_lossy(data, w, h, channels):
         
     return img_rgb.tobytes()
 
-# --- AWIF / LWIF (ANIMATION & LIVE PHOTO) ---
-def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", is_live_photo=False, audio_bytes=None):
+# --- AWIF (ANIMATION) ---
+def encode_animated(frames, w, h, channels, quality=5, preset="Balanced"):
     out_payload = bytearray()
     out_payload.extend(struct.pack('<I', len(frames)))
-    if is_live_photo:
-        if audio_bytes:
-            audio_payload = b'OPUS' + struct.pack('<I', len(audio_bytes)) + audio_bytes
-        else:
-            audio_payload = b'OPUS' + struct.pack('<I', 4) + b'\x00\x00\x00\x00'
-    else:
-        audio_payload = b''
-        
-    out_payload.extend(struct.pack('<I', len(audio_payload)))
-    out_payload.extend(audio_payload)
+    out_payload.extend(struct.pack('<I', 0)) # 0 audio payload length for compatibility
 
     prev_arr = None
     for i, frame in enumerate(frames):
@@ -229,7 +221,7 @@ def decode_animated(data, w, h, channels):
     offset = 0
     num_frames = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
     audio_len = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
-    audio_data = data[offset : offset + audio_len]; offset += audio_len
+    offset += audio_len
     
     frames = []
     prev_arr = None
@@ -248,40 +240,50 @@ def decode_animated(data, w, h, channels):
             frames.append(curr_arr.tobytes())
             prev_arr = curr_arr.astype(np.int16)
             
-    return frames, audio_data
+    return frames
 
 # --- STANDARD I/O ---
 def loadImage(filename):
     with open(filename, 'rb') as f:
         header = f.read(4)
-        if header not in [b"WIMF", b"AWIF", b"LWIF"]: raise ValueError(f"Invalid Magic Byte: {header}")
+        if header not in [b"WIMF", b"AWIF"]: raise ValueError(f"Invalid Magic Byte: {header}")
         w, h = int.from_bytes(f.read(4), 'little'), int.from_bytes(f.read(4), 'little')
         flags = int.from_bytes(f.read(1), 'little')
         mlen = int.from_bytes(f.read(4), 'little')
         meta = json.loads(f.read(mlen).decode('utf-8')) if mlen > 0 else {}
         data = f.read()
         channels = meta.get('channels', 3)
-        if header in [b"AWIF", b"LWIF"]:
-            frames, audio = decode_animated(data, w, h, channels)
+        if header == b"AWIF":
+            frames = decode_animated(data, w, h, channels)
             meta['is_animated'] = True
-            if header == b"LWIF": meta['is_live_photo'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
         elif flags in [5, 6, 8]: pix = decode_lossy(data, w, h, channels)
         else: pix = data
         return w, h, pix, meta
 
-def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, preset="Balanced", audio_bytes=None):
+def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, preset="Balanced"):
     if metadata is None: metadata = {}
     is_animated = isinstance(pixels, list)
-    is_live = metadata.get("is_live_photo", False)
-    channels = len(pixels[0]) // (w * h) if is_animated else len(pixels) // (w * h)
+    if is_animated:
+        first_frame = pixels[0]
+        if hasattr(first_frame, 'tobytes'):
+            channels = first_frame.shape[-1] if len(first_frame.shape) == 3 else 1
+            pixels = [f.tobytes() for f in pixels]
+        else:
+            channels = len(first_frame) // (w * h)
+    else:
+        if hasattr(pixels, 'tobytes'):
+            channels = pixels.shape[-1] if len(pixels.shape) == 3 else 1
+            pixels = pixels.tobytes()
+        else:
+            channels = len(pixels) // (w * h)
     metadata['channels'] = channels
     m_bytes = json.dumps(metadata).encode('utf-8')
-    magic = b"LWIF" if is_live else (b"AWIF" if is_animated else b"WIMF")
+    magic = b"AWIF" if is_animated else b"WIMF"
     
-    if is_animated or is_live:
-        data = encode_animated(pixels if is_animated else [pixels], w, h, channels, quality, preset, is_live, audio_bytes)
+    if is_animated:
+        data = encode_animated(pixels, w, h, channels, quality, preset)
         final_flags = 7
     else:
         if compression == 2:
@@ -299,34 +301,3 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
         f.write(w.to_bytes(4, 'little') + h.to_bytes(4, 'little'))
         f.write(final_flags.to_bytes(1, 'little'))
         f.write(len(m_bytes).to_bytes(4, 'little') + m_bytes + data)
-
-import subprocess
-import tempfile
-import glob
-import os
-from PIL import Image
-
-def extract_video_data(video_path, max_duration=5, fps=12, target_w=None, target_h=None):
-    try: subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    except: raise RuntimeError("FFMPEG is required.")
-    temp_dir = tempfile.mkdtemp()
-    audio_path = os.path.join(temp_dir, 'audio.opus')
-    frames_pattern = os.path.join(temp_dir, 'frame_%04d.bmp')
-    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-t', str(max_duration), '-c:a', 'libopus', '-b:a', '64k', audio_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    vf_args = f'fps={fps}'
-    if target_w and target_h: vf_args += f',scale={target_w}:{target_h}'
-    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-t', str(max_duration), '-vf', vf_args, frames_pattern], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    audio_bytes = b''
-    if os.path.exists(audio_path):
-        with open(audio_path, 'rb') as f: audio_bytes = f.read()
-    frame_files = sorted(glob.glob(os.path.join(temp_dir, 'frame_*.bmp')))
-    frames = []
-    w, h = None, None
-    for ff in frame_files:
-        img = Image.open(ff).convert('RGB')
-        if w is None: w, h = img.width, img.height
-        frames.append(img.tobytes())
-        os.remove(ff)
-    if os.path.exists(audio_path): os.remove(audio_path)
-    os.rmdir(temp_dir)
-    return w, h, frames, audio_bytes

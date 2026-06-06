@@ -103,7 +103,6 @@ class WorstImageFormatApp:
         
         self.input_path = tk.StringVar()
         self.output_path = tk.StringVar(value="")
-        self.motion_path = tk.StringVar(value="")
         
         self.compression_mode = tk.IntVar(value=2)
         self.preset = tk.StringVar(value="Extreme")
@@ -113,7 +112,6 @@ class WorstImageFormatApp:
         self.opt_hdr = tk.BooleanVar()
         self.opt_anim = tk.BooleanVar()
         self.opt_depth = tk.BooleanVar()
-        self.opt_live = tk.BooleanVar()
         
         self.setup_styles()
         self.build_ui()
@@ -192,11 +190,6 @@ class WorstImageFormatApp:
         
         # Row 2 Checkboxes
         tk.Checkbutton(ht_frame, text="DEPTH MAP", variable=self.opt_depth, **cb_style).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
-        
-        # Disabled Live Photo until Hardware Acceleration
-        live_cb = tk.Checkbutton(ht_frame, text="LIVE PHOTO", variable=self.opt_live, command=self.toggle_live, **cb_style)
-        live_cb.grid(row=2, column=1, sticky="w", padx=5, pady=(5,0))
-        live_cb.config(state="disabled")
 
         # Descriptions (Row 1 & 3)
         lbl_style = {"bg": self.colors["surface"], "fg": "#666666", "font": ("Segoe UI", 7)}
@@ -204,13 +197,6 @@ class WorstImageFormatApp:
         tk.Label(ht_frame, text="High precision color", **lbl_style).grid(row=1, column=1, sticky="w", padx=25)
         tk.Label(ht_frame, text="Motion delta P-frames", **lbl_style).grid(row=1, column=2, sticky="w", padx=25)
         tk.Label(ht_frame, text="5-Channel 3D data", **lbl_style).grid(row=3, column=0, sticky="w", padx=25)
-        tk.Label(ht_frame, text="(Awaiting GPU Compute)", **lbl_style).grid(row=3, column=1, sticky="w", padx=25)
-
-        # Motion Path (Hidden by default)
-        self.motion_frame = tk.Frame(ht_frame, bg=self.colors["surface"])
-        tk.Label(self.motion_frame, text="MOTION VIDEO:", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["accent"]).pack(side="left")
-        tk.Entry(self.motion_frame, textvariable=self.motion_path, bg="#111111", fg="white", bd=0, font=("Segoe UI", 8), width=12).pack(side="left", padx=5, ipady=3)
-        tk.Button(self.motion_frame, text="...", command=self.browse_motion, bg="#222222", fg=self.colors["accent"], font=("Segoe UI Bold", 7), relief="flat").pack(side="left")
 
         # METADATA
         meta_f = tk.Frame(content, bg=self.colors["bg"])
@@ -262,12 +248,6 @@ class WorstImageFormatApp:
         self.q_label.config(fg=self.colors["accent"] if is_l else "#333333")
         self.preset_cb.config(state="readonly" if is_l else "disabled")
 
-    def toggle_live(self):
-        if self.opt_live.get():
-            self.motion_frame.grid(row=2, column=2, sticky="w", padx=5, pady=(5,0))
-            self.opt_anim.set(False) # Live photo implies animated
-        else:
-            self.motion_frame.grid_forget()
 
     def log(self, m):
         self.console.config(state="normal")
@@ -277,21 +257,17 @@ class WorstImageFormatApp:
 
     def browse_input(self):
         file_types = [
-            ("All Supported", "*.wimf *.wif *.awif *.lwif *.png *.jpg *.jpeg *.bmp *.webp *.ppm *.mp4 *.mov *.gif"),
-            ("Worst IMage Format", "*.wimf *.wif *.awif *.lwif"),
-            ("Standard Images", "*.png *.jpg *.jpeg *.bmp *.webp *.ppm *.gif"),
-            ("Video Files (For Live Photo)", "*.mp4 *.mov")
+            ("All Supported", "*.wimf *.wif *.awif *.png *.jpg *.jpeg *.bmp *.webp *.ppm *.gif"),
+            ("Worst IMage Format", "*.wimf *.wif *.awif"),
+            ("Standard Images", "*.png *.jpg *.jpeg *.bmp *.webp *.ppm *.gif")
         ]
         p = filedialog.askopenfilename(filetypes=file_types)
         if p:
             self.input_path.set(p)
             ext = os.path.splitext(p)[1].lower()
             base = os.path.splitext(p)[0]
-            if ext in ['.wimf', '.wif', '.awif', '.lwif']:
+            if ext in ['.wimf', '.wif', '.awif']:
                 self.output_path.set(base + ".png")
-            elif ext in ['.mp4', '.mov']:
-                self.output_path.set(base + ".lwif")
-                self.opt_live.set(True) # Auto-check Live Photo
             elif ext == '.gif':
                 self.output_path.set(base + ".awif")
                 self.opt_anim.set(True) # Auto-check Animated
@@ -304,21 +280,11 @@ class WorstImageFormatApp:
         file_types = [
             ("Worst IMage Format (.wimf)", "*.wimf"),
             ("Worst Animated Format (.awif)", "*.awif"),
-            ("Worst Live Photo (.lwif)", "*.lwif"),
             ("PNG Image", "*.png"),
             ("JPEG Image", "*.jpg")
         ]
         p = filedialog.asksaveasfilename(filetypes=file_types, defaultextension=".wimf")
         if p: self.output_path.set(p)
-
-    def browse_motion(self):
-        file_types = [("Video Files", "*.mp4 *.mov *.avi *.mkv")]
-        p = filedialog.askopenfilename(filetypes=file_types)
-        if p:
-            self.motion_path.set(p)
-            self.log(f"Motion Linked: {os.path.basename(p)}")
-        
-    # Audio browser removed as FFMPEG handles it now
 
     def run(self):
         if not self.input_path.get() or not self.output_path.get(): return
@@ -330,7 +296,7 @@ class WorstImageFormatApp:
             in_p, out_p = self.input_path.get(), self.output_path.get()
             in_ext = os.path.splitext(in_p)[1].lower()
             
-            if in_ext in ['.wimf', '.wif', '.awif', '.lwif']:
+            if in_ext in ['.wimf', '.wif', '.awif']:
                 # Extraction mode
                 from common import loadImage
                 w, h, pix, meta = loadImage(in_p)
@@ -347,7 +313,7 @@ class WorstImageFormatApp:
             else:
                 # Encoding mode
                 if in_ext in ['.mp4', '.mov']:
-                    raise ValueError("Please select a STILL IMAGE as the Source Asset. To create a Live Photo, check the 'LIVE PHOTO' box and attach a Motion Video.")
+                    raise ValueError("Video files are not supported as source assets.")
                 
                 img = Image.open(in_p)
                 
@@ -367,29 +333,7 @@ class WorstImageFormatApp:
                 if self.opt_hdr.get(): meta['hdr'] = True
                 if self.opt_depth.get(): meta['depth'] = True
                 
-                audio_bytes = None
-                
-                if self.opt_live.get():
-                    meta['is_live_photo'] = True
-                    m_path = self.motion_path.get()
-                    if m_path and os.path.exists(m_path):
-                        self.root.after(0, lambda: self.log("Extracting motion frames & Opus audio via FFMPEG..."))
-                        from common import extract_video_data
-                        vw, vh, vframes, audio_bytes = extract_video_data(m_path, target_w=w, target_h=h)
-                        
-                        # True Apple Live Photo: Still Image (I-Frame) + Hardware-Resized Video Frames (P-Frames)
-                        pixels = [pixels]
-                        self.root.after(0, lambda: self.log(f"Aligning {len(vframes)} motion frames to keyframe..."))
-                        for vf in vframes:
-                            if self.opt_alpha.get():
-                                v_img = Image.frombytes('RGB', (w, h), vf).convert('RGBA')
-                                pixels.append(v_img.tobytes())
-                            else:
-                                pixels.append(vf)
-                    else:
-                        raise ValueError("Live Photo requires a valid Motion Video (MP4/MOV) path.")
-                
-                elif self.opt_anim.get():
+                if self.opt_anim.get():
                     meta['is_animated'] = True
                     pixels = [pixels, pixels] # Mock 2-frame loop for testing still images as animation
                 
@@ -397,7 +341,7 @@ class WorstImageFormatApp:
                 from common import saveImage
                 saveImage(out_p, w, h, pixels, 
                           compression=self.compression_mode.get(), quality=self.slider.val,
-                          metadata=meta, preset=self.preset.get(), audio_bytes=audio_bytes)
+                          metadata=meta, preset=self.preset.get())
                           
                 self.root.after(0, lambda: self.done("Encoding sequence successful."))
                 
