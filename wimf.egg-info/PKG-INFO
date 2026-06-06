@@ -1,3 +1,19 @@
+Metadata-Version: 2.4
+Name: wimf
+Version: 1.0.0
+Summary: Worst IMage Format - A high-performance wavelet-based image codec
+Author-email: BenchWare <contact@benchware.com>
+License: GPL-3.0-or-later
+Project-URL: Homepage, https://github.com/benchware/wimf
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: pillow
+Dynamic: license-file
+
 # Worst IMage Format (wimf)
 
 A high-performance wavelet-based image codec implemented as a Python library.

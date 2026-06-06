@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
-from common import saveImage, loadImage
+from .io import saveImage, loadImage
 from PIL import Image, ImageTk
 import threading
 import time
@@ -298,7 +298,7 @@ class WorstImageFormatApp:
             
             if in_ext in ['.wimf', '.wif', '.awif']:
                 # Extraction mode
-                from common import loadImage
+                from .io import loadImage
                 w, h, pix, meta = loadImage(in_p)
                 if isinstance(pix, list):
                     pix = pix[0]
@@ -338,7 +338,7 @@ class WorstImageFormatApp:
                     pixels = [pixels, pixels] # Mock 2-frame loop for testing still images as animation
                 
                 self.root.after(0, lambda: self.log("Compressing data stream..."))
-                from common import saveImage
+                from .io import saveImage
                 saveImage(out_p, w, h, pixels, 
                           compression=self.compression_mode.get(), quality=self.slider.val,
                           metadata=meta, preset=self.preset.get())
@@ -356,7 +356,7 @@ class WorstImageFormatApp:
         self.btn_run.config_state("normal", "START ENCODING SEQUENCE")
         messagebox.showinfo("WIMF", "Task finished.")
 
-if __name__ == "__main__":
+def main():
     root = tk.Tk()
     try:
         from ctypes import windll
@@ -364,3 +364,6 @@ if __name__ == "__main__":
     except: pass
     app = WorstImageFormatApp(root)
     root.mainloop()
+
+if __name__ == "__main__":
+    main()

@@ -1,5 +1,5 @@
 from PIL import Image
-from common import saveImage, loadImage
+from .io import saveImage, loadImage
 import sys
 import os
 import argparse
@@ -51,15 +51,15 @@ def convert(input_path, output_path, compression=1, quality=5, author="Unknown",
         print(f"[WIMF] CRITICAL ERROR: {e}")
         sys.exit(1)
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(
         description="WIMF (Worst IMage Format) Open Suite CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python convert.py -i input.png -o output.wimf -q 8 -p Extreme
-  python convert.py -i photo.wimf -o photo.jpg
-  python convert.py -i raw.ppm -o compressed.wimf --lossless
+  wimf-convert -i input.png -o output.wimf -q 8 -p Extreme
+  wimf-convert -i photo.wimf -o photo.jpg
+  wimf-convert -i raw.ppm -o compressed.wimf --lossless
         """
     )
     
@@ -91,3 +91,6 @@ Examples:
     if args.raw: comp_mode = 0
         
     convert(args.input, args.output, compression=comp_mode, quality=args.quality, author=args.author, preset=args.preset)
+
+if __name__ == "__main__":
+    main()
