@@ -77,5 +77,12 @@ img.pil.show()
 wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
 ```
 
+## TODO List
+
+- Finish C++ porting
+- Web support
+- Test on ARM
+- GPU acceleration
+
 ## License
 WIMF is licensed under the GPL 3.0.
