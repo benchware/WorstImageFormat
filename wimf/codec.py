@@ -144,10 +144,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         
     return bytes(final_payload)
 
-def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
-    mode = data[0] & 0x0F
-    quality = data[0] >> 4
-    
+def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9):
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
     
@@ -155,40 +152,42 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
     depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
     limit = 2**bit_depth - 1
 
-    def get_steps(q):
-        q1 = max(1.0, (16.0 * depth_scale) - (q * 1.5))
-        q2 = max(1.0, (8.0 * depth_scale) - (q * 0.75))
-        return q1, q2
-
-    luma_q1, luma_q2 = get_steps(quality)
-    chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
-    
     bands = [[], [], []] # Y, Co/Cb, Cg/Cr
 
-    if mode == 9:
-        # --- PROGRESSIVE YCoCg-R DECODE ---
+    if mode_flag == 9:
+        # --- PROGRESSIVE YCoCg-R (New) ---
+        quality = data[0] >> 4
+        mode = data[0] & 0x0F
         offset = 1
         chunks = []
         for _ in range(3):
             sz = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
             chunks.append(lzma.decompress(data[offset:offset+sz])); offset += sz
             
-        # Layer 0: Base LL (1/4 size)
+        # Layer 0: Base LL
         sz_L2 = bc * 16 * 2
         l0_raw = chunks[0]
         for c in range(3):
             chunk = np.frombuffer(l0_raw[c*sz_L2 : (c+1)*sz_L2], dtype=np.int16).astype(np.float32)
             bands[c].append(chunk.reshape(gh, gw, 4, 4))
             
+        def get_steps(q):
+            q1 = max(1.0, (16.0 * depth_scale) - (q * 1.5))
+            q2 = max(1.0, (8.0 * depth_scale) - (q * 0.75))
+            return q1, q2
+
+        luma_q1, luma_q2 = get_steps(quality)
+        chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
+
         # Layer 1: Mid detail
         if target_layer >= 1:
             l1_raw = chunks[1]
             sz_mid = bc * 16 * 2
             o = 0
-            for i in range(1, 4): # HL, LH, HH for each channel
+            for i in range(1, 4):
                 for c in range(3):
                     chunk = np.frombuffer(l1_raw[o : o+sz_mid], dtype=np.int16).astype(np.float32)
-                    chunk *= ((luma_q2, luma_q2) if c == 0 else (chroma_q2, chroma_q2))[0] # Simplified q matching
+                    chunk *= (luma_q2 if c == 0 else chroma_q2)
                     bands[c].append(chunk.reshape(gh, gw, 4, 4))
                     o += sz_mid
         else:
@@ -203,16 +202,26 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
             for i in range(4, 7):
                 for c in range(3):
                     chunk = np.frombuffer(l2_raw[o : o+sz_fine], dtype=np.int16).astype(np.float32)
-                    chunk *= ((luma_q1, luma_q1) if c == 0 else (chroma_q1, chroma_q1))[0]
+                    chunk *= (luma_q1 if c == 0 else chroma_q1)
                     bands[c].append(chunk.reshape(gh, gw, 8, 8))
                     o += sz_fine
         else:
             for c in range(3): 
                 for _ in range(3): bands[c].append(np.zeros((gh, gw, 8, 8), dtype=np.float32))
-
     else:
-        # --- LEGACY YCbCr DECODE (Mode 8) ---
+        # --- LEGACY MODES (8, 5, 6) ---
         payload = lzma.decompress(data)
+        quality = payload[0] >> 4
+        mode = payload[0] & 0x0F
+        
+        def get_steps(q):
+            q1 = max(1.0, (16.0 * depth_scale) - (q * 1.5))
+            q2 = max(1.0, (8.0 * depth_scale) - (q * 0.75))
+            return q1, q2
+
+        luma_q1, luma_q2 = get_steps(quality)
+        chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
+
         sz_L2, sz_L1 = bc * 16 * 2, bc * 64 * 2
         offset = 1
         for i, sz in enumerate([sz_L2, sz_L2, sz_L2, sz_L2, sz_L1, sz_L1, sz_L1]):
@@ -233,7 +242,7 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
     c1_rec = reconstruct_channel(bands[1])
     c2_rec = reconstruct_channel(bands[2])
     
-    if mode == 9:
+    if mode_flag == 9:
         # Reversible Inverse YCoCg-R (Vectorized)
         tmp = y_rec - np.floor(c2_rec / 2.0)
         g = c2_rec + tmp
@@ -241,8 +250,8 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
         r = b + c1_rec
     else:
         # Legacy YCbCr
-        y_rec += (c1_rec * 0.1) # Cb correction
-        y_rec += (c2_rec * 0.1) # Cr correction
+        y_rec += (c1_rec * 0.1) 
+        y_rec += (c2_rec * 0.1) 
         y, cb, cr = y_rec + mid_point, c1_rec + mid_point, c2_rec + mid_point
         cb_f, cr_f = cb - mid_point, cr - mid_point
         r = y + 1.402 * cr_f
@@ -252,6 +261,7 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
     img_rgb = np.stack([np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)], axis=-1)
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     img_rgb = img_rgb.astype(dtype).swapaxes(1, 2).reshape(gh * 16, gw * 16, 3)[:h, :w]
+
     
     if channels == 4:
         if mode == 9:
