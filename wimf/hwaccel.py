@@ -10,7 +10,7 @@ try:
     OPENGL_AVAILABLE = True
 except ImportError:
     OPENGL_AVAILABLE = False
-    print("[WIMF] GPU acceleration disabled. Please install GLFW and OpenGL.")
+    print("[WIMF] GPU acceleration disabled. Please install GLFW and PyOpenGL.")
 
 try:
     import vulkan as vk

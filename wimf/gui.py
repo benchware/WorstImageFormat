@@ -133,7 +133,7 @@ class WorstImageFormatApp:
         from .hwaccel import OPENGL_AVAILABLE
         if not OPENGL_AVAILABLE:
             self.root.after(100, lambda: messagebox.showwarning("GPU Disabled", 
-                "Please install GLFW and OpenGL."))
+                "Please install GLFW and PyOpenGL."))
 
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
         
@@ -244,7 +244,7 @@ class WorstImageFormatApp:
         self.log(f"GPU Support: {'YES' if gpu.enabled else 'NO'}")
         self.log(f"Active Renderer: {gpu.get_info()}")
         if not gpu.enabled:
-            self.log("Please install GLFW and OpenGL.")
+            self.log("Please install GLFW and PyOpenGL.")
         self.log("Diagnostics Complete.")
 
     def create_io(self, parent, label, var, cmd):
