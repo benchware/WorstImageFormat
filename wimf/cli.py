@@ -56,7 +56,9 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
             # --- ANIMATION HANDLING (GIF to AWIF) ---
             is_animated = getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1
             if is_animated or meta.get('is_animated'):
-                print(f"[WIMF] Animation sequence detected ({getattr(img, 'n_frames', 1)} frames).")
+                from tqdm import tqdm
+                n_frames = getattr(img, 'n_frames', 1)
+                print(f"[WIMF] Animation sequence detected ({n_frames} frames).")
                 
                 # Check if ANY frame has transparency
                 has_alpha = False
@@ -67,7 +69,7 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
                 channels = 4 if has_alpha else 3
                 
                 frames = []
-                for frame in ImageSequence.Iterator(img):
+                for frame in tqdm(ImageSequence.Iterator(img), total=n_frames, desc="Extracting", unit="frame"):
                     frames.append(frame.convert(target_mode).tobytes())
                 
                 pixels = frames

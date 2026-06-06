@@ -17,7 +17,8 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
     depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
     q_step = max(1.0, (20.0 * depth_scale) - (quality * 1.5))
 
-    for i, frame in enumerate(frames):
+    from tqdm import tqdm
+    for i, frame in enumerate(tqdm(frames, desc="Encoding Animation", unit="frame")):
         # Keyframe every 30 frames to reset error accumulation
         is_keyframe = (i % 30 == 0)
         
@@ -97,7 +98,8 @@ def decode_animated(data, w, h, channels, bit_depth=8):
     th, tw = (h + ph) // 2, (w + pw) // 2
     sz_coeff = th * tw * channels * 2 # 2 bytes for int16
     
-    for i in range(num_frames):
+    from tqdm import tqdm
+    for i in tqdm(range(num_frames), desc="Decoding Animation", unit="frame"):
         frame_len = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
         is_keyframe = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
         frame_data = data[offset : offset + frame_len]; offset += frame_len
