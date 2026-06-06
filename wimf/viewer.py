@@ -10,6 +10,11 @@ class WIMFViewer:
         self.root.title(f"WIMF Viewer - {os.path.basename(filename)}")
         self.root.configure(bg="#0a0a0a")
         
+        self.canvas_img_id = None
+        self.tk_frames = []
+        self.last_zoom = -1.0
+        self.current_frame = 0
+
         try:
             try:
                 from ctypes import windll
@@ -20,12 +25,11 @@ class WIMFViewer:
             self.is_animated = self.meta.get('is_animated', False)
             
             channels = self.meta.get('channels', 3)
-            img_mode = 'RGBA' if channels == 4 else 'RGB'
+            img_mode = 'RGBA' if channels >= 4 else 'RGB'
             
             if self.is_animated:
                 # pixel_data is a list of frame bytes
                 self.frames = [Image.frombytes(img_mode, (self.w, self.h), frame_bytes) for frame_bytes in pixel_data]
-                self.current_frame = 0
                 self.playing = True
             else:
                 self.orig_image = Image.frombytes(img_mode, (self.w, self.h), pixel_data)
@@ -81,17 +85,29 @@ class WIMFViewer:
         return self.orig_image
 
     def update_display(self):
-        img = self.get_current_image()
         nw = int(self.w * self.zoom_level)
         nh = int(self.h * self.zoom_level)
         
-        res = Image.Resampling.LANCZOS if self.zoom_level < 1.0 else Image.Resampling.NEAREST
-        resized = img.resize((nw, nh), res)
-        self.tk_image = ImageTk.PhotoImage(resized)
+        # If zoom changed, we need to regenerate TK frames
+        if self.zoom_level != self.last_zoom:
+            self.last_zoom = self.zoom_level
+            res = Image.Resampling.LANCZOS if self.zoom_level < 1.0 else Image.Resampling.NEAREST
+            if self.is_animated:
+                self.tk_frames = [ImageTk.PhotoImage(f.resize((nw, nh), res)) for f in self.frames]
+            else:
+                self.tk_image = ImageTk.PhotoImage(self.orig_image.resize((nw, nh), res))
+            
+            self.canvas.config(scrollregion=(0, 0, nw, nh))
+            self.canvas.delete("all")
+            self.canvas_img_id = None
+
+        # Determine which image to show
+        display_img = self.tk_frames[self.current_frame] if self.is_animated else self.tk_image
         
-        self.canvas.delete("all")
-        self.canvas.create_image(nw//2, nh//2, image=self.tk_image)
-        self.canvas.config(scrollregion=(0, 0, nw, nh))
+        if self.canvas_img_id is None:
+            self.canvas_img_id = self.canvas.create_image(nw//2, nh//2, image=display_img)
+        else:
+            self.canvas.itemconfig(self.canvas_img_id, image=display_img)
         
 
 

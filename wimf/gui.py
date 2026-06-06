@@ -106,6 +106,7 @@ class WorstImageFormatApp:
         
         self.opt_alpha = tk.BooleanVar()
         self.opt_hdr = tk.BooleanVar()
+        self.opt_10bit = tk.BooleanVar()
         self.opt_anim = tk.BooleanVar()
         self.opt_depth = tk.BooleanVar()
         
@@ -179,31 +180,42 @@ class WorstImageFormatApp:
 
         # Row 1 Checkboxes
         tk.Checkbutton(ht_frame, text="ALPHA (RGBA)", variable=self.opt_alpha, **cb_style).grid(row=0, column=0, sticky="w", padx=5)
-        tk.Checkbutton(ht_frame, text="HDR (10-BIT)", variable=self.opt_hdr, **cb_style).grid(row=0, column=1, sticky="w", padx=5)
-        tk.Checkbutton(ht_frame, text="ANIMATED", variable=self.opt_anim, **cb_style).grid(row=0, column=2, sticky="w", padx=5)
+        tk.Checkbutton(ht_frame, text="HDR", variable=self.opt_hdr, **cb_style).grid(row=0, column=1, sticky="w", padx=5)
+        tk.Checkbutton(ht_frame, text="10-BIT", variable=self.opt_10bit, **cb_style).grid(row=0, column=2, sticky="w", padx=5)
         
         # Row 2 Checkboxes
-        tk.Checkbutton(ht_frame, text="DEPTH MAP", variable=self.opt_depth, **cb_style).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
+        tk.Checkbutton(ht_frame, text="ANIMATED", variable=self.opt_anim, **cb_style).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
+        tk.Checkbutton(ht_frame, text="DEPTH MAP", variable=self.opt_depth, **cb_style).grid(row=2, column=1, sticky="w", padx=5, pady=(5,0))
 
         # Descriptions (Row 1 & 3)
         lbl_style = {"bg": self.colors["surface"], "fg": "#666666", "font": ("Segoe UI", 7)}
         tk.Label(ht_frame, text="Lossless transparency", **lbl_style).grid(row=1, column=0, sticky="w", padx=25)
-        tk.Label(ht_frame, text="High precision color", **lbl_style).grid(row=1, column=1, sticky="w", padx=25)
-        tk.Label(ht_frame, text="Motion delta P-frames", **lbl_style).grid(row=1, column=2, sticky="w", padx=25)
-        tk.Label(ht_frame, text="5-Channel 3D data", **lbl_style).grid(row=3, column=0, sticky="w", padx=25)
+        tk.Label(ht_frame, text="Tone-mapping hint", **lbl_style).grid(row=1, column=1, sticky="w", padx=25)
+        tk.Label(ht_frame, text="High precision", **lbl_style).grid(row=1, column=2, sticky="w", padx=25)
+        tk.Label(ht_frame, text="Motion delta P-frames", **lbl_style).grid(row=3, column=0, sticky="w", padx=25)
+        tk.Label(ht_frame, text="5-Channel 3D data", **lbl_style).grid(row=3, column=1, sticky="w", padx=25)
 
         # METADATA
         meta_f = tk.Frame(content, bg=self.colors["bg"])
         meta_f.pack(fill="x", pady=(0, 10))
         
-        # Split into two columns for Author and GPS
+        # Row 1: Author and Copyright
         tk.Label(meta_f, text="AUTHOR TAG", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=0, sticky="w")
         self.author_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
         self.author_entry.grid(row=1, column=0, sticky="ew", ipady=8, pady=5, padx=(0, 10))
         
-        tk.Label(meta_f, text="GPS COORDS", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=1, sticky="w")
+        tk.Label(meta_f, text="COPYRIGHT", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=0, column=1, sticky="w")
+        self.copyright_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.copyright_entry.grid(row=1, column=1, sticky="ew", ipady=8, pady=5)
+
+        # Row 2: GPS and Description
+        tk.Label(meta_f, text="GPS COORDS", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=2, column=0, sticky="w", pady=(5,0))
         self.gps_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
-        self.gps_entry.grid(row=1, column=1, sticky="ew", ipady=8, pady=5)
+        self.gps_entry.grid(row=3, column=0, sticky="ew", ipady=8, pady=5, padx=(0, 10))
+
+        tk.Label(meta_f, text="DESCRIPTION", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).grid(row=2, column=1, sticky="w", pady=(5,0))
+        self.desc_entry = tk.Entry(meta_f, bg="#111111", fg="white", bd=0, font=("Segoe UI", 12), insertbackground="white")
+        self.desc_entry.grid(row=3, column=1, sticky="ew", ipady=8, pady=5)
         
         meta_f.columnconfigure(0, weight=1)
         meta_f.columnconfigure(1, weight=1)
@@ -288,56 +300,35 @@ class WorstImageFormatApp:
     def work(self):
         try:
             in_p, out_p = self.input_path.get(), self.output_path.get()
-            in_ext = os.path.splitext(in_p)[1].lower()
             
-            if in_ext in ['.wimf', '.wif', '.awif']:
-                # Extraction mode
-                from .io import loadImage
-                w, h, pix, meta = loadImage(in_p)
-                if isinstance(pix, list):
-                    pix = pix[0]
-                    self.root.after(0, lambda: self.log("Extracted Keyframe from sequence."))
-                
-                channels = meta.get('channels', 3)
-                mode = 'RGBA' if channels == 4 else 'RGB'
-                
-                Image.frombytes(mode, (w, h), pix).save(out_p)
-                self.root.after(0, lambda: self.done(f"Extraction finalized."))
-                
-            else:
-                # Encoding mode
-                if in_ext in ['.mp4', '.mov']:
-                    raise ValueError("Video files are not supported as source assets.")
-                
-                img = Image.open(in_p)
-                
-                # Auto-Detect Transparency
-                has_transparency = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
-                
-                if self.opt_alpha.get() or has_transparency:
-                    img = img.convert('RGBA')
-                    self.opt_alpha.set(True) # Update UI to reflect auto-detection
-                else:
-                    img = img.convert('RGB')
-                    
-                w, h = img.size
-                pixels = img.tobytes()
-                
-                meta = {"author": self.author_entry.get(), "engine": "WIMF Open Suite v18.5"}
-                if self.opt_hdr.get(): meta['hdr'] = True
-                if self.opt_depth.get(): meta['depth'] = True
-                
-                if self.opt_anim.get():
-                    meta['is_animated'] = True
-                    pixels = [pixels, pixels] # Mock 2-frame loop for testing still images as animation
-                
-                self.root.after(0, lambda: self.log("Compressing data stream..."))
-                from .io import saveImage
-                saveImage(out_p, w, h, pixels, 
-                          compression=self.compression_mode.get(), quality=self.slider.val,
-                          metadata=meta, preset=self.preset.get())
+            # Build metadata from GUI fields
+            meta = {
+                "author": self.author_entry.get(), 
+                "copyright": self.copyright_entry.get(),
+                "gps": self.gps_entry.get(),
+                "description": self.desc_entry.get(),
+                "engine": "WIMF Open Suite v19.0",
+                "hdr": self.opt_hdr.get(),
+                "bit10": self.opt_10bit.get(),
+                "alpha": self.opt_alpha.get(),
+                "depth": self.opt_depth.get(),
+                "is_animated": self.opt_anim.get()
+            }
+            
+            self.root.after(0, lambda: self.log("Initializing conversion backend..."))
+            
+            # Use the unified CLI convert engine
+            from .cli import convert
+            convert(
+                input_path=in_p, 
+                output_path=out_p, 
+                compression=self.compression_mode.get(), 
+                quality=self.slider.val, 
+                preset=self.preset.get(),
+                meta=meta
+            )
                           
-                self.root.after(0, lambda: self.done("Encoding sequence successful."))
+            self.root.after(0, lambda: self.done("Task finalized via unified engine."))
                 
         except Exception as e:
             msg = str(e)

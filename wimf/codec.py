@@ -53,9 +53,12 @@ def decode_lossless(data, w, h, channels):
                 arr[y, x, ch] = (res[y, x, ch] + pr) % 256
     return arr.astype(np.uint8).tobytes()
 
-def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3):
-    arr_full = np.frombuffer(pixels, dtype=np.uint8).reshape((h, w, channels))
+def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8):
+    dtype = np.uint8 if bit_depth == 8 else np.uint16
+    arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, channels))
     arr = arr_full[..., :3].astype(np.float32) # Only RGB is lossy
+    
+    mid_point = 2**(bit_depth - 1)
     
     ph, pw = (16 - h % 16) % 16, (16 - w % 16) % 16
     if ph > 0 or pw > 0: arr = np.pad(arr, ((0, ph), (0, pw), (0, 0)), mode='edge')
@@ -63,27 +66,28 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3):
     gh, gw = arr.shape[0] // 16, arr.shape[1] // 16
     blocks = arr.reshape(gh, 16, gw, 16, 3).swapaxes(1, 2)
     
-    y = (0.299 * blocks[...,0] + 0.587 * blocks[...,1] + 0.114 * blocks[...,2]) - 128
-    cb = (128 - 0.168736 * blocks[...,0] - 0.331264 * blocks[...,1] + 0.5 * blocks[...,2]) - 128
-    cr = (128 + 0.5 * blocks[...,0] - 0.418688 * blocks[...,1] - 0.081312 * blocks[...,2]) - 128
+    y = (0.299 * blocks[...,0] + 0.587 * blocks[...,1] + 0.114 * blocks[...,2]) - mid_point
+    cb = (mid_point - 0.168736 * blocks[...,0] - 0.331264 * blocks[...,1] + 0.5 * blocks[...,2]) - mid_point
+    cr = (mid_point + 0.5 * blocks[...,0] - 0.418688 * blocks[...,1] - 0.081312 * blocks[...,2]) - mid_point
     cb_res, cr_res = cb - (y * 0.1), cr - (y * 0.1)
     
-    # Entropy-Aware Adaptive Quantization
-    y_var = np.var(y)
-    var_mod = np.clip((y_var - 1000) / 2000, -1.0, 1.0)
-    
+    # Adaptive Quantization
     def process_channel(data, q_base):
         L1_LL, L1_HL, L1_LH, L1_HH = haar_level(data)
         L2_LL, L2_HL, L2_LH, L2_HH = haar_level(L1_LL)
         
-        # Adaptive Noise Floor
-        noise_floor = max(1.0, 5.0 - (q_base * 0.5) + var_mod)
+        # Scaling quantization steps for high bit depths
+        # 10-bit needs smaller steps to preserve that extra precision
+        depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
+        
+        # Lower noise floor for better detail retention
+        noise_floor = max(0.0, (2.0 * depth_scale) - (q_base * 0.2))
         L1_HL[np.abs(L1_HL) < noise_floor] = 0; L1_LH[np.abs(L1_LH) < noise_floor] = 0; L1_HH[np.abs(L1_HH) < noise_floor] = 0
         
-        # Adaptive Quantization
-        q_eff = q_base + var_mod
-        q1 = max(1.0, 30.0 - (q_eff * 3.0))
-        q2 = max(1.0, 15.0 - (q_eff * 1.5))
+        # New, less aggressive quantization formulas
+        q_eff = q_base
+        q1 = max(1.0, (16.0 * depth_scale) - (q_eff * 1.5))
+        q2 = max(1.0, (8.0 * depth_scale) - (q_eff * 0.75))
         
         L2_LL_q = np.round(L2_LL).astype(np.int16)
         L2_HL_q, L2_LH_q, L2_HH_q = np.round(L2_HL/q2).astype(np.int16), np.round(L2_LH/q2).astype(np.int16), np.round(L2_HH/q2).astype(np.int16)
@@ -92,8 +96,8 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3):
         return [L2_LL_q, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]
 
     y_bands = process_channel(y, quality)
-    cb_bands = process_channel(cb_res, quality - 2)
-    cr_bands = process_channel(cr_res, quality - 2)
+    cb_bands = process_channel(cb_res, quality - 1)
+    cr_bands = process_channel(cr_res, quality - 1)
     
     # Dynamic Dictionary Priming (Data Restructuring)
     # Group all base frequencies first, then all mid, then all high.
@@ -113,13 +117,16 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3):
     lvl = 9 if preset == "Extreme" else 2
     return lzma.compress(meta + bytes(payload), preset=lvl)
 
-def decode_lossy(data, w, h, channels):
+def decode_lossy(data, w, h, channels, bit_depth=8):
     payload = lzma.decompress(data)
     quality = payload[0] >> 4
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
     sz_L2, sz_L1 = bc * 16 * 2, bc * 64 * 2
     
+    mid_point = 2**(bit_depth - 1)
+    depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
+
     offset = 1
     bands = [[], [], []] # Y, Cb, Cr
     
@@ -128,8 +135,8 @@ def decode_lossy(data, w, h, channels):
     
     def get_steps(q):
         q_eff = q
-        q1 = max(1.0, 16.0 - (q_eff * 1.5))
-        q2 = max(1.0, 8.0 - (q_eff * 0.75))
+        q1 = max(1.0, (16.0 * depth_scale) - (q_eff * 1.5))
+        q2 = max(1.0, (8.0 * depth_scale) - (q_eff * 0.75))
         return q1, q2
 
     luma_q1, luma_q2 = get_steps(q_base)
@@ -157,18 +164,25 @@ def decode_lossy(data, w, h, channels):
     cb_rec = reconstruct_channel(bands[1]) + (y_rec * 0.1)
     cr_rec = reconstruct_channel(bands[2]) + (y_rec * 0.1)
     
-    y, cb, cr = y_rec + 128, cb_rec + 128, cr_rec + 128
-    cb_f, cr_f = cb - 128, cr - 128
-    r = np.clip(y + 1.402 * cr_f, 0, 255)
-    g = np.clip(y - 0.344136 * cb_f - 0.714136 * cr_f, 0, 255)
-    b = np.clip(y + 1.772 * cb_f, 0, 255)
+    y, cb, cr = y_rec + mid_point, cb_rec + mid_point, cr_rec + mid_point
+    cb_f, cr_f = cb - mid_point, cr - mid_point
     
-    img_rgb = np.stack([r, g, b], axis=-1).astype(np.uint8)
+    limit = 2**bit_depth - 1
+    r = np.clip(y + 1.402 * cr_f, 0, limit)
+    g = np.clip(y - 0.344136 * cb_f - 0.714136 * cr_f, 0, limit)
+    b = np.clip(y + 1.772 * cb_f, 0, limit)
+    
+    dtype = np.uint8 if bit_depth == 8 else np.uint16
+    img_rgb = np.stack([r, g, b], axis=-1).astype(dtype)
     img_rgb = img_rgb.swapaxes(1, 2).reshape(gh * 16, gw * 16, 3)[:h, :w]
     
     if channels == 4:
         alpha_data = payload[offset:]
         alpha_channel = decode_lossless_channel(alpha_data, w, h)
+        # Note: Alpha is currently always 8-bit in this hybrid mode, 
+        # we might need to upscale it if bit_depth > 8
+        if bit_depth > 8:
+            alpha_channel = (alpha_channel.astype(np.uint16) * (limit // 255)).astype(np.uint16)
         return np.dstack((img_rgb, alpha_channel)).tobytes()
         
     return img_rgb.tobytes()

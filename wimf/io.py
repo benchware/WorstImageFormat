@@ -13,41 +13,48 @@ def loadImage(filename):
         meta = json.loads(f.read(mlen).decode('utf-8')) if mlen > 0 else {}
         data = f.read()
         channels = meta.get('channels', 3)
+        bit_depth = 10 if meta.get('bit10') else 8
+        
         if header == b"AWIF":
-            frames = decode_animated(data, w, h, channels)
+            frames = decode_animated(data, w, h, channels, bit_depth=bit_depth)
             meta['is_animated'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags in [5, 6, 8]: pix = decode_lossy(data, w, h, channels)
+        elif flags in [5, 6, 8]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth)
         else: pix = data
         return w, h, pix, meta
 
 def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, preset="Balanced"):
     if metadata is None: metadata = {}
     is_animated = isinstance(pixels, list)
+    bit_depth = 10 if metadata.get('bit10') else 8
+    
     if is_animated:
         first_frame = pixels[0]
         if hasattr(first_frame, 'tobytes'):
             channels = first_frame.shape[-1] if len(first_frame.shape) == 3 else 1
             pixels = [f.tobytes() for f in pixels]
         else:
-            channels = len(first_frame) // (w * h)
+            div = (2 if bit_depth > 8 else 1)
+            channels = len(first_frame) // (w * h * div)
     else:
         if hasattr(pixels, 'tobytes'):
             channels = pixels.shape[-1] if len(pixels.shape) == 3 else 1
             pixels = pixels.tobytes()
         else:
-            channels = len(pixels) // (w * h)
+            div = (2 if bit_depth > 8 else 1)
+            channels = len(pixels) // (w * h * div)
+            
     metadata['channels'] = channels
     m_bytes = json.dumps(metadata).encode('utf-8')
     magic = b"AWIF" if is_animated else b"WIMF"
     
     if is_animated:
-        data = encode_animated(pixels, w, h, channels, quality, preset)
+        data = encode_animated(pixels, w, h, channels, quality, preset, bit_depth=bit_depth)
         final_flags = 7
     else:
         if compression == 2:
-            data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels)
+            data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels, bit_depth=bit_depth)
             final_flags = 8
         elif compression == 1:
             data = encode_lossless(pixels, w, h, channels)
