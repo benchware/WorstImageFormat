@@ -166,6 +166,9 @@ class WIMFEncoder:
             self.metadata = {}
             
         self.states = [self.pil] 
+        self.metadata = self.metadata or {}
+        if 'author' not in self.metadata:
+            self.metadata['author'] = "WIMF_User"
         
         self.tuning = {
             'tile_size': 32,
@@ -220,6 +223,7 @@ class WIMFEncoder:
                 pixel_states.append(np.array(img).tobytes())
                 
         channels = 4 if has_alpha else 3
+        meta['channels'] = channels
         
         if len(self.states) > 1:
             # use the animation code for undo history

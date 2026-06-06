@@ -24,7 +24,8 @@ class TestWIMF(unittest.TestCase):
     def test_vectorized_lossless(self):
         wimf.save("lossless.wimf", self.img_pil, lossless=True)
         loaded = wimf.open("lossless.wimf")
-        self.assertTrue(np.array_equal(self.img_data, loaded.to_numpy()))
+        # Compare PIL images directly or via numpy
+        self.assertTrue(np.array_equal(np.array(self.img_pil), loaded.to_numpy()))
 
     def test_anti_rot(self):
         encoder = wimf.WIMFEncoder(self.img_pil)
