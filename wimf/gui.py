@@ -120,7 +120,7 @@ class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Worst IMage Format Converter")
-        self.root.geometry("1050x720")
+        self.root.geometry("1050x760")
         self.root.configure(bg="#050505")
         
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
@@ -178,7 +178,7 @@ class WorstImageFormatApp:
         self.q_label = tk.Label(sf, text="7", font=("Segoe UI Bold", 16), bg=self.colors["surface"], fg=self.colors["accent"]); self.q_label.pack(side="right")
         self.slider = ModernSlider(card, from_=1, to=10, initial=7, command=self.update_q_label); self.slider.pack(fill="x", pady=10)
 
-        tk.Label(lp, text="DASHBOARD", font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w", pady=(10, 5))
+        tk.Label(lp, text="EXPERIMENTAL FEATURES", font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w", pady=(10, 5))
         hf = tk.Frame(lp, bg="#050505"); hf.pack(fill="x")
         self.check_alpha = ModernCheckbox(hf, "TRANSPARENCY", self.opt_alpha); self.check_alpha.grid(row=0, column=0)
         self.check_hdr = ModernCheckbox(hf, "HDR METADATA", self.opt_hdr, command=self.toggle_hdr); self.check_hdr.grid(row=0, column=1)
@@ -197,7 +197,7 @@ class WorstImageFormatApp:
         self.rmse_l = tk.Label(stats, text="RMSE: 0.0000", font=("Consolas Bold", 14), bg="#000", fg=self.colors["neon"]); self.rmse_l.pack()
         ModernCheckbox(rp, "REAL-TIME PREVIEW", self.show_preview).pack(pady=5)
 
-        self.console = tk.Text(lp, height=5, bg="#000", fg=self.colors["neon"], font=("Consolas", 10), padx=15, pady=10, bd=0)
+        self.console = tk.Text(lp, height=4, bg="#000", fg=self.colors["neon"], font=("Consolas", 10), padx=15, pady=10, bd=0)
         self.console.pack(fill="x", pady=10)
         self.btn_run = CustomButton(lp, text="START", command=self.run, color=self.colors["accent"]); self.btn_run.pack(fill="x")
 
