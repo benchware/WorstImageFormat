@@ -19,7 +19,7 @@ WIMF is a technically sophisticated image codec designed for high-precision data
 ## Core Features
 
 - **Tiled ROI Decoding**: High-speed Region of Interest extraction from massive (16K+) images without decompressing the full bitstream.
-- **Self-Healing (Anti-Rot)**: Built-in XOR parity protection (block-level) to automatically detect and repair disk corruption.
+- **Self-Healing (Anti-Rot)**: Built-in XOR parity protection (block-level)
 - **Chrono-Layers**: Delta-compressed historical state tracking, allowing a single file to store a complete undo history.
 - **Progressive Loading**: Chunked bitstream structure allows image quality to improve gradually during transit.
 - **Advanced Watermarking**: Invisible secret embedding directly within wavelet frequency layers.
