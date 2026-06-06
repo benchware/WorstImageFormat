@@ -6,35 +6,34 @@ import threading
 import time
 import numpy as np
 from PIL import Image, ImageTk, ImageSequence
+import io
 
 def modern_file_picker(title="Select File", mode="open", default_ext=".wimf"):
     if os.name == 'nt':
         if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
         return filedialog.askopenfilename(title=title)
 
-    # Check for Zenity
-    if os.path.exists("/usr/bin/zenity"):
-        try:
-            cmd = ["zenity", "--file-selection", f"--title={title}"]
-            if mode == "save": cmd.extend(["--save", "--confirm-overwrite", f"--filename=output{default_ext}"])
-            res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-            return res if res else None
-        except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return None # User cancelled
-        except: pass
+    providers = []
+    if os.path.exists("/usr/bin/zenity"): providers.append("zenity")
+    if os.path.exists("/usr/bin/kdialog"): providers.append("kdialog")
 
-    # Check for KDialog
-    if os.path.exists("/usr/bin/kdialog"):
+    for provider in providers:
         try:
-            cmd = ["kdialog", "--title", title]
-            if mode == "save": cmd.extend(["--getsavefilename", ".", f"*{default_ext}"])
-            else: cmd.append("--getopenfilename")
+            if provider == "zenity":
+                cmd = ["zenity", "--file-selection", f"--title={title}"]
+                if mode == "save": cmd.extend(["--save", "--confirm-overwrite", f"--filename=output{default_ext}"])
+            else:
+                cmd = ["kdialog", "--title", title]
+                if mode == "save": cmd.extend(["--getsavefilename", ".", f"*{default_ext}"])
+                else: cmd.append("--getopenfilename")
+            
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-            return res if res else None
+            if res: return res
         except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return None # User cancelled
-        except: pass
+            if e.returncode == 1: return "" # USER CANCELLED - STOP EVERYTHING
+        except: continue
 
+    # Last resort fallback
     if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
     return filedialog.askopenfilename(title=title)
 
@@ -120,7 +119,7 @@ class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Worst IMage Format Converter")
-        self.root.geometry("1050x760")
+        self.root.geometry("1100x820")
         self.root.configure(bg="#050505")
         
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
@@ -131,6 +130,13 @@ class WorstImageFormatApp:
         self.opt_alpha = tk.BooleanVar(value=True)
         self.opt_hdr, self.opt_10bit, self.opt_anim = [tk.BooleanVar() for _ in range(3)]
         self.gpu_mode, self.gpu_dev, self.show_preview = tk.StringVar(value="auto"), tk.StringVar(value="Default"), tk.BooleanVar(value=True)
+        
+        # Metadata fields
+        self.meta_author, self.meta_desc, self.meta_copyright = tk.StringVar(), tk.StringVar(), tk.StringVar()
+        
+        self.preview_image = None
+        self.preview_thread = None
+        self.preview_lock = threading.Lock()
         
         self.setup_styles(); self.build_ui()
 
@@ -144,48 +150,53 @@ class WorstImageFormatApp:
 
     def build_ui(self):
         header = tk.Frame(self.root, bg="#000", height=60); header.pack(fill="x")
-        tk.Label(header, text="WIMF", font=("Segoe UI Bold", 24), bg="#000", fg="#fff", padx=20).pack(side="left")
-        tk.Label(header, text="Converter Studio", font=("Segoe UI", 10), bg="#000", fg=self.colors["accent"]).pack(side="left", pady=(10,0))
+        tk.Label(header, text="WIMF", font=("Impact", 24), bg="#000", fg="#fff", padx=20).pack(side="left")
+        tk.Label(header, text="CONVERTER STUDIO", font=("Segoe UI Bold", 10), bg="#000", fg=self.colors["accent"]).pack(side="left", pady=(10,0))
         
-        main = tk.Frame(self.root, bg="#050505", padx=30, pady=20); main.pack(expand=True, fill="both")
+        main = tk.Frame(self.root, bg="#050505", padx=30, pady=10); main.pack(expand=True, fill="both")
         lp = tk.Frame(main, bg="#050505"); lp.pack(side="left", fill="both", expand=True)
         rp = tk.Frame(main, bg="#050505", padx=20); rp.pack(side="right", fill="both")
 
         self.create_io(lp, "SOURCE ASSET", self.input_path, self.browse_input)
         self.create_io(lp, "EXPORT PATH", self.output_path, self.browse_output)
 
-        card = tk.Frame(lp, bg=self.colors["surface"], padx=25, pady=20, highlightthickness=1, highlightbackground="#1a1a1a")
-        card.pack(fill="x", pady=20)
+        card = tk.Frame(lp, bg=self.colors["surface"], padx=25, pady=15, highlightthickness=1, highlightbackground="#1a1a1a")
+        card.pack(fill="x", pady=15)
         
         r1 = tk.Frame(card, bg=self.colors["surface"]); r1.pack(fill="x")
         m_f = tk.Frame(r1, bg=self.colors["surface"]); m_f.pack(side="left")
         tk.Label(m_f, text="ENGINE MODE", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
         for t, v in [("RAW", 0), ("LOSSLESS", 1), ("LOSSY", 2)]:
-            tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="#fff", font=("Segoe UI Bold", 9), selectcolor="#000", command=self.update_ui, activebackground=self.colors["surface"]).pack(side="left", padx=(0, 20))
+            tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="#fff", font=("Segoe UI Bold", 9), selectcolor="#000", command=self.on_setting_change, activebackground=self.colors["surface"]).pack(side="left", padx=(0, 20))
 
         p_f = tk.Frame(r1, bg=self.colors["surface"]); p_f.pack(side="right")
-        tk.Label(p_f, text="PRESET / GPU / DEVICE", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
+        tk.Label(p_f, text="PRESET / GPU", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
         cb_f = tk.Frame(p_f, bg=self.colors["surface"]); cb_f.pack()
         self.preset_cb = ttk.Combobox(cb_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=9)
-        self.preset_cb.pack(side="left", padx=2)
+        self.preset_cb.pack(side="left", padx=2); self.preset_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
         self.gpu_cb = ttk.Combobox(cb_f, values=["off", "auto", "opengl", "vulkan"], textvariable=self.gpu_mode, state="readonly", width=7)
-        self.gpu_cb.pack(side="left", padx=2)
-        self.dev_cb = ttk.Combobox(cb_f, values=["Default"], textvariable=self.gpu_dev, state="readonly", width=8)
-        self.dev_cb.pack(side="left")
+        self.gpu_cb.pack(side="left", padx=2); self.gpu_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
 
-        sf = tk.Frame(card, bg=self.colors["surface"]); sf.pack(fill="x", pady=(20, 0))
-        tk.Label(sf, text="COMPRESSION QUALITY", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
+        sf = tk.Frame(card, bg=self.colors["surface"]); sf.pack(fill="x", pady=(15, 0))
+        tk.Label(sf, text="COMPRESSION INTENSITY", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
         self.q_label = tk.Label(sf, text="7", font=("Segoe UI Bold", 16), bg=self.colors["surface"], fg=self.colors["accent"]); self.q_label.pack(side="right")
-        self.slider = ModernSlider(card, from_=1, to=10, initial=7, command=self.update_q_label); self.slider.pack(fill="x", pady=10)
+        self.slider = ModernSlider(card, from_=1, to=10, initial=7, command=self.on_slider_change); self.slider.pack(fill="x", pady=5)
 
         tk.Label(lp, text="EXPERIMENTAL FEATURES", font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w", pady=(10, 5))
         hf = tk.Frame(lp, bg="#050505"); hf.pack(fill="x")
-        self.check_alpha = ModernCheckbox(hf, "TRANSPARENCY", self.opt_alpha); self.check_alpha.grid(row=0, column=0)
+        self.check_alpha = ModernCheckbox(hf, "TRANSPARENCY", self.opt_alpha, command=self.on_setting_change); self.check_alpha.grid(row=0, column=0)
         self.check_hdr = ModernCheckbox(hf, "HDR METADATA", self.opt_hdr, command=self.toggle_hdr); self.check_hdr.grid(row=0, column=1)
         self.check_10bit = ModernCheckbox(hf, "10-BIT HDR", self.opt_10bit, command=self.toggle_10bit); self.check_10bit.grid(row=1, column=0)
-        self.check_anim = ModernCheckbox(hf, "ANIMATION", self.opt_anim); self.check_anim.grid(row=1, column=1)
-        
-        for c, t in [(self.check_alpha, "Lossless alpha layer."), (self.check_hdr, "Standard HDR hints."), (self.check_10bit, "1024-step color."), (self.check_anim, "Motion deltas.")]: Tooltip(c, t)
+        self.check_anim = ModernCheckbox(hf, "ANIMATION", self.opt_anim, command=self.on_setting_change); self.check_anim.grid(row=1, column=1)
+        for c, t in [(self.check_alpha, "Lossless alpha layer."), (self.check_hdr, "HDR hints."), (self.check_10bit, "1024-step color."), (self.check_anim, "Motion deltas.")]: Tooltip(c, t)
+
+        # Metadata Section
+        tk.Label(lp, text="METADATA", font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w", pady=(10, 5))
+        meta_f = tk.Frame(lp, bg=self.colors["surface"], padx=15, pady=10, highlightthickness=1, highlightbackground="#1a1a1a")
+        meta_f.pack(fill="x")
+        for i, (l, v) in enumerate([("Author", self.meta_author), ("Copyright", self.meta_copyright), ("Description", self.meta_desc)]):
+            tk.Label(meta_f, text=l, font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg="#777").grid(row=0, column=i, sticky="w", padx=5)
+            tk.Entry(meta_f, textvariable=v, bg="#111", fg="#fff", bd=0, font=("Segoe UI", 9), insertbackground="#fff", width=20).grid(row=1, column=i, padx=5, pady=2, ipady=5)
 
         tk.Label(rp, text="VISUAL PIPELINE", font=("Segoe UI Bold", 10), bg="#050505", fg=self.colors["sub"]).pack(pady=(0, 10))
         self.pc = tk.Frame(rp, bg="#000", width=400, height=400, highlightthickness=2, highlightbackground="#111")
@@ -195,7 +206,7 @@ class WorstImageFormatApp:
         stats = tk.Frame(rp, bg="#000", pady=15, highlightthickness=1, highlightbackground="#1a1a1a")
         stats.pack(fill="x", pady=20)
         self.rmse_l = tk.Label(stats, text="RMSE: 0.0000", font=("Consolas Bold", 14), bg="#000", fg=self.colors["neon"]); self.rmse_l.pack()
-        ModernCheckbox(rp, "REAL-TIME PREVIEW", self.show_preview).pack(pady=5)
+        self.cb_preview = ModernCheckbox(rp, "REAL-TIME PREVIEW", self.show_preview, command=self.on_setting_change); self.cb_preview.pack(pady=5)
 
         self.console = tk.Text(lp, height=4, bg="#000", fg=self.colors["neon"], font=("Consolas", 10), padx=15, pady=10, bd=0)
         self.console.pack(fill="x", pady=10)
@@ -210,31 +221,55 @@ class WorstImageFormatApp:
 
     def toggle_hdr(self):
         if self.opt_hdr.get(): self.opt_10bit.set(False); self.check_10bit.draw()
+        self.on_setting_change()
     def toggle_10bit(self):
         if self.opt_10bit.get(): self.opt_hdr.set(False); self.check_hdr.draw()
+        self.on_setting_change()
     def update_q_label(self, v): self.q_label.config(text=str(v))
-    def update_ui(self):
-        is_l = self.compression_mode.get() == 2
-        self.q_label.config(fg=self.colors["accent"] if is_l else "#222")
-        self.preset_cb.config(state="readonly" if is_l else "disabled")
+    def on_slider_change(self, v): self.update_q_label(v); self.on_setting_change()
+    def on_setting_change(self):
+        if self.show_preview.get() and self.input_path.get():
+            threading.Thread(target=self.trigger_preview, daemon=True).start()
 
-    def log(self, m):
-        self.console.config(state="normal"); self.console.insert("end", f"▶ {m}\n"); self.console.see("end"); self.console.config(state="disabled")
+    def trigger_preview(self):
+        with self.preview_lock:
+            try:
+                from .codec import encode_lossy, decode_lossy
+                with Image.open(self.input_path.get()) as img:
+                    img = img.convert("RGBA" if self.opt_alpha.get() else "RGB")
+                    img.thumbnail((400, 400)) # Small proxy for speed
+                    w, h = img.size
+                    pixels = np.array(img)
+                    channels = 4 if self.opt_alpha.get() else 3
+                    bit_depth = 10 if self.opt_10bit.get() else 8
+                    
+                    # Encode/Decode proxy
+                    enc = encode_lossy(pixels.tobytes(), w, h, quality=self.slider.val, preset=self.preset.get(), channels=channels, bit_depth=bit_depth, gpu_mode=self.gpu_mode.get())
+                    dec_bytes = decode_lossy(enc, w, h, channels, bit_depth=bit_depth, gpu_mode=self.gpu_mode.get())
+                    
+                    dtype = np.uint8 if bit_depth == 8 else np.uint16
+                    res = np.frombuffer(dec_bytes, dtype=dtype).reshape((h, w, channels))
+                    
+                    if bit_depth == 10: res = (res / 4).astype(np.uint8)
+                    
+                    preview_pil = Image.fromarray(res, "RGBA" if channels == 4 else "RGB")
+                    rmse = np.sqrt(np.mean((pixels.astype(np.float32) - res.astype(np.float32))**2))
+                    
+                    photo = ImageTk.PhotoImage(preview_pil)
+                    self.root.after(0, lambda: self.update_preview_ui(photo, rmse))
+            except: pass
+
+    def update_preview_ui(self, photo, rmse):
+        self.pl.config(image=photo); self.pl.image = photo
+        self.rmse_l.config(text=f"RMSE: {rmse:6.4f}")
 
     def browse_input(self):
         p = modern_file_picker(title="Select Asset", mode="open")
-        if p: 
+        if p:
             self.input_path.set(p); self.log(f"Linked: {os.path.basename(p)}")
             base, ext = os.path.splitext(p)
-            new_ext = ".awif" if ext.lower() == ".gif" else ".wimf"
-            self.output_path.set(base + new_ext)
-            try:
-                with Image.open(p) as img:
-                    if img.mode in ('I;16', 'RGB;16', 'RGBA;16') or 'hdr' in p.lower():
-                        self.opt_hdr.set(True); self.opt_10bit.set(False)
-                        self.check_hdr.draw(); self.check_10bit.draw(); self.log("HDR Profile Detected.")
-                    if getattr(img, "is_animated", False): self.opt_anim.set(True); self.check_anim.draw()
-            except: pass
+            self.output_path.set(base + (".awif" if ext.lower() == ".gif" else ".wimf"))
+            self.on_setting_change()
 
     def browse_output(self):
         p = modern_file_picker(title="Export Asset", mode="save", default_ext=".wimf")
@@ -246,7 +281,7 @@ class WorstImageFormatApp:
 
     def work(self):
         try:
-            meta = {"engine": "WIMF", "hdr": self.opt_hdr.get(), "bit10": self.opt_10bit.get(), "alpha": self.opt_alpha.get(), "is_animated": self.opt_anim.get(), "gpu_mode": self.gpu_mode.get()}
+            meta = {"author": self.meta_author.get(), "copyright": self.meta_copyright.get(), "description": self.meta_desc.get(), "bit10": self.opt_10bit.get(), "alpha": self.opt_alpha.get(), "is_animated": self.opt_anim.get(), "gpu_mode": self.gpu_mode.get()}
             from .cli import convert
             convert(input_path=self.input_path.get(), output_path=self.output_path.get(), compression=self.compression_mode.get(), quality=self.slider.val, preset=self.preset.get(), meta=meta)
             self.root.after(0, lambda: self.log("Done."))
@@ -254,8 +289,6 @@ class WorstImageFormatApp:
         finally: self.root.after(0, lambda: self.btn_run.config_state("normal", "START"))
 
 def main():
-    root = tk.Tk()
-    app = WorstImageFormatApp(root)
-    root.mainloop()
+    root = tk.Tk(); app = WorstImageFormatApp(root); root.mainloop()
 
 if __name__ == "__main__": main()
