@@ -80,8 +80,8 @@ from .hwaccel import get_gpu_manager
 
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, gpu_mode=None):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
-    arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, channels))
-    arr = arr_full[..., :3].astype(np.int32) # Use int32 for YCoCg math
+    arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, -1)) # Use -1 to handle any incoming channel count
+    arr = arr_full[..., :3].astype(np.int32) # Always take first 3 for YCoCg math
     
     # --- HARDWARE ACCELERATION CHECK ---
     gpu = get_gpu_manager(gpu_mode or 'off')
@@ -199,11 +199,12 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         final_payload.extend(c)
         
     # Lossless-Alpha Hybrid Mode (Always packed at the end)
-    if channels == 4:
+    if channels == 4 and arr_full.shape[-1] == 4:
         alpha_stream = encode_lossless_channel(arr_full[..., 3])
         final_payload.extend(alpha_stream)
         
     return bytes(final_payload)
+
 
 def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, gpu_mode=None):
     gpu = get_gpu_manager(gpu_mode or 'off')
