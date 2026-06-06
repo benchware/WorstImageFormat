@@ -24,14 +24,13 @@ def stream_load(filename):
             return
 
         # Check for Progressive Mode (9)
-        mode = data[0] & 0x0F
-        if mode == 9:
+        if flags == 9:
             for layer in range(3):
-                pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=layer)
+                pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=layer, mode_flag=flags)
                 yield w, h, pix, meta, (layer == 2)
         else:
             # Legacy or other
-            pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth)
+            pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, mode_flag=flags)
             yield w, h, pix, meta, True
 
 def loadImage(filename, target_layer=2):
@@ -51,7 +50,7 @@ def loadImage(filename, target_layer=2):
             meta['is_animated'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags in [5, 6, 8, 9]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer)
+        elif flags in [5, 6, 8, 9]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, mode_flag=flags)
         else: pix = data
         return w, h, pix, meta
 
