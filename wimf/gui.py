@@ -13,32 +13,33 @@ def modern_file_picker(title="Select File", mode="open", default_ext=".wimf", in
         if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
         return filedialog.askopenfilename(title=title)
 
-    # Simplified but strict provider logic
-    providers = []
-    if os.path.exists("/usr/bin/zenity"): providers.append("zenity")
-    if os.path.exists("/usr/bin/kdialog"): providers.append("kdialog")
-
-    for provider in providers:
+    res = None
+    if os.path.exists("/usr/bin/zenity"):
         try:
-            if provider == "zenity":
-                cmd = ["zenity", "--file-selection", f"--title={title}"]
-                if mode == "save":
-                    cmd.append("--save")
-                    cmd.append("--confirm-overwrite")
-                    if initial_file: cmd.append(f"--filename={initial_file}")
-            else:
-                cmd = ["kdialog", "--title", title]
-                if mode == "save":
-                    cmd.extend(["--getsavefilename", initial_file or ".", f"*{default_ext}"])
-                else:
-                    cmd.append("--getopenfilename")
-            
+            cmd = ["zenity", "--file-selection", f"--title={title}"]
+            if mode == "save":
+                cmd.append("--save")
+                cmd.append("--confirm-overwrite")
+                if initial_file: cmd.append(f"--filename={initial_file}")
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
-            if res: return res # Succeeded
-            if not res: return "" # Explicit Cancel
+            if res: return res 
+            if not res: return "" 
         except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return "" # Explicitly Cancelled
-        except: continue
+            if e.returncode == 1: return "" 
+        except: pass
+
+    if not res and os.path.exists("/usr/bin/kdialog"):
+        try:
+            cmd = ["kdialog", "--title", title]
+            if mode == "save":
+                cmd.extend(["--getsavefilename", initial_file or ".", f"*{default_ext}"])
+            else:
+                cmd.append("--getopenfilename")
+            res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+            if res: return res
+        except subprocess.CalledProcessError as e:
+            if e.returncode == 1: return ""
+        except: pass
 
     if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
     return filedialog.askopenfilename(title=title)
@@ -86,7 +87,7 @@ class CustomButton(tk.Canvas):
         c = color or self.current_color
         if self.is_disabled: c = "#222"
         self.create_rectangle(0, 0, w, h, fill=c, outline="")
-        self.create_text(w//2, h//2, text=self.text, fill="#000" if not self.is_disabled else "#555", font=("Segoe UI Bold", 11))
+        self.create_text(w//2, h//2, text=self.text, fill="#000" if not self.is_disabled else "#555", font=("Segoe UI Bold", 10))
     def on_enter(self, e): 
         if not self.is_disabled: self.current_color = self.hover_color; self.draw()
     def on_leave(self, e): 
@@ -226,7 +227,25 @@ class WorstImageFormatApp:
 
         self.console = tk.Text(lp, height=4, bg="#000", fg=self.colors["neon"], font=("Consolas", 10), padx=15, pady=10, bd=0)
         self.console.pack(fill="x", pady=10)
-        self.btn_run = CustomButton(lp, text="START", command=self.run, color=self.colors["accent"]); self.btn_run.pack(fill="x")
+        
+        btn_f = tk.Frame(lp, bg="#050505")
+        btn_f.pack(fill="x")
+        self.btn_run = CustomButton(btn_f, text="START", command=self.run, color=self.colors["accent"], width=300)
+        self.btn_run.pack(side="left", expand=True, fill="x", padx=(0, 10))
+        self.btn_diag = CustomButton(btn_f, text="DIAGNOSTICS", command=self.run_diagnostics, color="#444", width=150)
+        self.btn_diag.pack(side="right")
+
+    def run_diagnostics(self):
+        from .hwaccel import OPENGL_AVAILABLE, GPUManager
+        self.log("Starting System Diagnostics...")
+        self.log(f"OS: {os.name}")
+        self.log(f"OpenGL Lib: {'FOUND' if OPENGL_AVAILABLE else 'MISSING'}")
+        gpu = GPUManager(mode='auto')
+        self.log(f"GPU Support: {'YES' if gpu.enabled else 'NO'}")
+        self.log(f"Active Renderer: {gpu.get_info()}")
+        if not gpu.enabled:
+            self.log("Hint: Try 'sudo pacman -S python-pyopengl python-glfw'")
+        self.log("Diagnostics Complete.")
 
     def create_io(self, parent, label, var, cmd):
         f = tk.Frame(parent, bg="#050505", pady=5); f.pack(fill="x")
