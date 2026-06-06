@@ -1,5 +1,6 @@
 import numpy as np
 import lzma
+import struct
 from .core import paeth_predictor, haar_level, ihaar_level
 
 def encode_lossless_channel(channel_2d):
@@ -53,136 +54,216 @@ def decode_lossless(data, w, h, channels):
                 arr[y, x, ch] = (res[y, x, ch] + pr) % 256
     return arr.astype(np.uint8).tobytes()
 
-def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8):
+def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, channels))
-    arr = arr_full[..., :3].astype(np.float32) # Only RGB is lossy
+    arr = arr_full[..., :3].astype(np.int32) # Use int32 for YCoCg math
     
-    mid_point = 2**(bit_depth - 1)
+    # --- REVERSIBLE YCoCg-R TRANSFORM ---
+    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+    co = r - b
+    tmp = b + (co >> 1)
+    cg = g - tmp
+    y = tmp + (cg >> 1)
     
+    # Pad to 16x16 blocks
     ph, pw = (16 - h % 16) % 16, (16 - w % 16) % 16
-    if ph > 0 or pw > 0: arr = np.pad(arr, ((0, ph), (0, pw), (0, 0)), mode='edge')
+    if ph > 0 or pw > 0:
+        y = np.pad(y, ((0, ph), (0, pw)), mode='edge')
+        co = np.pad(co, ((0, ph), (0, pw)), mode='edge')
+        cg = np.pad(cg, ((0, ph), (0, pw)), mode='edge')
     
-    gh, gw = arr.shape[0] // 16, arr.shape[1] // 16
-    blocks = arr.reshape(gh, 16, gw, 16, 3).swapaxes(1, 2)
+    gh, gw = y.shape[0] // 16, y.shape[1] // 16
     
-    y = (0.299 * blocks[...,0] + 0.587 * blocks[...,1] + 0.114 * blocks[...,2]) - mid_point
-    cb = (mid_point - 0.168736 * blocks[...,0] - 0.331264 * blocks[...,1] + 0.5 * blocks[...,2]) - mid_point
-    cr = (mid_point + 0.5 * blocks[...,0] - 0.418688 * blocks[...,1] - 0.081312 * blocks[...,2]) - mid_point
-    cb_res, cr_res = cb - (y * 0.1), cr - (y * 0.1)
+    def to_blocks(chan):
+        return chan.reshape(gh, 16, gw, 16).swapaxes(1, 2).astype(np.float32)
+
+    y_blocks, co_blocks, cg_blocks = to_blocks(y), to_blocks(co), to_blocks(cg)
     
     # Adaptive Quantization
     def process_channel(data, q_base):
         L1_LL, L1_HL, L1_LH, L1_HH = haar_level(data)
         L2_LL, L2_HL, L2_LH, L2_HH = haar_level(L1_LL)
         
-        # Scaling quantization steps for high bit depths
-        # 10-bit needs smaller steps to preserve that extra precision
         depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
-        
-        # Lower noise floor for better detail retention
         noise_floor = max(0.0, (2.0 * depth_scale) - (q_base * 0.2))
-        L1_HL[np.abs(L1_HL) < noise_floor] = 0; L1_LH[np.abs(L1_LH) < noise_floor] = 0; L1_HH[np.abs(L1_HH) < noise_floor] = 0
         
-        # New, less aggressive quantization formulas
+        # Quantization formulas
         q_eff = q_base
         q1 = max(1.0, (16.0 * depth_scale) - (q_eff * 1.5))
         q2 = max(1.0, (8.0 * depth_scale) - (q_eff * 0.75))
         
+        # Apply noise floor to high bands
+        for b in [L1_HL, L1_LH, L1_HH]: b[np.abs(b) < noise_floor] = 0
+
         L2_LL_q = np.round(L2_LL).astype(np.int16)
         L2_HL_q, L2_LH_q, L2_HH_q = np.round(L2_HL/q2).astype(np.int16), np.round(L2_LH/q2).astype(np.int16), np.round(L2_HH/q2).astype(np.int16)
         L1_HL_q, L1_LH_q, L1_HH_q = np.round(L1_HL/q1).astype(np.int16), np.round(L1_LH/q1).astype(np.int16), np.round(L1_HH/q1).astype(np.int16)
         
         return [L2_LL_q, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]
 
-    y_bands = process_channel(y, quality)
-    cb_bands = process_channel(cb_res, quality - 1)
-    cr_bands = process_channel(cr_res, quality - 1)
+    y_bands = process_channel(y_blocks, quality)
+    co_bands = process_channel(co_blocks, quality - 1)
+    cg_bands = process_channel(cg_blocks, quality - 1)
     
-    # Dynamic Dictionary Priming (Data Restructuring)
-    # Group all base frequencies first, then all mid, then all high.
-    payload = bytearray()
-    for i in range(7):
-        payload.extend(y_bands[i].tobytes())
-        payload.extend(cb_bands[i].tobytes())
-        payload.extend(cr_bands[i].tobytes())
+    # --- PROGRESSIVE LAYER PACKING ---
+    # Layer 0: Base DC (1/4 size)
+    l0_payload = y_bands[0].tobytes() + co_bands[0].tobytes() + cg_bands[0].tobytes()
+    
+    # Layer 1: Mid detail (reconstructs 1/2 size)
+    l1_payload = bytearray()
+    for i in range(1, 4):
+        l1_payload.extend(y_bands[i].tobytes())
+        l1_payload.extend(co_bands[i].tobytes())
+        l1_payload.extend(cg_bands[i].tobytes())
         
-    meta = bytes([quality << 4 | 8]) # Mode 8: Software Perfection
+    # Layer 2: Fine detail (reconstructs full size)
+    l2_payload = bytearray()
+    for i in range(4, 7):
+        l2_payload.extend(y_bands[i].tobytes())
+        l2_payload.extend(co_bands[i].tobytes())
+        l2_payload.extend(cg_bands[i].tobytes())
+
+    lvl = 9 if preset == "Extreme" else 2
+    c0 = lzma.compress(l0_payload, preset=lvl)
+    c1 = lzma.compress(l1_payload, preset=lvl)
+    c2 = lzma.compress(l2_payload, preset=lvl)
     
-    # Lossless-Alpha Hybrid Mode
+    # Header: Quality(4 bits) | Reserved(4 bits)
+    header = bytes([quality << 4 | 9]) # Mode 9: Progressive YCoCg-R
+    
+    final_payload = bytearray(header)
+    for c in [c0, c1, c2]:
+        final_payload.extend(struct.pack('<I', len(c)))
+        final_payload.extend(c)
+        
+    # Lossless-Alpha Hybrid Mode (Always packed at the end)
     if channels == 4:
         alpha_stream = encode_lossless_channel(arr_full[..., 3])
-        payload.extend(alpha_stream)
+        final_payload.extend(alpha_stream)
         
-    lvl = 9 if preset == "Extreme" else 2
-    return lzma.compress(meta + bytes(payload), preset=lvl)
+    return bytes(final_payload)
 
-def decode_lossy(data, w, h, channels, bit_depth=8):
-    payload = lzma.decompress(data)
-    quality = payload[0] >> 4
+def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2):
+    mode = data[0] & 0x0F
+    quality = data[0] >> 4
+    
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
-    sz_L2, sz_L1 = bc * 16 * 2, bc * 64 * 2
     
     mid_point = 2**(bit_depth - 1)
     depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
+    limit = 2**bit_depth - 1
 
-    offset = 1
-    bands = [[], [], []] # Y, Cb, Cr
-    
-    # Entropy-Aware Re-Quantization mapping
-    q_base = quality
-    
     def get_steps(q):
-        q_eff = q
-        q1 = max(1.0, (16.0 * depth_scale) - (q_eff * 1.5))
-        q2 = max(1.0, (8.0 * depth_scale) - (q_eff * 0.75))
+        q1 = max(1.0, (16.0 * depth_scale) - (q * 1.5))
+        q2 = max(1.0, (8.0 * depth_scale) - (q * 0.75))
         return q1, q2
 
-    luma_q1, luma_q2 = get_steps(q_base)
-    chroma_q1, chroma_q2 = get_steps(max(1, q_base - 1))
+    luma_q1, luma_q2 = get_steps(quality)
+    chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
     
-    for i, sz in enumerate([sz_L2, sz_L2, sz_L2, sz_L2, sz_L1, sz_L1, sz_L1]):
-        for c in range(3): # Y, Cb, Cr
-            chunk = np.frombuffer(payload[offset : offset+sz], dtype=np.int16).astype(np.float32)
-            offset += sz
+    bands = [[], [], []] # Y, Co/Cb, Cg/Cr
+
+    if mode == 9:
+        # --- PROGRESSIVE YCoCg-R DECODE ---
+        offset = 1
+        chunks = []
+        for _ in range(3):
+            sz = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
+            chunks.append(lzma.decompress(data[offset:offset+sz])); offset += sz
             
-            # De-quantize using channel-specific steps
-            q1, q2 = (luma_q1, luma_q2) if c == 0 else (chroma_q1, chroma_q2)
+        # Layer 0: Base LL (1/4 size)
+        sz_L2 = bc * 16 * 2
+        l0_raw = chunks[0]
+        for c in range(3):
+            chunk = np.frombuffer(l0_raw[c*sz_L2 : (c+1)*sz_L2], dtype=np.int16).astype(np.float32)
+            bands[c].append(chunk.reshape(gh, gw, 4, 4))
             
-            if i > 0 and i < 4: chunk *= q2
-            elif i >= 4: chunk *= q1
-            
-            shape = (gh, gw, 4, 4) if i < 4 else (gh, gw, 8, 8)
-            bands[c].append(chunk.reshape(shape))
-            
+        # Layer 1: Mid detail
+        if target_layer >= 1:
+            l1_raw = chunks[1]
+            sz_mid = bc * 16 * 2
+            o = 0
+            for i in range(1, 4): # HL, LH, HH for each channel
+                for c in range(3):
+                    chunk = np.frombuffer(l1_raw[o : o+sz_mid], dtype=np.int16).astype(np.float32)
+                    chunk *= ((luma_q2, luma_q2) if c == 0 else (chroma_q2, chroma_q2))[0] # Simplified q matching
+                    bands[c].append(chunk.reshape(gh, gw, 4, 4))
+                    o += sz_mid
+        else:
+            for c in range(3): 
+                for _ in range(3): bands[c].append(np.zeros((gh, gw, 4, 4), dtype=np.float32))
+
+        # Layer 2: Fine detail
+        if target_layer >= 2:
+            l2_raw = chunks[2]
+            sz_fine = bc * 64 * 2
+            o = 0
+            for i in range(4, 7):
+                for c in range(3):
+                    chunk = np.frombuffer(l2_raw[o : o+sz_fine], dtype=np.int16).astype(np.float32)
+                    chunk *= ((luma_q1, luma_q1) if c == 0 else (chroma_q1, chroma_q1))[0]
+                    bands[c].append(chunk.reshape(gh, gw, 8, 8))
+                    o += sz_fine
+        else:
+            for c in range(3): 
+                for _ in range(3): bands[c].append(np.zeros((gh, gw, 8, 8), dtype=np.float32))
+
+    else:
+        # --- LEGACY YCbCr DECODE (Mode 8) ---
+        payload = lzma.decompress(data)
+        sz_L2, sz_L1 = bc * 16 * 2, bc * 64 * 2
+        offset = 1
+        for i, sz in enumerate([sz_L2, sz_L2, sz_L2, sz_L2, sz_L1, sz_L1, sz_L1]):
+            for c in range(3):
+                chunk = np.frombuffer(payload[offset : offset+sz], dtype=np.int16).astype(np.float32)
+                offset += sz
+                q1, q2 = (luma_q1, luma_q2) if c == 0 else (chroma_q1, chroma_q2)
+                if i > 0 and i < 4: chunk *= q2
+                elif i >= 4: chunk *= q1
+                shape = (gh, gw, 4, 4) if i < 4 else (gh, gw, 8, 8)
+                bands[c].append(chunk.reshape(shape))
+
     def reconstruct_channel(b_list):
         L1_LL = ihaar_level(b_list[0], b_list[1], b_list[2], b_list[3])
         return ihaar_level(L1_LL, b_list[4], b_list[5], b_list[6])
 
     y_rec = reconstruct_channel(bands[0])
-    cb_rec = reconstruct_channel(bands[1]) + (y_rec * 0.1)
-    cr_rec = reconstruct_channel(bands[2]) + (y_rec * 0.1)
+    c1_rec = reconstruct_channel(bands[1])
+    c2_rec = reconstruct_channel(bands[2])
     
-    y, cb, cr = y_rec + mid_point, cb_rec + mid_point, cr_rec + mid_point
-    cb_f, cr_f = cb - mid_point, cr - mid_point
-    
-    limit = 2**bit_depth - 1
-    r = np.clip(y + 1.402 * cr_f, 0, limit)
-    g = np.clip(y - 0.344136 * cb_f - 0.714136 * cr_f, 0, limit)
-    b = np.clip(y + 1.772 * cb_f, 0, limit)
-    
+    if mode == 9:
+        # Reversible Inverse YCoCg-R (Vectorized)
+        tmp = y_rec - np.floor(c2_rec / 2.0)
+        g = c2_rec + tmp
+        b = tmp - np.floor(c1_rec / 2.0)
+        r = b + c1_rec
+    else:
+        # Legacy YCbCr
+        y_rec += (c1_rec * 0.1) # Cb correction
+        y_rec += (c2_rec * 0.1) # Cr correction
+        y, cb, cr = y_rec + mid_point, c1_rec + mid_point, c2_rec + mid_point
+        cb_f, cr_f = cb - mid_point, cr - mid_point
+        r = y + 1.402 * cr_f
+        g = y - 0.344136 * cb_f - 0.714136 * cr_f
+        b = y + 1.772 * cb_f
+
+    img_rgb = np.stack([np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)], axis=-1)
     dtype = np.uint8 if bit_depth == 8 else np.uint16
-    img_rgb = np.stack([r, g, b], axis=-1).astype(dtype)
-    img_rgb = img_rgb.swapaxes(1, 2).reshape(gh * 16, gw * 16, 3)[:h, :w]
+    img_rgb = img_rgb.astype(dtype).swapaxes(1, 2).reshape(gh * 16, gw * 16, 3)[:h, :w]
     
     if channels == 4:
-        alpha_data = payload[offset:]
+        if mode == 9:
+            # Alpha data is after the 3 progressive chunks in 'data'
+            alpha_data = data[offset:]
+        else:
+            # Legacy: Alpha is at the end of the decompressed payload
+            alpha_data = payload[offset:]
+            
         alpha_channel = decode_lossless_channel(alpha_data, w, h)
-        # Note: Alpha is currently always 8-bit in this hybrid mode, 
-        # we might need to upscale it if bit_depth > 8
         if bit_depth > 8:
             alpha_channel = (alpha_channel.astype(np.uint16) * (limit // 255)).astype(np.uint16)
         return np.dstack((img_rgb, alpha_channel)).tobytes()
-        
+
     return img_rgb.tobytes()
