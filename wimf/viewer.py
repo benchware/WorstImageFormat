@@ -1,8 +1,6 @@
 import tkinter as tk
 from PIL import Image, ImageTk
-from .io import loadImage
-import sys
-import os
+from .io import loadImage, stream_load
 
 class WIMFViewer:
     def __init__(self, root, filename):
@@ -14,6 +12,7 @@ class WIMFViewer:
         self.tk_frames = []
         self.last_zoom = -1.0
         self.current_frame = 0
+        self.filename = filename
 
         try:
             try:
@@ -21,18 +20,9 @@ class WIMFViewer:
                 windll.shcore.SetProcessDpiAwareness(1)
             except: pass
 
-            self.w, self.h, pixel_data, self.meta = loadImage(filename)
+            # Quick initial load to get metadata and dimensions
+            self.w, self.h, _, self.meta = loadImage(filename, target_layer=0)
             self.is_animated = self.meta.get('is_animated', False)
-            
-            channels = self.meta.get('channels', 3)
-            img_mode = 'RGBA' if channels >= 4 else 'RGB'
-            
-            if self.is_animated:
-                # pixel_data is a list of frame bytes
-                self.frames = [Image.frombytes(img_mode, (self.w, self.h), frame_bytes) for frame_bytes in pixel_data]
-                self.playing = True
-            else:
-                self.orig_image = Image.frombytes(img_mode, (self.w, self.h), pixel_data)
             
             self.canvas = tk.Canvas(root, bg="#0a0a0a", highlightthickness=0)
             self.canvas.pack(expand=True, fill="both")
@@ -71,13 +61,36 @@ class WIMFViewer:
             root.geometry(f"{ww}x{wh+30}")
             
             if self.is_animated:
+                # For animations, we just load all frames normally (no progressive support yet)
+                _, _, pixel_data, _ = loadImage(filename)
+                channels = self.meta.get('channels', 3)
+                img_mode = 'RGBA' if channels >= 4 else 'RGB'
+                self.frames = [Image.frombytes(img_mode, (self.w, self.h), frame_bytes) for frame_bytes in pixel_data]
+                self.playing = True
                 self.play_loop()
             else:
-                self.update_display()
+                # For still images, use progressive loader
+                self.stream = stream_load(filename)
+                self.load_next_layer()
+                
             self.update_status()
             
         except Exception as e:
             tk.Label(root, text=f"LOAD ERROR\n{e}", fg="#ff4444", bg="#0a0a0a", font=("Segoe UI Bold", 12), pady=50).pack()
+
+    def load_next_layer(self):
+        try:
+            self.w, self.h, pix, self.meta, is_final = next(self.stream)
+            channels = self.meta.get('channels', 3)
+            img_mode = 'RGBA' if channels >= 4 else 'RGB'
+            self.orig_image = Image.frombytes(img_mode, (self.w, self.h), pix)
+            self.update_display()
+            if not is_final:
+                self.root.after(100, self.load_next_layer)
+        except StopIteration:
+            pass
+        except Exception as e:
+            print(f"Streaming error: {e}")
 
     def get_current_image(self):
         if self.is_animated:

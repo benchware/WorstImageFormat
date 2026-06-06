@@ -1,7 +1,7 @@
-from .io import loadImage, saveImage
+from .io import loadImage, saveImage, stream_load
 
-__version__ = "1.1.0"
-__all__ = ["loadImage", "saveImage"]
+__version__ = "1.2.0"
+__all__ = ["loadImage", "saveImage", "stream_load"]
 
 # Alias for library standard feel
 load = loadImage

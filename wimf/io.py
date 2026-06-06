@@ -3,7 +3,38 @@ import struct
 from .codec import encode_lossless, decode_lossless, encode_lossy, decode_lossy
 from .animation import encode_animated, decode_animated
 
-def loadImage(filename):
+def stream_load(filename):
+    """
+    Generator that yields progressively better versions of the image.
+    Yields: (w, h, pix, meta, is_final)
+    """
+    with open(filename, 'rb') as f:
+        header = f.read(4)
+        if header not in [b"WIMF"]: raise ValueError("Streaming only supported for STILL WIMF")
+        w, h = int.from_bytes(f.read(4), 'little'), int.from_bytes(f.read(4), 'little')
+        flags = int.from_bytes(f.read(1), 'little')
+        mlen = int.from_bytes(f.read(4), 'little')
+        meta = json.loads(f.read(mlen).decode('utf-8')) if mlen > 0 else {}
+        data = f.read()
+        channels = meta.get('channels', 3)
+        bit_depth = 10 if meta.get('bit10') else 8
+        
+        if flags == 1: # Lossless
+            yield w, h, decode_lossless(data, w, h, channels), meta, True
+            return
+
+        # Check for Progressive Mode (9)
+        mode = data[0] & 0x0F
+        if mode == 9:
+            for layer in range(3):
+                pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=layer)
+                yield w, h, pix, meta, (layer == 2)
+        else:
+            # Legacy or other
+            pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth)
+            yield w, h, pix, meta, True
+
+def loadImage(filename, target_layer=2):
     with open(filename, 'rb') as f:
         header = f.read(4)
         if header not in [b"WIMF", b"AWIF"]: raise ValueError(f"Invalid Magic Byte: {header}")
@@ -20,7 +51,7 @@ def loadImage(filename):
             meta['is_animated'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags in [5, 6, 8]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth)
+        elif flags in [5, 6, 8, 9]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer)
         else: pix = data
         return w, h, pix, meta
 
@@ -55,7 +86,7 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
     else:
         if compression == 2:
             data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels, bit_depth=bit_depth)
-            final_flags = 8
+            final_flags = 9 # Mode 9: Progressive YCoCg-R
         elif compression == 1:
             data = encode_lossless(pixels, w, h, channels)
             final_flags = 1
