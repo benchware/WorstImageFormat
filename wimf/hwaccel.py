@@ -10,14 +10,6 @@ try:
     OPENGL_AVAILABLE = True
 except ImportError:
     OPENGL_AVAILABLE = False
-    print("[WIMF] PyOpenGL and GLFW is missing, Hardware Acceleration is disabled.")
-
-try:
-    import vulkan as vk
-    VULKAN_AVAILABLE = True
-except ImportError:
-    VULKAN_AVAILABLE = False
-    # Only print this if they actually try to use Vulkan later to avoid noise
 
 class GPUManager:
     def __init__(self, mode='auto', device_index=0):
@@ -31,7 +23,6 @@ class GPUManager:
         self._init_backend()
             
     def _init_backend(self):
-        # We always try OpenGL first as it's our primary compute backend
         self._init_opengl()
 
     def _init_opengl(self):
@@ -42,7 +33,6 @@ class GPUManager:
             print("[WIMF] GLFW init failed. GPU disabled.")
             return
 
-        # Request Core Profile for modern GPU features
         glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -69,8 +59,6 @@ class GPUManager:
 
         self.enabled = True
         self._load_shaders()
-        
-        # CRITICAL: Detach context from the main thread so worker threads can claim it!
         glfw.make_context_current(None)
         print(f"[WIMF] GPU Acceleration Ready: {renderer}")
 
@@ -118,11 +106,15 @@ class GPUManager:
         if not self.enabled: return None
         glfw.make_context_current(self.context)
         try:
-            # Padding check
-            pw, ph = data_np.shape[1], data_np.shape[0]
+            ph, pw = data_np.shape[0], data_np.shape[1]
             tex_in = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex_in)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, pw, ph, 0, GL_RGB, GL_FLOAT, data_np.astype(np.float32))
+            # Ensure input is float32 and 3-channel for glTexImage2D (though shader expects RGBA, we provide RGB)
+            # Actually better to pad to 4 channels here to avoid driver issues
+            data_rgba = np.zeros((ph, pw, 4), dtype=np.float32)
+            data_rgba[..., :3] = data_np.astype(np.float32)
+            
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, pw, ph, 0, GL_RGBA, GL_FLOAT, data_rgba)
             glBindImageTexture(0, tex_in, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F)
             
             tex_out = glGenTextures(1)
@@ -145,7 +137,7 @@ class GPUManager:
         if not self.enabled: return None
         glfw.make_context_current(self.context)
         try:
-            pw, ph = data_np.shape[1], data_np.shape[0]
+            ph, pw = data_np.shape[0], data_np.shape[1]
             tex_in = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex_in)
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, pw, ph, 0, GL_RGBA, GL_FLOAT, data_np.astype(np.float32))

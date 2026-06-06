@@ -2,6 +2,8 @@ import numpy as np
 import lzma
 import struct
 from .core import paeth_predictor, haar_level, ihaar_level
+from concurrent.futures import ThreadPoolExecutor
+from .hwaccel import get_gpu_manager
 
 def encode_lossless_channel(channel_2d):
     """Encodes a single 2D channel using Paeth prediction."""
@@ -37,8 +39,6 @@ def encode_lossless(pixels, w, h, channels):
     res[1:, 0] = arr[1:, 0] - arr[:-1, 0]
     res[1:, 1:] = arr[1:, 1:] - paeth_predictor(arr[1:, :-1], arr[:-1, 1:], arr[:-1, :-1])
     return lzma.compress(res.astype(np.uint8).tobytes(), preset=9)
-
-from concurrent.futures import ThreadPoolExecutor
 
 def decode_lossless(data, w, h, channels):
     res = np.frombuffer(lzma.decompress(data), dtype=np.uint8).reshape((h, w, channels)).astype(np.int16)
@@ -76,35 +76,26 @@ def decode_lossless(data, w, h, channels):
         
     return arr.astype(np.uint8).tobytes()
 
-from .hwaccel import get_gpu_manager
-
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, gpu_mode=None):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
-    arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, -1)) # Use -1 to handle any incoming channel count
-    arr = arr_full[..., :3].astype(np.int32) # Always take first 3 for YCoCg math
+    arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, -1))
+    arr = arr_full[..., :3].astype(np.int32)
     
     # --- HARDWARE ACCELERATION CHECK ---
     gpu = get_gpu_manager(gpu_mode or 'off')
     if gpu.enabled:
-        print(f"[WIMF] Hardware Acceleration Active: {gpu.get_info()}")
         gpu_res = gpu.dispatch_ycocg_fwd(arr, w, h)
         if gpu_res is not None:
-            # Extract Y, Co, Cg from GPU result (which is RGBA32F)
             y = gpu_res[..., 0]
             co = gpu_res[..., 1]
             cg = gpu_res[..., 2]
-            print(f"[WIMF] GPU Dispatch Successful.")
         else:
-            print(f"[WIMF] GPU Dispatch Failed, falling back to CPU.")
             r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
             co = r - b
             tmp = b + (co >> 1)
             cg = g - tmp
             y = tmp + (cg >> 1)
     else:
-        if gpu_mode and gpu_mode != 'off':
-            print(f"[WIMF] GPU requested ({gpu_mode}) but not available. Using CPU.")
-        # --- REVERSIBLE YCoCg-R TRANSFORM ---
         r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
         co = r - b
         tmp = b + (co >> 1)
@@ -131,13 +122,10 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         L2_LL, L2_HL, L2_LH, L2_HH = haar_level(L1_LL)
         
         depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
-        # Fix: noise_floor should not scale with depth_scale for high quality
         noise_floor = max(0.0, 2.0 - (q_base * 0.2))
         
         # Quantization formulas
         q_eff = q_base
-        # Fix: Quantization should not scale UP with bit_depth. 
-        # Higher bit depth means more precision is needed.
         q1 = max(1.0, 16.0 - (q_eff * 1.5))
         q2 = max(1.0, 8.0 - (q_eff * 0.75))
         
@@ -145,17 +133,15 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         for b in [L1_HL, L1_LH, L1_HH]: b[np.abs(b) < (noise_floor)] = 0
 
         # In-place quantization
-        L2_LL = np.round(L2_LL).astype(np.int16)
-        
+        L2_LL_q = np.round(L2_LL).astype(np.int16)
         L2_HL_q = np.round(L2_HL / q2).astype(np.int16)
         L2_LH_q = np.round(L2_LH / q2).astype(np.int16)
         L2_HH_q = np.round(L2_HH / q2).astype(np.int16)
-        
         L1_HL_q = np.round(L1_HL / q1).astype(np.int16)
         L1_LH_q = np.round(L1_LH / q1).astype(np.int16)
         L1_HH_q = np.round(L1_HH / q1).astype(np.int16)
         
-        return [L2_LL, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]
+        return [L2_LL_q, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]
 
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
@@ -168,17 +154,12 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
     y_bands, co_bands, cg_bands = results[0], results[1], results[2]
     
     # --- PROGRESSIVE LAYER PACKING ---
-    # Layer 0: Base DC (1/4 size)
     l0_payload = y_bands[0].tobytes() + co_bands[0].tobytes() + cg_bands[0].tobytes()
-    
-    # Layer 1: Mid detail (reconstructs 1/2 size)
     l1_payload = bytearray()
     for i in range(1, 4):
         l1_payload.extend(y_bands[i].tobytes())
         l1_payload.extend(co_bands[i].tobytes())
         l1_payload.extend(cg_bands[i].tobytes())
-        
-    # Layer 2: Fine detail (reconstructs full size)
     l2_payload = bytearray()
     for i in range(4, 7):
         l2_payload.extend(y_bands[i].tobytes())
@@ -190,39 +171,27 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
     c1 = lzma.compress(l1_payload, preset=lvl)
     c2 = lzma.compress(l2_payload, preset=lvl)
     
-    # Header: Quality(4 bits) | Reserved(4 bits)
-    header = bytes([quality << 4 | 9]) # Mode 9: Progressive YCoCg-R
-    
+    header = bytes([quality << 4 | 9])
     final_payload = bytearray(header)
     for c in [c0, c1, c2]:
         final_payload.extend(struct.pack('<I', len(c)))
         final_payload.extend(c)
         
-    # Lossless-Alpha Hybrid Mode (Always packed at the end)
     if channels == 4 and arr_full.shape[-1] == 4:
         alpha_stream = encode_lossless_channel(arr_full[..., 3])
         final_payload.extend(alpha_stream)
         
     return bytes(final_payload)
 
-
 def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, gpu_mode=None):
-    gpu = get_gpu_manager(gpu_mode or 'off')
-    if gpu.enabled:
-        # Placeholder for GPU reconstruction
-        pass
-    
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
-    
     mid_point = 2**(bit_depth - 1)
     depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
     limit = 2**bit_depth - 1
-
-    bands = [[], [], []] # Y, Co/Cb, Cg/Cr
+    bands = [[], [], []]
 
     if mode_flag == 9:
-        # --- PROGRESSIVE YCoCg-R (New) ---
         quality = data[0] >> 4
         mode = data[0] & 0x0F
         offset = 1
@@ -231,7 +200,6 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
             sz = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
             chunks.append(lzma.decompress(data[offset:offset+sz])); offset += sz
             
-        # Layer 0: Base LL
         sz_L2 = bc * 16 * 2
         l0_raw = chunks[0]
         for c in range(3):
@@ -239,7 +207,6 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
             bands[c].append(chunk.reshape(gh, gw, 4, 4))
             
         def get_steps(q):
-            # Fix: Quantization should not scale UP with bit_depth.
             q1 = max(1.0, 16.0 - (q * 1.5))
             q2 = max(1.0, 8.0 - (q * 0.75))
             return q1, q2
@@ -247,52 +214,35 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         luma_q1, luma_q2 = get_steps(quality)
         chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
 
-        # Layer 1: Mid detail
         if target_layer >= 1:
-            l1_raw = chunks[1]
-            sz_mid = bc * 16 * 2
-            o = 0
+            l1_raw = chunks[1]; sz_mid = bc * 16 * 2; o = 0
             for i in range(1, 4):
                 for c in range(3):
                     chunk = np.frombuffer(l1_raw[o : o+sz_mid], dtype=np.int16).astype(np.float32)
                     chunk *= (luma_q2 if c == 0 else chroma_q2)
-                    bands[c].append(chunk.reshape(gh, gw, 4, 4))
-                    o += sz_mid
+                    bands[c].append(chunk.reshape(gh, gw, 4, 4)); o += sz_mid
         else:
             for c in range(3): 
                 for _ in range(3): bands[c].append(np.zeros((gh, gw, 4, 4), dtype=np.float32))
 
-        # Layer 2: Fine detail
         if target_layer >= 2:
-            l2_raw = chunks[2]
-            sz_fine = bc * 64 * 2
-            o = 0
+            l2_raw = chunks[2]; sz_fine = bc * 64 * 2; o = 0
             for i in range(4, 7):
                 for c in range(3):
                     chunk = np.frombuffer(l2_raw[o : o+sz_fine], dtype=np.int16).astype(np.float32)
                     chunk *= (luma_q1 if c == 0 else chroma_q1)
-                    bands[c].append(chunk.reshape(gh, gw, 8, 8))
-                    o += sz_fine
+                    bands[c].append(chunk.reshape(gh, gw, 8, 8)); o += sz_fine
         else:
             for c in range(3): 
                 for _ in range(3): bands[c].append(np.zeros((gh, gw, 8, 8), dtype=np.float32))
     else:
-        # --- LEGACY MODES (8, 5, 6) ---
-        payload = lzma.decompress(data)
-        quality = payload[0] >> 4
-        mode = payload[0] & 0x0F
-        
+        payload = lzma.decompress(data); quality = payload[0] >> 4; mode = payload[0] & 0x0F
         def get_steps(q):
-            # Fix: Quantization should not scale UP with bit_depth.
             q1 = max(1.0, 16.0 - (q * 1.5))
             q2 = max(1.0, 8.0 - (q * 0.75))
             return q1, q2
-
-        luma_q1, luma_q2 = get_steps(quality)
-        chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
-
-        sz_L2, sz_L1 = bc * 16 * 2, bc * 64 * 2
-        offset = 1
+        luma_q1, luma_q2 = get_steps(quality); chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
+        sz_L2, sz_L1 = bc * 16 * 2, bc * 64 * 2; offset = 1
         for i, sz in enumerate([sz_L2, sz_L2, sz_L2, sz_L2, sz_L1, sz_L1, sz_L1]):
             for c in range(3):
                 chunk = np.frombuffer(payload[offset : offset+sz], dtype=np.int16).astype(np.float32)
@@ -300,8 +250,7 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
                 q1, q2 = (luma_q1, luma_q2) if c == 0 else (chroma_q1, chroma_q2)
                 if i > 0 and i < 4: chunk *= q2
                 elif i >= 4: chunk *= q1
-                shape = (gh, gw, 4, 4) if i < 4 else (gh, gw, 8, 8)
-                bands[c].append(chunk.reshape(shape))
+                bands[c].append(chunk.reshape((gh, gw, 4, 4) if i < 4 else (gh, gw, 8, 8)))
 
     def reconstruct_channel(b_list):
         L1_LL = ihaar_level(b_list[0], b_list[1], b_list[2], b_list[3])
@@ -310,53 +259,38 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     with ThreadPoolExecutor(max_workers=3) as executor:
         results = list(executor.map(reconstruct_channel, bands))
     
-    y_rec, c1_rec, c2_rec = results[0], results[1], results[2]
+    # Results are (gh, gw, 16, 16)
+    # Reassemble to (gh*16, gw*16)
+    def reassemble(chan_blocks):
+        return chan_blocks.swapaxes(1, 2).reshape(gh * 16, gw * 16)
+
+    y_rec = reassemble(results[0])
+    c1_rec = reassemble(results[1])
+    c2_rec = reassemble(results[2])
     
     gpu = get_gpu_manager(gpu_mode or 'off')
     if mode_flag == 9 and gpu.enabled:
-        # Reversible Inverse YCoCg-R (GPU)
         stack = np.stack([y_rec, c1_rec, c2_rec, np.ones_like(y_rec)], axis=-1)
         gpu_res = gpu.dispatch_ycocg_inv(stack, stack.shape[1], stack.shape[0])
         if gpu_res is not None:
             r, g, b = gpu_res[..., 0], gpu_res[..., 1], gpu_res[..., 2]
         else:
-            # CPU Fallback
-            y_rec -= np.floor(c2_rec / 2.0)
-            g = c2_rec + y_rec
-            y_rec -= np.floor(c1_rec / 2.0)
-            r = y_rec + c1_rec
-            b = y_rec
+            y_rec -= np.floor(c2_rec / 2.0); g = c2_rec + y_rec; y_rec -= np.floor(c1_rec / 2.0); r = y_rec + c1_rec; b = y_rec
     elif mode_flag == 9:
-        # Reversible Inverse YCoCg-R (Vectorized CPU)
-        y_rec -= np.floor(c2_rec / 2.0) # y_rec is now tmp
-        g = c2_rec + y_rec
-        y_rec -= np.floor(c1_rec / 2.0) # y_rec is now b
-        r = y_rec + c1_rec
-        b = y_rec
+        y_rec -= np.floor(c2_rec / 2.0); g = c2_rec + y_rec; y_rec -= np.floor(c1_rec / 2.0); r = y_rec + c1_rec; b = y_rec
     else:
-        # Legacy YCbCr
         y, cb, cr = y_rec + mid_point, c1_rec + mid_point, c2_rec + mid_point
         cb_f, cr_f = cb - mid_point, cr - mid_point
-        r = y + 1.402 * cr_f
-        g = y - 0.344136 * cb_f - 0.714136 * cr_f
-        b = y + 1.772 * cb_f
+        r, g, b = y + 1.402 * cr_f, y - 0.344136 * cb_f - 0.714136 * cr_f, y + 1.772 * cb_f
 
     img_rgb = np.stack([np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)], axis=-1)
-    dtype = np.uint8 if bit_depth == 8 else np.uint16
-    img_rgb = img_rgb.astype(dtype).swapaxes(1, 2).reshape(gh * 16, gw * 16, 3)[:h, :w]
-
+    dtype_out = np.uint8 if bit_depth == 8 else np.uint16
+    img_final = img_rgb.astype(dtype_out)[:h, :w]
     
     if channels == 4:
-        if mode == 9:
-            # Alpha data is after the 3 progressive chunks in 'data'
-            alpha_data = data[offset:]
-        else:
-            # Legacy: Alpha is at the end of the decompressed payload
-            alpha_data = payload[offset:]
-            
+        alpha_data = data[offset:] if mode_flag == 9 else payload[offset:]
         alpha_channel = decode_lossless_channel(alpha_data, w, h)
-        if bit_depth > 8:
-            alpha_channel = (alpha_channel.astype(np.uint16) * (limit // 255)).astype(np.uint16)
-        return np.dstack((img_rgb, alpha_channel)).tobytes()
+        if bit_depth > 8: alpha_channel = (alpha_channel.astype(np.uint16) * (limit // 255)).astype(np.uint16)
+        return np.dstack((img_final, alpha_channel)).tobytes()
 
-    return img_rgb.tobytes()
+    return img_final.tobytes()
