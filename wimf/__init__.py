@@ -15,7 +15,16 @@ def info(path):
 
 def save(path, image, **kwargs):
     """Convenience function to save any image-like object as WIMF."""
-    raw = WIMFEncoder(image).encode(**kwargs)
+    encoder = WIMFEncoder(image)
+    # Extract known metadata keys from kwargs
+    meta_keys = ['author', 'copyright', 'desc', 'make', 'model', 'bit10', 'alpha', 'depth', 'is_animated']
+    meta_args = {k: v for k, v in kwargs.items() if k in meta_keys}
+    if meta_args:
+        encoder.set_metadata(**meta_args)
+        
+    # Remove meta keys from kwargs before passing to encode
+    encode_args = {k: v for k, v in kwargs.items() if k not in meta_keys}
+    raw = encoder.encode(**encode_args)
     with _builtins.open(path, 'wb') as f:
         f.write(raw)
 

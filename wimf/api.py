@@ -15,9 +15,10 @@ from . import parity
 
 # basically a wrapper so developers don't have to look at my math
 class WIMFImage:
-    def __init__(self, pil_image, metadata=None):
+    def __init__(self, pil_image, metadata=None, raw_pixels=None):
         self.pil = pil_image
         self.metadata = metadata or {}
+        self.raw_pixels = raw_pixels # keep the full data
         
     @property
     def width(self): return self.pil.width
@@ -34,8 +35,11 @@ class WIMFImage:
     # get the 3d stuff if it's there
     @property
     def depth_map(self):
-        if not self.metadata.get('depth'): return None
-        arr = np.array(self.pil)
+        if not self.metadata.get('depth') or self.raw_pixels is None: return None
+        h, w = self.height, self.width
+        channels = self.metadata.get('channels', 3)
+        # Depth is the last channel
+        arr = np.frombuffer(self.raw_pixels, dtype=np.uint8).reshape((h, w, channels))
         return arr[..., -1]
 
     def show(self):
@@ -101,7 +105,8 @@ class WIMFDecoder:
             pix = decode_lossless(data, self.width, self.height, self.channels)
         else:
             pix = decode_lossy(data, self.width, self.height, self.channels, 
-                              bit_depth=self.bit_depth, target_layer=target_layer, roi=roi, mip_level=mip_level)
+                              bit_depth=self.bit_depth, target_layer=target_layer, roi=roi, mip_level=mip_level,
+                              metadata=self.metadata)
             
         w, h = self.width >> mip_level, self.height >> mip_level
         if roi:
@@ -114,17 +119,18 @@ class WIMFDecoder:
             
         mode = 'RGBA' if self.channels >= 4 else 'RGB'
         # strip depth channel if it's there or pil will complain
+        pil_pix = pix
         if self.metadata.get('depth') and self.channels == 5:
             arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, 5))
-            pix = arr[..., :4].tobytes()
+            pil_pix = arr[..., :4].tobytes()
             mode = 'RGBA'
         elif self.metadata.get('depth') and self.channels == 4 and mode == 'RGB':
              arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, 4))
-             pix = arr[..., :3].tobytes()
+             pil_pix = arr[..., :3].tobytes()
              mode = 'RGB'
 
-        pil_img = Image.frombytes(mode, (w, h), pix)
-        return WIMFImage(pil_img, self.metadata)
+        pil_img = Image.frombytes(mode, (w, h), pil_pix)
+        return WIMFImage(pil_img, self.metadata, raw_pixels=pix)
 
     @property
     def num_states(self):
@@ -138,7 +144,7 @@ class WIMFDecoder:
         self._buffer.seek(self._data_start)
         data = self._buffer.read()
         from .animation import decode_animated
-        frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth)
+        frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth, metadata=self.metadata)
         
         if index >= len(frames): index = len(frames) - 1
         
@@ -149,7 +155,7 @@ class WIMFDecoder:
             
         mode = 'RGBA' if self.channels >= 4 else 'RGB'
         pil_img = Image.frombytes(mode, (self.width, self.height), pix)
-        return WIMFImage(pil_img, self.metadata)
+        return WIMFImage(pil_img, self.metadata, raw_pixels=pix)
 
 # use this to build a wimf file
 class WIMFEncoder:
@@ -158,9 +164,14 @@ class WIMFEncoder:
             self.pil = image.pil
             self.metadata = image.metadata.copy()
         elif isinstance(image, np.ndarray):
-            mode = 'RGB' if image.shape[-1] == 3 else 'RGBA'
-            self.pil = Image.fromarray(image, mode)
-            self.metadata = {}
+            if image.shape[-1] == 5:
+                self.pil = Image.fromarray(image[..., :4], 'RGBA')
+                self.raw_data = image
+                self.metadata = {'depth': True, 'channels': 5}
+            else:
+                mode = 'RGB' if image.shape[-1] == 3 else 'RGBA'
+                self.pil = Image.fromarray(image, mode)
+                self.metadata = {}
         else:
             self.pil = image
             self.metadata = {}
@@ -210,19 +221,28 @@ class WIMFEncoder:
         meta['tuning'] = self.tuning 
         
         w, h = self.pil.size
-        
+        # Check for transparency across all states
         has_alpha = any(s.mode in ('RGBA', 'LA') for s in self.states)
+        if hasattr(self, 'raw_data'): has_alpha = True # 5ch always has alpha
+
         target_mode = 'RGBA' if has_alpha else 'RGB'
-        
+
         pixel_states = []
+        actual_channels = 0
         for s in self.states:
-            img = s.convert(target_mode)
-            if meta.get('bit10'):
-                pixel_states.append((np.array(img).astype(np.uint16) * 4).tobytes())
+            if hasattr(self, 'raw_data') and len(self.states) == 1:
+                pixel_states.append(self.raw_data.tobytes())
+                actual_channels = self.raw_data.shape[-1]
             else:
-                pixel_states.append(np.array(img).tobytes())
+                img = s.convert(target_mode)
+                actual_channels = 4 if has_alpha else 3
+                if meta.get('bit10'):
+                    pixel_states.append((np.array(img).astype(np.uint16) * 4).tobytes())
+                else:
+                    pixel_states.append(np.array(img).tobytes())
+
                 
-        channels = 4 if has_alpha else 3
+        channels = actual_channels
         meta['channels'] = channels
         
         if len(self.states) > 1:

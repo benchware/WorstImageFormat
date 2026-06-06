@@ -77,7 +77,7 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
             
     return bytes(out_payload)
 
-def decode_animated(data, w, h, channels, bit_depth=8):
+def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
     offset = 0
     num_frames = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
     audio_len = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
@@ -88,14 +88,9 @@ def decode_animated(data, w, h, channels, bit_depth=8):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     limit = 2**bit_depth - 1
     
-    # Recalculate quantization (must match encoder)
-    # We need the quality value, which is stored in frame 0's WIMF header
-    # But for now, we'll assume a standard delta scaling
-    
-    # Calculate dimensions for Haar coefficients
     ph, pw = h % 2, w % 2
     th, tw = (h + ph) // 2, (w + pw) // 2
-    sz_coeff = th * tw * channels * 2 # 2 bytes for int16
+    sz_coeff = th * tw * channels * 2 
     
     for i in range(num_frames):
         frame_len = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
@@ -103,11 +98,10 @@ def decode_animated(data, w, h, channels, bit_depth=8):
         frame_data = data[offset : offset + frame_len]; offset += frame_len
         
         if is_keyframe:
-            decompressed = decode_lossy(frame_data, w, h, channels, bit_depth=bit_depth)
+            decompressed = decode_lossy(frame_data, w, h, channels, bit_depth=bit_depth, metadata=metadata)
             frames.append(decompressed)
             prev_arr = np.frombuffer(decompressed, dtype=dtype).reshape(h, w, channels).astype(np.float32)
             
-            # Extract quality from the first frame's byte 0
             quality = frame_data[0] >> 4
             depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
             q_step = max(1.0, (20.0 * depth_scale) - (quality * 1.5))

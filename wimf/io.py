@@ -47,11 +47,11 @@ def loadImage(filename, target_layer=2, roi=None, mip_level=0):
         bit_depth = 10 if meta.get('bit10') else 8
         
         if header == b"AWIF":
-            frames = decode_animated(data, w, h, channels, bit_depth=bit_depth)
+            frames = decode_animated(data, w, h, channels, bit_depth=bit_depth, metadata=meta)
             meta['is_animated'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags in [5, 6, 8, 9, 10]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, roi=roi, mip_level=mip_level)
+        elif flags in [5, 6, 8, 9, 10]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, roi=roi, mip_level=mip_level, metadata=meta)
         else: pix = data
         return w, h, pix, meta
 

@@ -111,33 +111,31 @@ def decode_lossless(data, w, h, channels):
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, metadata=None):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, channels))
-    arr = arr_full[..., :3].astype(np.int32)
     
     # separate luma and chroma so we can compress color more
     tuning = metadata.get('tuning', {}) if metadata else {}
     disable_ycocg = tuning.get('disable_ycocg', False)
     
-    if not disable_ycocg:
+    if not disable_ycocg and channels >= 3:
+        arr = arr_full[..., :3].astype(np.int32)
         r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
         co = r - b
         tmp = b + (co >> 1)
         cg = g - tmp
         y = tmp + (cg >> 1)
+        # put them back into a list of channels
+        transformed_chans = [y.astype(np.float32), co.astype(np.float32), cg.astype(np.float32)]
+        for c in range(3, channels):
+            transformed_chans.append(arr_full[..., c].astype(np.float32))
     else:
-        y, co, cg = arr[..., 0], arr[..., 1], arr[..., 2]
-        print("[WIMF-TUNING] ycocg off. probably gonna look like crap.")
+        transformed_chans = [arr_full[..., c].astype(np.float32) for c in range(channels)]
+        if not disable_ycocg: print("[WIMF-TUNING] ycocg off. probably gonna look like crap.")
     
     # pad it to 16x16 because haar likes powers of 2
     ph, pw = (16 - h % 16) % 16, (16 - w % 16) % 16
-    y = np.pad(y, ((0, ph), (0, pw)), mode='edge')
-    co = np.pad(co, ((0, ph), (0, pw)), mode='edge')
-    cg = np.pad(cg, ((0, ph), (0, pw)), mode='edge')
+    padded_chans = [np.pad(c, ((0, ph), (0, pw)), mode='edge') for c in transformed_chans]
     
-    if channels == 4:
-        a_chan = arr_full[..., 3].astype(np.float32)
-        a_chan = np.pad(a_chan, ((0, ph), (0, pw)), mode='edge')
-    
-    gh, gw = y.shape[0] // 16, y.shape[1] // 16
+    gh, gw = padded_chans[0].shape[0] // 16, padded_chans[0].shape[1] // 16
 
     # quantize and haar one tile
     def process_channel_tile(tile_data, q_base, q_matrix_override=None):
@@ -178,42 +176,39 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         tile_payloads = []
         for ty in range(0, gh, tile_size):
             for tx in range(0, gw, tile_size):
-                t_y = y.reshape(gh, 16, gw, 16)[ty:ty+tile_size, :, tx:tx+tile_size, :]
-                t_co = co.reshape(gh, 16, gw, 16)[ty:ty+tile_size, :, tx:tx+tile_size, :]
-                t_cg = cg.reshape(gh, 16, gw, 16)[ty:ty+tile_size, :, tx:tx+tile_size, :]
+                # process all channels for this tile
+                tile_bands_all = []
+                for c in range(channels):
+                    t_chan = padded_chans[c].reshape(gh, 16, gw, 16)[ty:ty+tile_size, :, tx:tx+tile_size, :]
+                    
+                    if not disable_ycocg and c == 0: q_val, qm = quality, (q_matrix[0], q_matrix[1]) if q_matrix else None
+                    elif not disable_ycocg and c < 3: q_val, qm = max(1, quality - 1), (q_matrix[2], q_matrix[3]) if q_matrix else None
+                    else: q_val, qm = quality, (q_matrix[0], q_matrix[1]) if q_matrix else None
+                    
+                    tile_bands_all.append(process_channel_tile(t_chan, q_val, qm))
                 
-                l_qm = (q_matrix[0], q_matrix[1]) if q_matrix else None
-                c_qm = (q_matrix[2], q_matrix[3]) if q_matrix else None
-                
-                y_bands = process_channel_tile(t_y, quality, l_qm)
-                co_bands = process_channel_tile(t_co, max(1, quality - 1), c_qm)
-                cg_bands = process_channel_tile(t_cg, max(1, quality - 1), c_qm)
-                
-                # embed secret msg in the pixels. steganography is cool.
+                # watermark first channel (Y)
                 watermark = metadata.get('watermark_payload') if metadata else None
                 if watermark and ty == 0 and tx == 0:
                     bits = ''.join(format(ord(c), '08b') for c in watermark) + '00000000'
-                    flat = y_bands[0].flatten()
+                    flat = tile_bands_all[0][0].flatten()
                     for i in range(min(len(bits), len(flat))):
                         flat[i] = (int(flat[i]) & ~1) | int(bits[i])
-                    y_bands[0] = flat.reshape(y_bands[0].shape)
+                    tile_bands_all[0][0] = flat.reshape(tile_bands_all[0][0].shape)
                     print(f"hid {len(bits)//8} bytes in the first tile.")
 
                 layers = [bytearray() for _ in range(3)]
                 # layer 0 is the blurry version
-                layers[0].extend(y_bands[0].tobytes() + co_bands[0].tobytes() + cg_bands[0].tobytes())
-                if channels == 4:
-                    t_a = a_chan.reshape(gh, 16, gw, 16)[ty:ty+tile_size, :, tx:tx+tile_size, :]
-                    a_bands = process_channel_tile(t_a, quality)
-                    layers[0].extend(a_bands[0].tobytes())
+                for c in range(channels):
+                    layers[0].extend(tile_bands_all[c][0].tobytes())
                 
                 # layer 1 & 2 add more sharpness
                 for i in range(1, 4):
-                    layers[1].extend(y_bands[i].tobytes() + co_bands[i].tobytes() + cg_bands[i].tobytes())
-                    if channels == 4: layers[1].extend(a_bands[i].tobytes())
+                    for c in range(channels):
+                        layers[1].extend(tile_bands_all[c][i].tobytes())
                 for i in range(4, 7):
-                    layers[2].extend(y_bands[i].tobytes() + co_bands[i].tobytes() + cg_bands[i].tobytes())
-                    if channels == 4: layers[2].extend(a_bands[i].tobytes())
+                    for c in range(channels):
+                        layers[2].extend(tile_bands_all[c][i].tobytes())
                 
                 lvl = 9 if preset == "Extreme" else 2
                 compressed = [lzma.compress(l, preset=lvl) for l in layers]
@@ -243,31 +238,34 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         l_qm = (q_matrix[0], q_matrix[1]) if q_matrix else None
         c_qm = (q_matrix[2], q_matrix[3]) if q_matrix else None
 
-        y_bands = process_channel_tile(y.reshape(gh, 16, gw, 16), quality, l_qm)
-        co_bands = process_channel_tile(co.reshape(gh, 16, gw, 16), max(1, quality - 1), c_qm)
-        cg_bands = process_channel_tile(cg.reshape(gh, 16, gw, 16), max(1, quality - 1), c_qm)
-        if channels == 4: 
-            a_bands = process_channel_tile(a_chan.reshape(gh, 16, gw, 16), quality, l_qm)
+        tile_bands_all = []
+        for c in range(channels):
+            if not disable_ycocg and c == 0: q_val, qm = quality, l_qm
+            elif not disable_ycocg and c < 3: q_val, qm = max(1, quality - 1), c_qm
+            else: q_val, qm = quality, l_qm
+            tile_bands_all.append(process_channel_tile(padded_chans[c].reshape(gh, 16, gw, 16), q_val, qm))
         
         # embed stego in standard mode too
         watermark = metadata.get('watermark_payload') if metadata else None
         if watermark:
             bits = ''.join(format(ord(c), '08b') for c in watermark) + '00000000'
-            flat = y_bands[0].flatten()
+            flat = tile_bands_all[0][0].flatten()
             for i in range(min(len(bits), len(flat))):
                 flat[i] = (int(flat[i]) & ~1) | int(bits[i])
-            y_bands[0] = flat.reshape(y_bands[0].shape)
+            tile_bands_all[0][0] = flat.reshape(tile_bands_all[0][0].shape)
             print(f"hid {len(bits)//8} bytes in L0.")
 
-        l0_payload = y_bands[0].tobytes() + co_bands[0].tobytes() + cg_bands[0].tobytes()
-        if channels == 4: l0_payload += a_bands[0].tobytes()
+        l0_payload = bytearray()
+        for c in range(channels):
+            l0_payload.extend(tile_bands_all[c][0].tobytes())
+            
         l1_payload, l2_payload = bytearray(), bytearray()
         for i in range(1, 4):
-            l1_payload.extend(y_bands[i].tobytes() + co_bands[i].tobytes() + cg_bands[i].tobytes())
-            if channels == 4: l1_payload.extend(a_bands[i].tobytes())
+            for c in range(channels):
+                l1_payload.extend(tile_bands_all[c][i].tobytes())
         for i in range(4, 7):
-            l2_payload.extend(y_bands[i].tobytes() + co_bands[i].tobytes() + cg_bands[i].tobytes())
-            if channels == 4: l2_payload.extend(a_bands[i].tobytes())
+            for c in range(channels):
+                l2_payload.extend(tile_bands_all[c][i].tobytes())
 
         lvl = 9 if preset == "Extreme" else 2
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -288,7 +286,7 @@ def reconstruct_channel(b_list, mip_level=0):
     return ihaar_level(L1_LL, b_list[4], b_list[5], b_list[6])
 
 # the decoder monster
-def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, roi=None, mip_level=0):
+def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, roi=None, mip_level=0, metadata=None):
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
     
@@ -298,6 +296,9 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
 
     quality = data[0] >> 4
     mode = data[0] & 0x0F
+    
+    tuning = metadata.get('tuning', {}) if metadata else {}
+    disable_ycocg = tuning.get('disable_ycocg', False)
 
     if mode == 10:
         # --- TILED DECODING (ROI SUPPORT) ---
@@ -411,28 +412,31 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         if channels == 4: a_rec = full_bands[3]
         
         # inverse ycocg math. it works, trust me.
-        tmp = y_rec - np.floor(c2_rec / 2.0)
-        g = c2_rec + tmp
-        b = tmp - np.floor(c1_rec / 2.0)
-        r = b + c1_rec
+        if not disable_ycocg:
+            tmp = y_rec - np.floor(c2_rec / 2.0)
+            g = c2_rec + tmp
+            b = tmp - np.floor(c1_rec / 2.0)
+            r = b + c1_rec
+            processed_chans = [np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)]
+            # Add remaining channels (alpha, depth, etc)
+            for i in range(3, channels):
+                processed_chans.append(np.clip(full_bands[i], 0, limit))
+        else:
+            processed_chans = [np.clip(full_bands[i], 0, limit) for i in range(channels)]
         
-        img_rgb = np.stack([np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)], axis=-1)
+        final_stack = np.stack(processed_chans, axis=-1)
         dtype = np.uint8 if bit_depth == 8 else np.uint16
         
-        img_rgb = img_rgb.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, 3)
+        block_size = 16 >> mip_level
+        final_img = final_stack.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, channels)
         
         if roi:
             rx, ry, rw, rh = [v >> mip_level for v in roi]
-            img_rgb = img_rgb[ry:ry+rh, rx:rx+rw]
+            final_img = final_img[ry:ry+rh, rx:rx+rw]
         else:
-            img_rgb = img_rgb[:h >> mip_level, :w >> mip_level]
+            final_img = final_img[:h >> mip_level, :w >> mip_level]
             
-        if channels == 4:
-            alpha_channel = np.clip(a_rec, 0, limit).astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size)
-            if roi: alpha_channel = alpha_channel[ry:ry+rh, rx:rx+rw]
-            else: alpha_channel = alpha_channel[:h >> mip_level, :w >> mip_level]
-            return np.dstack((img_rgb, alpha_channel)).tobytes()
-        return img_rgb.tobytes()
+        return final_img.tobytes()
 
     elif mode == 9:
         # --- THE OLD WAY ---
@@ -511,10 +515,17 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         if channels == 4: a_rec = results[3]
     
     if mode_flag == 9:
-        tmp = y_rec - np.floor(c2_rec / 2.0)
-        g = c2_rec + tmp
-        b = tmp - np.floor(c1_rec / 2.0)
-        r = b + c1_rec
+        if not disable_ycocg:
+            tmp = y_rec - np.floor(c2_rec / 2.0)
+            g = c2_rec + tmp
+            b = tmp - np.floor(c1_rec / 2.0)
+            r = b + c1_rec
+            processed_chans = [np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)]
+            # results contains all channels reconstructed in parallel
+            for i in range(3, channels):
+                processed_chans.append(np.clip(results[i], 0, limit))
+        else:
+            processed_chans = [np.clip(results[i], 0, limit) for i in range(channels)]
     else:
         # legacy ycbcr. idk if anyone still uses this.
         y_rec += (c1_rec * 0.1) 
@@ -524,16 +535,12 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         r = y + 1.402 * cr_f
         g = y - 0.344136 * cb_f - 0.714136 * cr_f
         b = y + 1.772 * cb_f
+        processed_chans = [np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)]
 
-    img_rgb = np.stack([np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)], axis=-1)
+    final_stack = np.stack(processed_chans, axis=-1)
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     
     block_size = 16 >> mip_level
-    img_rgb = img_rgb.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, 3)[:h >> mip_level, :w >> mip_level]
+    final_img = final_stack.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, channels)[:h >> mip_level, :w >> mip_level]
 
-    if channels == 4:
-        # alpha reassembly. axes are a mess here.
-        alpha_channel = np.clip(a_rec, 0, limit).astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size)[:h >> mip_level, :w >> mip_level]
-        return np.dstack((img_rgb, alpha_channel)).tobytes()
-
-    return img_rgb.tobytes()
+    return final_img.tobytes()
