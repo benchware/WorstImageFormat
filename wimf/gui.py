@@ -1,14 +1,19 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
-from .io import saveImage, loadImage
-from PIL import Image, ImageTk
+import subprocess
 import threading
 import time
 import numpy as np
-import subprocess
+from PIL import Image, ImageTk, ImageSequence
 
 def modern_file_picker(title="Select File", mode="open", default_ext=".wimf"):
+    if os.name == 'nt':
+        # On Windows, Tkinter's filedialog is native and modern.
+        if mode == "save":
+            return filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
+        return filedialog.askopenfilename(title=title)
+
     # Try Zenity (Standard on GNOME/many Arch setups)
     try:
         cmd = ["zenity", "--file-selection", f"--title={title}"]
@@ -29,7 +34,7 @@ def modern_file_picker(title="Select File", mode="open", default_ext=".wimf"):
         if res: return res
     except: pass
 
-    # Fallback to Tkinter (The "outdated" one)
+    # Fallback
     if mode == "save":
         return filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
     return filedialog.askopenfilename(title=title)
@@ -44,9 +49,8 @@ class Tooltip:
 
     def show_tip(self, event=None):
         if self.tip_window or not self.text: return
-        x, y, _, _ = self.widget.bbox("insert")
-        x = x + self.widget.winfo_rootx() + 25
-        y = y + self.widget.winfo_rooty() + 20
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + 20
         self.tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
@@ -57,6 +61,31 @@ class Tooltip:
         tw = self.tip_window
         self.tip_window = None
         if tw: tw.destroy()
+
+class ModernCheckbox(tk.Canvas):
+    def __init__(self, master, text, variable, command=None, **kwargs):
+        super().__init__(master, width=150, height=25, bg="#0a0a0a", highlightthickness=0, cursor="hand2", **kwargs)
+        self.text = text
+        self.variable = variable
+        self.command = command
+        self.bind("<Button-1>", self.toggle)
+        self.draw()
+        
+    def toggle(self, event=None):
+        self.variable.set(not self.variable.get())
+        if self.command: self.command()
+        self.draw()
+        
+    def draw(self):
+        self.delete("all")
+        v = self.variable.get()
+        color = "#bb86fc" if v else "#333333"
+        # Checkbox square
+        self.create_rectangle(2, 5, 18, 21, fill=color, outline=color, width=1)
+        if v:
+            self.create_text(10, 13, text="✓", fill="black", font=("Segoe UI Bold", 10))
+        # Text
+        self.create_text(25, 13, text=self.text, fill="white", font=("Segoe UI Bold", 8), anchor="w")
 
 class CustomButton(tk.Canvas):
     def __init__(self, master, text, command=None, color="#bb86fc", **kwargs):
@@ -128,7 +157,7 @@ class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("WIMF Studio")
-        self.root.geometry("950x600")
+        self.root.geometry("950x620")
         self.root.resizable(True, True)
         self.root.configure(bg="#0a0a0a")
         
@@ -137,7 +166,10 @@ class WorstImageFormatApp:
         self.input_path, self.output_path = tk.StringVar(), tk.StringVar()
         self.compression_mode = tk.IntVar(value=2)
         self.preset = tk.StringVar(value="Balanced")
-        self.opt_alpha, self.opt_hdr, self.opt_10bit, self.opt_anim, self.opt_depth = [tk.BooleanVar() for _ in range(5)]
+        self.opt_alpha = tk.BooleanVar(value=True) # Default ON
+        self.opt_hdr = tk.BooleanVar()
+        self.opt_10bit = tk.BooleanVar()
+        self.opt_anim = tk.BooleanVar()
         self.gpu_mode = tk.StringVar(value="auto")
         self.show_preview = tk.BooleanVar(value=True)
         
@@ -145,8 +177,9 @@ class WorstImageFormatApp:
 
     def setup_styles(self):
         style = ttk.Style()
-        style.theme_use('default')
+        style.theme_use('clam') # Use clam for better styling control
         style.configure("TCombobox", fieldbackground="#1a1a1a", background="#1a1a1a", foreground="white", borderwidth=0, arrowcolor="#bb86fc")
+        style.map("TCombobox", fieldbackground=[('readonly', "#1a1a1a")], background=[('readonly', "#1a1a1a")])
         self.root.option_add("*TCombobox*Listbox*Background", "#1a1a1a")
         self.root.option_add("*TCombobox*Listbox*Foreground", "white")
 
@@ -190,22 +223,28 @@ class WorstImageFormatApp:
         self.pl = tk.Label(self.pc, bg="#111111"); self.pl.pack(expand=True, fill="both")
         
         self.rmse_l = tk.Label(rp, text="RMSE: 0.0000", font=("Consolas", 12), bg=self.colors["bg"], fg=self.colors["neon"]); self.rmse_l.pack(pady=10)
-        tk.Checkbutton(rp, text="ENABLE PREVIEW", variable=self.show_preview, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222").pack(pady=5)
+        # We'll use custom checkbox for Preview toggle too
+        self.cb_preview = ModernCheckbox(rp, "ENABLE PREVIEW", self.show_preview)
+        self.cb_preview.pack(pady=5)
 
         tk.Label(lp, text="EXPERIMENTAL FEATURES", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).pack(anchor="w", pady=(15, 0))
         hf = tk.Frame(lp, bg=self.colors["bg"], pady=10); hf.pack(fill="x")
         
-        c_alpha = tk.Checkbutton(hf, text="ALPHA CHANNEL", variable=self.opt_alpha, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222")
-        c_alpha.grid(row=0, column=0, sticky="w", padx=(0, 20))
-        Tooltip(c_alpha, "Preserve transparency using a lossless Paeth-predicted sub-stream.")
+        self.check_alpha = ModernCheckbox(hf, "ALPHA CHANNEL", self.opt_alpha)
+        self.check_alpha.grid(row=0, column=0, sticky="w")
+        Tooltip(self.check_alpha, "Preserve transparency using a lossless Paeth-predicted sub-stream.")
 
-        c_10bit = tk.Checkbutton(hf, text="10-BIT DEPTH", variable=self.opt_10bit, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222")
-        c_10bit.grid(row=0, column=1, sticky="w", padx=(0, 20))
-        Tooltip(c_10bit, "Increase color precision to 1024 levels per channel for HDR content.")
+        self.check_hdr = ModernCheckbox(hf, "HDR METADATA", self.opt_hdr, command=self.toggle_hdr)
+        self.check_hdr.grid(row=0, column=1, sticky="w")
+        Tooltip(self.check_hdr, "Enable standard HDR metadata. Mutually exclusive with 10-bit HDR.")
 
-        c_anim = tk.Checkbutton(hf, text="ANIMATION", variable=self.opt_anim, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222")
-        c_anim.grid(row=0, column=2, sticky="w")
-        Tooltip(c_anim, "Encode multiple frames using temporal Wavelet delta compression (AWIF).")
+        self.check_10bit = ModernCheckbox(hf, "10-BIT HDR", self.opt_10bit, command=self.toggle_10bit)
+        self.check_10bit.grid(row=1, column=0, sticky="w", pady=10)
+        Tooltip(self.check_10bit, "High-precision 10-bit color. Mutually exclusive with standard HDR.")
+
+        self.check_anim = ModernCheckbox(hf, "ANIMATION", self.opt_anim)
+        self.check_anim.grid(row=1, column=1, sticky="w", pady=10)
+        Tooltip(self.check_anim, "Temporal Wavelet delta compression for multi-frame assets.")
 
         self.console = tk.Text(lp, height=3, bg="#000000", fg=self.colors["neon"], font=("Consolas", 9), padx=10, pady=10, bd=0)
         self.console.pack(fill="x", pady=10)
@@ -218,6 +257,11 @@ class WorstImageFormatApp:
         tk.Entry(row, textvariable=var, bg="#111111", fg="white", bd=0, font=("Segoe UI", 10), insertbackground="white").pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 10))
         tk.Button(row, text="SEARCH", command=cmd, bg=self.colors["surface"], fg=self.colors["accent"], font=("Segoe UI Bold", 8), relief="flat", padx=15, cursor="hand2").pack(side="right", fill="y")
 
+    def toggle_hdr(self):
+        if self.opt_hdr.get(): self.opt_10bit.set(False); self.check_10bit.draw()
+    def toggle_10bit(self):
+        if self.opt_10bit.get(): self.opt_hdr.set(False); self.check_hdr.draw()
+
     def update_q_label(self, v): self.q_label.config(text=str(v))
     def update_ui(self):
         is_lossy = self.compression_mode.get() == 2
@@ -229,7 +273,16 @@ class WorstImageFormatApp:
 
     def browse_input(self):
         p = modern_file_picker(title="Select Source Image", mode="open")
-        if p: self.input_path.set(p); self.log(f"Linked: {os.path.basename(p)}")
+        if p: 
+            self.input_path.set(p); self.log(f"Linked: {os.path.basename(p)}")
+            try:
+                with Image.open(p) as img:
+                    if img.mode in ('I;16', 'I;16L', 'I;16B', 'RGB;16', 'RGBA;16') or 'hdr' in p.lower():
+                        self.opt_hdr.set(True)
+                        self.opt_10bit.set(False)
+                        self.check_hdr.draw(); self.check_10bit.draw()
+                        self.log("Detected High-Bit/HDR source. Auto-enabled HDR.")
+            except: pass
 
     def browse_output(self):
         p = modern_file_picker(title="Select Export Path", mode="save", default_ext=".wimf")
@@ -241,7 +294,7 @@ class WorstImageFormatApp:
 
     def work(self):
         try:
-            meta = {"engine": "WIMF v19.0", "bit10": self.opt_10bit.get(), "alpha": self.opt_alpha.get(), "is_animated": self.opt_anim.get(), "gpu_mode": self.gpu_mode.get()}
+            meta = {"engine": "WIMF v19.0", "hdr": self.opt_hdr.get(), "bit10": self.opt_10bit.get(), "alpha": self.opt_alpha.get(), "is_animated": self.opt_anim.get(), "gpu_mode": self.gpu_mode.get()}
             from .cli import convert
             convert(input_path=self.input_path.get(), output_path=self.output_path.get(), compression=self.compression_mode.get(), quality=self.slider.val, preset=self.preset.get(), meta=meta)
             self.root.after(0, lambda: self.log("Done."))
