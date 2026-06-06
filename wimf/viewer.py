@@ -3,10 +3,9 @@ from PIL import Image, ImageTk
 from .io import loadImage, stream_load
 import sys
 import os
-import argparse
 
 class WIMFViewer:
-    def __init__(self, root, filename, gpu_mode=None):
+    def __init__(self, root, filename):
         self.root = root
         self.root.title(f"WIMF Viewer - {os.path.basename(filename)}")
         self.root.configure(bg="#0a0a0a")
@@ -16,7 +15,6 @@ class WIMFViewer:
         self.last_zoom = -1.0
         self.current_frame = 0
         self.filename = filename
-        self.forced_gpu_mode = gpu_mode
 
         try:
             try:
@@ -25,11 +23,7 @@ class WIMFViewer:
             except: pass
 
             # Quick initial load to get metadata and dimensions
-            # We temporarily override gpu_mode if provided
             self.w, self.h, _, self.meta = loadImage(filename, target_layer=0)
-            if self.forced_gpu_mode:
-                self.meta['gpu_mode'] = self.forced_gpu_mode
-            
             self.is_animated = self.meta.get('is_animated', False)
             
             self.canvas = tk.Canvas(root, bg="#0a0a0a", highlightthickness=0)
@@ -69,7 +63,7 @@ class WIMFViewer:
             root.geometry(f"{ww}x{wh+30}")
             
             if self.is_animated:
-                # For animations, we just load all frames normally
+                # For animations, we just load all frames normally (no progressive support yet)
                 _, _, pixel_data, _ = loadImage(filename)
                 channels = self.meta.get('channels', 3)
                 img_mode = 'RGBA' if channels >= 4 else 'RGB'
@@ -89,9 +83,6 @@ class WIMFViewer:
     def load_next_layer(self):
         try:
             self.w, self.h, pix, self.meta, is_final = next(self.stream)
-            if self.forced_gpu_mode:
-                self.meta['gpu_mode'] = self.forced_gpu_mode
-            
             channels = self.meta.get('channels', 3)
             img_mode = 'RGBA' if channels >= 4 else 'RGB'
             self.orig_image = Image.frombytes(img_mode, (self.w, self.h), pix)
@@ -112,6 +103,7 @@ class WIMFViewer:
         nw = int(self.w * self.zoom_level)
         nh = int(self.h * self.zoom_level)
         
+        # If zoom changed, we need to regenerate TK frames
         if self.zoom_level != self.last_zoom:
             self.last_zoom = self.zoom_level
             res = Image.Resampling.LANCZOS if self.zoom_level < 1.0 else Image.Resampling.NEAREST
@@ -124,12 +116,15 @@ class WIMFViewer:
             self.canvas.delete("all")
             self.canvas_img_id = None
 
+        # Determine which image to show
         display_img = self.tk_frames[self.current_frame] if self.is_animated else self.tk_image
         
         if self.canvas_img_id is None:
             self.canvas_img_id = self.canvas.create_image(nw//2, nh//2, image=display_img)
         else:
             self.canvas.itemconfig(self.canvas_img_id, image=display_img)
+        
+
 
     def play_loop(self):
         if self.playing:
@@ -158,21 +153,16 @@ class WIMFViewer:
         self.status_left.config(text=txt.upper())
 
 def main():
-    parser = argparse.ArgumentParser(description="WIMF Image Viewer")
-    parser.add_argument("input", nargs="?", help="Path to WIMF/AWIF file")
-    parser.add_argument("--gpu", choices=['auto', 'opengl', 'vulkan', 'off'], help="Force GPU mode")
-    parser.add_argument("--cpu", action="store_const", dest="gpu", const="off", help="Force CPU mode")
-    args = parser.parse_args()
-    
-    p = args.input
-    if not p:
+    if len(sys.argv) > 1:
+        p = sys.argv[1]
+    else:
         p = input("Enter WIMF/AWIF path: ")
     
-    if p and os.path.exists(p):
+    if os.path.exists(p):
         root = tk.Tk()
-        viewer = WIMFViewer(root, p, gpu_mode=args.gpu)
+        viewer = WIMFViewer(root, p)
         root.mainloop()
-    elif p:
+    else:
         print(f"File not found: {p}")
 
 if __name__ == "__main__":
