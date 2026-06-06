@@ -8,33 +8,41 @@ import numpy as np
 from PIL import Image, ImageTk, ImageSequence
 import io
 
-def modern_file_picker(title="Select File", mode="open", default_ext=".wimf"):
+def modern_file_picker(title="Select File", mode="open", default_ext=".wimf", initial_file=None):
     if os.name == 'nt':
-        if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
+        if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
         return filedialog.askopenfilename(title=title)
 
-    providers = []
-    if os.path.exists("/usr/bin/zenity"): providers.append("zenity")
-    if os.path.exists("/usr/bin/kdialog"): providers.append("kdialog")
-
-    for provider in providers:
+    # Try native tools first
+    res = None
+    if os.path.exists("/usr/bin/zenity"):
         try:
-            if provider == "zenity":
-                cmd = ["zenity", "--file-selection", f"--title={title}"]
-                if mode == "save": cmd.extend(["--save", "--confirm-overwrite", f"--filename=output{default_ext}"])
-            else:
-                cmd = ["kdialog", "--title", title]
-                if mode == "save": cmd.extend(["--getsavefilename", ".", f"*{default_ext}"])
-                else: cmd.append("--getopenfilename")
-            
+            cmd = ["zenity", "--file-selection", f"--title={title}"]
+            if mode == "save":
+                cmd.append("--save")
+                cmd.append("--confirm-overwrite")
+                if initial_file: cmd.append(f"--filename={initial_file}")
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
             if res: return res
         except subprocess.CalledProcessError as e:
-            if e.returncode == 1: return "" # USER CANCELLED - STOP EVERYTHING
-        except: continue
+            if e.returncode == 1: return "" # Cancelled
+        except: pass
 
-    # Last resort fallback
-    if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
+    if not res and os.path.exists("/usr/bin/kdialog"):
+        try:
+            cmd = ["kdialog", "--title", title]
+            if mode == "save":
+                cmd.extend(["--getsavefilename", initial_file or ".", f"*{default_ext}"])
+            else:
+                cmd.append("--getopenfilename")
+            res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+            if res: return res
+        except subprocess.CalledProcessError as e:
+            if e.returncode == 1: return "" # Cancelled
+        except: pass
+
+    # Fallback only if native failed AND not cancelled
+    if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
     return filedialog.askopenfilename(title=title)
 
 class Tooltip:
@@ -119,7 +127,7 @@ class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Worst IMage Format Converter")
-        self.root.geometry("1100x820")
+        self.root.geometry("1150x850")
         self.root.configure(bg="#050505")
         
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
@@ -131,11 +139,8 @@ class WorstImageFormatApp:
         self.opt_hdr, self.opt_10bit, self.opt_anim = [tk.BooleanVar() for _ in range(3)]
         self.gpu_mode, self.gpu_dev, self.show_preview = tk.StringVar(value="auto"), tk.StringVar(value="Default"), tk.BooleanVar(value=True)
         
-        # Metadata fields
         self.meta_author, self.meta_desc, self.meta_copyright = tk.StringVar(), tk.StringVar(), tk.StringVar()
         
-        self.preview_image = None
-        self.preview_thread = None
         self.preview_lock = threading.Lock()
         
         self.setup_styles(); self.build_ui()
@@ -150,8 +155,8 @@ class WorstImageFormatApp:
 
     def build_ui(self):
         header = tk.Frame(self.root, bg="#000", height=60); header.pack(fill="x")
-        tk.Label(header, text="WIMF", font=("Impact", 24), bg="#000", fg="#fff", padx=20).pack(side="left")
-        tk.Label(header, text="CONVERTER STUDIO", font=("Segoe UI Bold", 10), bg="#000", fg=self.colors["accent"]).pack(side="left", pady=(10,0))
+        tk.Label(header, text="WIMF", font=("Segoe UI Bold", 24), bg="#000", fg="#fff", padx=20).pack(side="left")
+        tk.Label(header, text="CONVERTER STUDIO", font=("Segoe UI", 10), bg="#000", fg=self.colors["accent"]).pack(side="left", pady=(10,0))
         
         main = tk.Frame(self.root, bg="#050505", padx=30, pady=10); main.pack(expand=True, fill="both")
         lp = tk.Frame(main, bg="#050505"); lp.pack(side="left", fill="both", expand=True)
@@ -170,12 +175,19 @@ class WorstImageFormatApp:
             tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="#fff", font=("Segoe UI Bold", 9), selectcolor="#000", command=self.on_setting_change, activebackground=self.colors["surface"]).pack(side="left", padx=(0, 20))
 
         p_f = tk.Frame(r1, bg=self.colors["surface"]); p_f.pack(side="right")
-        tk.Label(p_f, text="PRESET / GPU", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
+        tk.Label(p_f, text="PRESET / GPU / DEVICE", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(0,5))
         cb_f = tk.Frame(p_f, bg=self.colors["surface"]); cb_f.pack()
         self.preset_cb = ttk.Combobox(cb_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=9)
         self.preset_cb.pack(side="left", padx=2); self.preset_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
         self.gpu_cb = ttk.Combobox(cb_f, values=["off", "auto", "opengl", "vulkan"], textvariable=self.gpu_mode, state="readonly", width=7)
         self.gpu_cb.pack(side="left", padx=2); self.gpu_cb.bind("<<ComboboxSelected>>", lambda e: self.on_setting_change())
+        
+        # Restore GPU Device selector
+        from .hwaccel import get_gpu_manager
+        gpu_mgr = get_gpu_manager()
+        devices = gpu_mgr.list_devices()
+        self.dev_cb = ttk.Combobox(cb_f, values=devices, textvariable=self.gpu_dev, state="readonly", width=12)
+        self.dev_cb.pack(side="left")
 
         sf = tk.Frame(card, bg=self.colors["surface"]); sf.pack(fill="x", pady=(15, 0))
         tk.Label(sf, text="COMPRESSION INTENSITY", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
@@ -190,7 +202,6 @@ class WorstImageFormatApp:
         self.check_anim = ModernCheckbox(hf, "ANIMATION", self.opt_anim, command=self.on_setting_change); self.check_anim.grid(row=1, column=1)
         for c, t in [(self.check_alpha, "Lossless alpha layer."), (self.check_hdr, "HDR hints."), (self.check_10bit, "1024-step color."), (self.check_anim, "Motion deltas.")]: Tooltip(c, t)
 
-        # Metadata Section
         tk.Label(lp, text="METADATA", font=("Segoe UI Bold", 8), bg="#050505", fg=self.colors["sub"]).pack(anchor="w", pady=(10, 5))
         meta_f = tk.Frame(lp, bg=self.colors["surface"], padx=15, pady=10, highlightthickness=1, highlightbackground="#1a1a1a")
         meta_f.pack(fill="x")
@@ -237,19 +248,17 @@ class WorstImageFormatApp:
                 from .codec import encode_lossy, decode_lossy
                 with Image.open(self.input_path.get()) as img:
                     img = img.convert("RGBA" if self.opt_alpha.get() else "RGB")
-                    img.thumbnail((400, 400)) # Small proxy for speed
+                    img.thumbnail((400, 400))
                     w, h = img.size
                     pixels = np.array(img)
                     channels = 4 if self.opt_alpha.get() else 3
                     bit_depth = 10 if self.opt_10bit.get() else 8
                     
-                    # Encode/Decode proxy
                     enc = encode_lossy(pixels.tobytes(), w, h, quality=self.slider.val, preset=self.preset.get(), channels=channels, bit_depth=bit_depth, gpu_mode=self.gpu_mode.get())
                     dec_bytes = decode_lossy(enc, w, h, channels, bit_depth=bit_depth, gpu_mode=self.gpu_mode.get())
                     
                     dtype = np.uint8 if bit_depth == 8 else np.uint16
                     res = np.frombuffer(dec_bytes, dtype=dtype).reshape((h, w, channels))
-                    
                     if bit_depth == 10: res = (res / 4).astype(np.uint8)
                     
                     preview_pil = Image.fromarray(res, "RGBA" if channels == 4 else "RGB")
@@ -272,7 +281,8 @@ class WorstImageFormatApp:
             self.on_setting_change()
 
     def browse_output(self):
-        p = modern_file_picker(title="Export Asset", mode="save", default_ext=".wimf")
+        initial = os.path.basename(self.output_path.get()) if self.output_path.get() else None
+        p = modern_file_picker(title="Export Asset", mode="save", default_ext=".wimf", initial_file=initial)
         if p: self.output_path.set(p)
 
     def run(self):
@@ -284,9 +294,11 @@ class WorstImageFormatApp:
             meta = {"author": self.meta_author.get(), "copyright": self.meta_copyright.get(), "description": self.meta_desc.get(), "bit10": self.opt_10bit.get(), "alpha": self.opt_alpha.get(), "is_animated": self.opt_anim.get(), "gpu_mode": self.gpu_mode.get()}
             from .cli import convert
             convert(input_path=self.input_path.get(), output_path=self.output_path.get(), compression=self.compression_mode.get(), quality=self.slider.val, preset=self.preset.get(), meta=meta)
-            self.root.after(0, lambda: self.log("Done."))
-        except Exception as e: self.root.after(0, lambda: self.log(f"ERROR: {e}"))
-        finally: self.root.after(0, lambda: self.btn_run.config_state("normal", "START"))
+            self.root.after(0, lambda: self.log("Sequence Finalized."))
+        except Exception as e:
+            self.root.after(0, lambda: self.log(f"ERROR: {e}"))
+        finally:
+            self.root.after(0, lambda: self.btn_run.config_state("normal", "START"))
 
 def main():
     root = tk.Tk(); app = WorstImageFormatApp(root); root.mainloop()
