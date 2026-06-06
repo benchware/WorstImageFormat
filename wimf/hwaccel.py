@@ -23,15 +23,18 @@ class GPUManager:
         self._init_backend()
             
     def _init_backend(self):
-        if self.mode in ['auto', 'opengl']:
-            self._init_opengl()
-        elif self.mode == 'vulkan':
-            self._init_vulkan()
+        # We always try OpenGL first as it's our primary compute backend
+        self._init_opengl()
 
     def _init_opengl(self):
-        if not OPENGL_AVAILABLE: return
-        if not glfw.init(): return
+        if not OPENGL_AVAILABLE:
+            print("[WIMF] PyOpenGL not found. GPU disabled.")
+            return
+        if not glfw.init():
+            print("[WIMF] GLFW init failed. GPU disabled.")
+            return
 
+        # Request Core Profile for modern GPU features
         glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
         glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
         glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -40,6 +43,7 @@ class GPUManager:
         
         self.context = glfw.create_window(1, 1, "WIMF Compute", None, None)
         if not self.context:
+            print("[WIMF] OpenGL 4.3 Context Creation Failed. GPU disabled.")
             glfw.terminate()
             return
 
@@ -51,18 +55,16 @@ class GPUManager:
         minor = glGetIntegerv(GL_MINOR_VERSION)
         
         if major < 4 or (major == 4 and minor < 3):
+            print(f"[WIMF] OpenGL {major}.{minor} too old for Compute Shaders. GPU disabled.")
             self.cleanup()
             return
 
         self.enabled = True
         self._load_shaders()
         
-        # DETACH CONTEXT from main thread so worker threads can use it
+        # CRITICAL: Detach context from the main thread so worker threads can claim it!
         glfw.make_context_current(None)
-
-    def _init_vulkan(self):
-        # Placeholder for Vulkan - currently defaults to OpenGL for compute
-        self._init_opengl()
+        print(f"[WIMF] GPU Acceleration Ready: {renderer}")
 
     def _load_shaders(self):
         ycocg_fwd_src = """
@@ -100,24 +102,31 @@ class GPUManager:
         try:
             self.shader_ycocg_fwd = compileProgram(compileShader(ycocg_fwd_src, GL_COMPUTE_SHADER))
             self.shader_ycocg_inv = compileProgram(compileShader(ycocg_inv_src, GL_COMPUTE_SHADER))
-        except: self.enabled = False
+        except Exception as e:
+            print(f"[WIMF] Shader compilation error: {e}")
+            self.enabled = False
 
     def dispatch_ycocg_fwd(self, data_np, w, h):
         if not self.enabled: return None
         glfw.make_context_current(self.context)
         try:
+            # Padding check
+            pw, ph = data_np.shape[1], data_np.shape[0]
             tex_in = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex_in)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGB, GL_FLOAT, data_np.astype(np.float32))
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, pw, ph, 0, GL_RGB, GL_FLOAT, data_np.astype(np.float32))
             glBindImageTexture(0, tex_in, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F)
+            
             tex_out = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex_out)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, None)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, pw, ph, 0, GL_RGBA, GL_FLOAT, None)
             glBindImageTexture(1, tex_out, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F)
+            
             glUseProgram(self.shader_ycocg_fwd)
-            glDispatchCompute((w + 15) // 16, (h + 15) // 16, 1)
+            glDispatchCompute((pw + 15) // 16, (ph + 15) // 16, 1)
             glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
-            res = np.empty((h, w, 4), dtype=np.float32)
+            
+            res = np.empty((ph, pw, 4), dtype=np.float32)
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, res)
             glDeleteTextures(2, [tex_in, tex_out])
             return res
@@ -128,18 +137,22 @@ class GPUManager:
         if not self.enabled: return None
         glfw.make_context_current(self.context)
         try:
+            pw, ph = data_np.shape[1], data_np.shape[0]
             tex_in = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex_in)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, data_np.astype(np.float32))
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, pw, ph, 0, GL_RGBA, GL_FLOAT, data_np.astype(np.float32))
             glBindImageTexture(0, tex_in, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA32F)
+            
             tex_out = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex_out)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, None)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, pw, ph, 0, GL_RGBA, GL_FLOAT, None)
             glBindImageTexture(1, tex_out, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F)
+            
             glUseProgram(self.shader_ycocg_inv)
-            glDispatchCompute((w + 15) // 16, (h + 15) // 16, 1)
+            glDispatchCompute((pw + 15) // 16, (ph + 15) // 16, 1)
             glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT)
-            res = np.empty((h, w, 4), dtype=np.float32)
+            
+            res = np.empty((ph, pw, 4), dtype=np.float32)
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, res)
             glDeleteTextures(2, [tex_in, tex_out])
             return res
@@ -149,7 +162,7 @@ class GPUManager:
     def get_info(self):
         if not self.enabled: return "Disabled (CPU Only)"
         dev = self.devices[self.device_index] if self.device_index < len(self.devices) else "Unknown"
-        return f"{dev} (Active)"
+        return f"{dev}"
 
     def list_devices(self):
         return self.devices

@@ -35,12 +35,11 @@ def modern_file_picker(title="Select File", mode="open", default_ext=".wimf", in
             
             res = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
             if res: return res # Succeeded
-            if not res: return "" # Cancelled (Empty string from Zenity on cancel)
+            if not res: return "" # Explicit Cancel
         except subprocess.CalledProcessError as e:
             if e.returncode == 1: return "" # Explicitly Cancelled
-        except: continue # Move to next provider if it crashed/missing
+        except: continue
 
-    # Fallback only if providers are missing
     if mode == "save": return filedialog.asksaveasfilename(title=title, defaultextension=default_ext, initialfile=initial_file)
     return filedialog.askopenfilename(title=title)
 
@@ -140,6 +139,11 @@ class WorstImageFormatApp:
         self.meta_author, self.meta_desc, self.meta_copyright = tk.StringVar(), tk.StringVar(), tk.StringVar()
         
         self.preview_lock = threading.Lock()
+        
+        # PRE-INIT GPU in main thread
+        from .hwaccel import get_gpu_manager
+        get_gpu_manager()
+        
         self.setup_styles(); self.build_ui()
 
     def setup_styles(self):
