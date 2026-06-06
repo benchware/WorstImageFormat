@@ -108,8 +108,7 @@ def decode_animated(data, w, h, channels, bit_depth=8):
             prev_arr = np.frombuffer(decompressed, dtype=dtype).reshape(h, w, channels).astype(np.float32)
             
             # Extract quality from the first frame's byte 0
-            raw_payload = lzma.decompress(frame_data)
-            quality = raw_payload[0] >> 4
+            quality = frame_data[0] >> 4
             depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
             q_step = max(1.0, (20.0 * depth_scale) - (quality * 1.5))
         else:

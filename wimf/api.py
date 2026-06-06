@@ -11,12 +11,10 @@ from PIL import Image
 from .io import loadImage, saveImage, stream_load
 from .codec import encode_lossy, decode_lossy, encode_lossless, decode_lossless
 from .meta_tool import surgical_read, surgical_write
+from . import parity
 
+# basically a wrapper so developers don't have to look at my math
 class WIMFImage:
-    """
-    High-level WIMF Image object that encapsulates pixel data and WIMF-specific metadata.
-    Acts as a bridge between the WIMF codec and standard imaging libraries.
-    """
     def __init__(self, pil_image, metadata=None):
         self.pil = pil_image
         self.metadata = metadata or {}
@@ -33,11 +31,10 @@ class WIMFImage:
     @property
     def mode(self): return self.pil.mode
     
+    # get the 3d stuff if it's there
     @property
     def depth_map(self):
-        """Returns the embedded depth map as a numpy array if present."""
         if not self.metadata.get('depth'): return None
-        # Depth is packed as the last channel
         arr = np.array(self.pil)
         return arr[..., -1]
 
@@ -45,44 +42,40 @@ class WIMFImage:
         self.pil.show()
         
     def to_numpy(self):
-        """Convert to a standard NumPy array."""
         return np.array(self.pil)
         
     def to_opencv(self):
-        """Convert to OpenCV format (BGR)."""
+        # opencv wants bgr because they are special
         arr = np.array(self.pil.convert('RGB'))
         return arr[:, :, ::-1]
 
+# use this to open files. it's lazy so it's fast.
 class WIMFDecoder:
-    """
-    Enterprise-grade WIMF Decoder. Support lazy header parsing, 
-    targeted ROI decoding, and asynchronous execution.
-    """
     def __init__(self, source):
-        """
-        Initialize the decoder. 
-        :param source: File path, file-like object, or bytes.
-        """
         if isinstance(source, (str, bytes, os.PathLike)):
             if isinstance(source, bytes):
-                self._buffer = io.BytesIO(source)
+                data = source
             else:
-                self._buffer = open(source, 'rb')
+                with open(source, 'rb') as f: data = f.read()
         else:
-            self._buffer = source
+            data = source.read()
+            
+        # try to fix the file if it's broken
+        repaired, was_corrupt = parity.verify_and_repair(data)
+        self._buffer = io.BytesIO(repaired)
             
         self._parse_header()
         
     @classmethod
     def from_base64(cls, b64_str):
-        """Initialize from a Base64 string (ideal for JSON APIs)."""
         return cls(base64.b64decode(b64_str))
 
+    # just read the json stuff at the start
     def _parse_header(self):
         self._buffer.seek(0)
         magic = self._buffer.read(4)
         if magic not in [b"WIMF", b"AWIF"]:
-            raise ValueError("Invalid WIMF/AWIF magic bytes")
+            raise ValueError("not a wimf file lol")
         self.magic = magic
         self.width = int.from_bytes(self._buffer.read(4), 'little')
         self.height = int.from_bytes(self._buffer.read(4), 'little')
@@ -95,39 +88,32 @@ class WIMFDecoder:
         self.bit_depth = 10 if self.metadata.get('bit10') else 8
         self.is_animated = (magic == b"AWIF")
 
-    def decode(self, roi=None, target_layer=2):
-        """
-        Synchronously decode the image.
-        :param roi: Optional tuple (x, y, w, h) for Region of Interest decoding.
-        :param target_layer: Progressive layer to stop at (0, 1, or 2).
-        :return: WIMFImage object.
-        """
+    # actually do the heavy lifting
+    def decode(self, roi=None, target_layer=2, mip_level=0):
         self._buffer.seek(self._data_start)
         data = self._buffer.read()
         
-        # Call low-level codec
         if self.magic == b"AWIF":
             from .animation import decode_animated
             frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth)
-            # For simplicity, high-level API returns first frame of animation as primary image
             pix = frames[0]
         elif self.flags == 1:
             pix = decode_lossless(data, self.width, self.height, self.channels)
         else:
             pix = decode_lossy(data, self.width, self.height, self.channels, 
-                              bit_depth=self.bit_depth, target_layer=target_layer, roi=roi)
+                              bit_depth=self.bit_depth, target_layer=target_layer, roi=roi, mip_level=mip_level)
             
-        w, h = self.width, self.height
+        w, h = self.width >> mip_level, self.height >> mip_level
         if roi:
-            _, _, w, h = roi
+            _, _, w, h = [v >> mip_level for v in roi]
             
-        # Handle 10-bit downsampling for standard PIL viewing
+        # dumb 10bit to 8bit conversion for pil
         if self.bit_depth == 10:
             arr = np.frombuffer(pix, dtype=np.uint16).reshape((h, w, self.channels))
             pix = (arr >> 2).astype(np.uint8).tobytes()
             
         mode = 'RGBA' if self.channels >= 4 else 'RGB'
-        # If we have a depth map, PIL might not like 5 channels, so we strip it for the primary view
+        # strip depth channel if it's there or pil will complain
         if self.metadata.get('depth') and self.channels == 5:
             arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, 5))
             pix = arr[..., :4].tobytes()
@@ -140,20 +126,34 @@ class WIMFDecoder:
         pil_img = Image.frombytes(mode, (w, h), pix)
         return WIMFImage(pil_img, self.metadata)
 
-    async def decode_async(self, **kwargs):
-        """Asynchronously decode using a thread pool."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: self.decode(**kwargs))
+    @property
+    def num_states(self):
+        if not self.is_animated: return 1
+        return 1 # TODO: actually count frames later
 
+    # get one state from the undo history
+    def decode_chrono_state(self, index=0, **kwargs):
+        if not self.is_animated: return self.decode(**kwargs)
+        
+        self._buffer.seek(self._data_start)
+        data = self._buffer.read()
+        from .animation import decode_animated
+        frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth)
+        
+        if index >= len(frames): index = len(frames) - 1
+        
+        pix = frames[index]
+        if self.bit_depth == 10:
+            arr = np.frombuffer(pix, dtype=np.uint16).reshape((self.height, self.width, self.channels))
+            pix = (arr >> 2).astype(np.uint8).tobytes()
+            
+        mode = 'RGBA' if self.channels >= 4 else 'RGB'
+        pil_img = Image.frombytes(mode, (self.width, self.height), pix)
+        return WIMFImage(pil_img, self.metadata)
+
+# use this to build a wimf file
 class WIMFEncoder:
-    """
-    Enterprise-grade WIMF Encoder. 
-    Supports deep parameter tuning and seamless app integration.
-    """
     def __init__(self, image):
-        """
-        :param image: PIL.Image, numpy.ndarray, or WIMFImage.
-        """
         if isinstance(image, WIMFImage):
             self.pil = image.pil
             self.metadata = image.metadata.copy()
@@ -165,77 +165,102 @@ class WIMFEncoder:
             self.pil = image
             self.metadata = {}
             
+        self.states = [self.pil] 
+        
         self.tuning = {
             'tile_size': 32,
             'q_matrix': None,
             'lzma_dict_size': None,
-            'disable_ycocg': False
+            'disable_ycocg': False,
+            'anti_rot': False
         }
 
-    def set_tuning(self, tile_size=32, q_matrix=None, disable_ycocg=False):
-        """Deeply tune the codec parameters."""
+    # anti rot is like raid but for an image
+    def set_anti_rot(self, enabled=True):
+        self.tuning['anti_rot'] = enabled
+        return self
+
+    def set_tuning(self, tile_size=32, q_matrix=None, disable_ycocg=False, anti_rot=False):
         self.tuning['tile_size'] = tile_size
         self.tuning['q_matrix'] = q_matrix
         self.tuning['disable_ycocg'] = disable_ycocg
+        self.tuning['anti_rot'] = anti_rot
+        return self
+
+    # add a step to the undo history
+    def add_chrono_state(self, image):
+        if isinstance(image, np.ndarray):
+            mode = 'RGB' if image.shape[-1] == 3 else 'RGBA'
+            image = Image.fromarray(image, mode)
+        elif isinstance(image, WIMFImage):
+            image = image.pil
+        self.states.append(image)
         return self
 
     def set_metadata(self, **kwargs):
         self.metadata.update(kwargs)
         return self
 
+    # do the encoding
     def encode(self, quality=7, preset="Balanced", lossless=False):
-        """
-        Execute encoding pipeline and return the raw WIMF bytes.
-        """
-        # Prepare pixels
         meta = self.metadata.copy()
-        meta['tuning'] = self.tuning # Pass tuning to lower layers
+        meta['tuning'] = self.tuning 
         
         w, h = self.pil.size
-        # Simple save logic (wrapping existing saveImage which handles everything)
-        # Note: saveImage writes to file, we want bytes. We'll use a temp buffer.
-        bio = io.BytesIO()
-        # We need to hack saveImage or use encode_lossy directly.
-        # Let's use the robust saveImage logic by redirecting output.
         
-        # Check for transparency
-        has_alpha = self.pil.mode in ('RGBA', 'LA')
+        has_alpha = any(s.mode in ('RGBA', 'LA') for s in self.states)
         target_mode = 'RGBA' if has_alpha else 'RGB'
-        img = self.pil.convert(target_mode)
-        pixels = np.array(img)
         
-        # 10-bit check
-        if meta.get('bit10'):
-            pixels = pixels.astype(np.uint16) * 4
-            
-        # Call the core codec functions
-        channels = pixels.shape[-1]
-        if lossless:
-            data = encode_lossless(pixels.tobytes(), w, h, channels, preset=preset)
-            flags = 1
+        pixel_states = []
+        for s in self.states:
+            img = s.convert(target_mode)
+            if meta.get('bit10'):
+                pixel_states.append((np.array(img).astype(np.uint16) * 4).tobytes())
+            else:
+                pixel_states.append(np.array(img).tobytes())
+                
+        channels = 4 if has_alpha else 3
+        
+        if len(self.states) > 1:
+            # use the animation code for undo history
+            from .animation import encode_animated
+            data = encode_animated(pixel_states, w, h, channels, quality, preset, bit_depth=(10 if meta.get('bit10') else 8))
+            magic = b"AWIF"
+            flags = 7
         else:
-            data = encode_lossy(pixels.tobytes(), w, h, quality=quality, preset=preset, 
-                              channels=channels, bit_depth=(10 if meta.get('bit10') else 8),
-                              metadata=meta)
-            flags = 10 if (w > 1024 or h > 1024) else 9
+            pixels = pixel_states[0]
+            if lossless:
+                data = encode_lossless(pixels, w, h, channels, preset=preset)
+                flags = 1
+            else:
+                data = encode_lossy(pixels, w, h, quality=quality, preset=preset, 
+                                  channels=channels, bit_depth=(10 if meta.get('bit10') else 8),
+                                  metadata=meta)
+                flags = 10 if (w > 1024 or h > 1024) else 9
+            magic = b"WIMF"
             
         m_bytes = json.dumps(meta).encode('utf-8')
-        bio.write(b"WIMF")
+        bio = io.BytesIO()
+        bio.write(magic)
         bio.write(w.to_bytes(4, 'little') + h.to_bytes(4, 'little'))
         bio.write(flags.to_bytes(1, 'little'))
         bio.write(len(m_bytes).to_bytes(4, 'little') + m_bytes + data)
         
-        return bio.getvalue()
+        final_payload = bio.getvalue()
+        if self.tuning.get('anti_rot'):
+            print(f"adding anti-rot parity. takes more space but its safe.")
+            final_payload = parity.protect(final_payload)
+            
+        return final_payload
 
     def to_base64(self, **kwargs):
         return base64.b64encode(self.encode(**kwargs)).decode('utf-8')
 
 def open_image(path):
-    """Convenience function to open a WIMF file."""
     return WIMFDecoder(path).decode()
 
+# surgical edit. no re-encoding. nice.
 def edit_metadata(path):
-    """Context manager for surgical metadata editing."""
     class Editor:
         def __init__(self, path): self.path = path
         def __enter__(self):

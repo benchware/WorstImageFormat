@@ -22,6 +22,6 @@ def save(path, image, **kwargs):
 def is_wimf(source):
     """Fast check if a file or byte buffer is WIMF."""
     if isinstance(source, str):
-        with open(source, 'rb') as f:
-            return f.read(4) in [b"WIMF", b"AWIF"]
-    return source[:4] in [b"WIMF", b"AWIF"]
+        with _builtins.open(source, 'rb') as f:
+            return f.read(4) in [b"WIMF", b"AWIF", b"ROT!"]
+    return source[:4] in [b"WIMF", b"AWIF", b"ROT!"]

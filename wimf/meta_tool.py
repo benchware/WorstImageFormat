@@ -4,20 +4,29 @@ import json
 import struct
 import argparse
 
+from . import parity
+
 def surgical_read(path):
     with open(path, 'rb') as f:
-        magic = f.read(4)
-        if magic not in [b"WIMF", b"AWIF"]:
-            raise ValueError("Not a WIMF/AWIF file")
-        w = int.from_bytes(f.read(4), 'little')
-        h = int.from_bytes(f.read(4), 'little')
-        flags = int.from_bytes(f.read(1), 'little')
-        mlen = int.from_bytes(f.read(4), 'little')
-        meta_bytes = f.read(mlen)
-        pixel_data = f.read()
+        data = f.read()
         
-        meta = json.loads(meta_bytes.decode('utf-8'))
-        return magic, w, h, flags, meta, pixel_data
+    # Auto-repair if needed
+    repaired, _ = parity.verify_and_repair(data)
+    
+    magic = repaired[:4]
+    if magic not in [b"WIMF", b"AWIF"]:
+        raise ValueError("Not a WIMF/AWIF file")
+    
+    offset = 4
+    w = struct.unpack('<I', repaired[offset:offset+4])[0]; offset += 4
+    h = struct.unpack('<I', repaired[offset:offset+4])[0]; offset += 4
+    flags = repaired[offset]; offset += 1
+    mlen = struct.unpack('<I', repaired[offset:offset+4])[0]; offset += 4
+    meta_bytes = repaired[offset:offset+mlen]
+    pixel_data = repaired[offset+mlen:]
+    
+    meta = json.loads(meta_bytes.decode('utf-8'))
+    return magic, w, h, flags, meta, pixel_data
 
 def surgical_write(path, magic, w, h, flags, meta, pixel_data):
     m_bytes = json.dumps(meta).encode('utf-8')
