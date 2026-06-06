@@ -16,7 +16,7 @@ def loadImage(filename):
         bit_depth = 10 if meta.get('bit10') else 8
         
         if header == b"AWIF":
-            frames = decode_animated(data, w, h, channels)
+            frames = decode_animated(data, w, h, channels, bit_depth=bit_depth)
             meta['is_animated'] = True
             return w, h, frames, meta
         if flags == 1: pix = decode_lossless(data, w, h, channels)
@@ -50,7 +50,7 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
     magic = b"AWIF" if is_animated else b"WIMF"
     
     if is_animated:
-        data = encode_animated(pixels, w, h, channels, quality, preset)
+        data = encode_animated(pixels, w, h, channels, quality, preset, bit_depth=bit_depth)
         final_flags = 7
     else:
         if compression == 2:

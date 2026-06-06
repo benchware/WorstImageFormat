@@ -54,19 +54,28 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
                     meta[f"exif_{tag_name}"] = str(value)
 
             # --- ANIMATION HANDLING (GIF to AWIF) ---
-            is_animated = getattr(img, "is_animated", False)
+            is_animated = getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1
             if is_animated or meta.get('is_animated'):
                 print(f"[WIMF] Animation sequence detected ({getattr(img, 'n_frames', 1)} frames).")
+                
+                # Check if ANY frame has transparency
+                has_alpha = False
+                if img.mode in ('RGBA', 'LA'): has_alpha = True
+                elif img.mode == 'P' and 'transparency' in img.info: has_alpha = True
+                
+                target_mode = 'RGBA' if has_alpha else 'RGB'
+                channels = 4 if has_alpha else 3
+                
                 frames = []
                 for frame in ImageSequence.Iterator(img):
-                    # Maintain alpha if present
-                    f_mode = 'RGBA' if img.mode in ('RGBA', 'LA', 'P') else 'RGB'
-                    frames.append(frame.convert(f_mode).tobytes())
+                    frames.append(frame.convert(target_mode).tobytes())
+                
                 pixels = frames
                 meta['is_animated'] = True
-                meta['channels'] = 4 if img.mode in ('RGBA', 'LA', 'P') else 3
+                meta['channels'] = channels
+                print(f"[WIMF] Encoding as {target_mode} Animation.")
             else:
-                # --- TRANSPARENCY PRESERVATION ---
+                # --- TRANSPARENCY PRESERVATION (STILL) ---
                 has_alpha = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
                 if has_alpha:
                     img = img.convert('RGBA')
@@ -76,6 +85,7 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
                     img = img.convert('RGB')
                     channels = 3
                 pixels = img.tobytes()
+                meta['channels'] = channels
             
             w, h = img.size
             saveImage(output_path, w, h, pixels, 
