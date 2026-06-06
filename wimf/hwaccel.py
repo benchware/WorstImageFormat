@@ -10,9 +10,7 @@ try:
     OPENGL_AVAILABLE = True
 except ImportError:
     OPENGL_AVAILABLE = False
-    print("[WIMF] PyOpenGL or glfw not found. GPU acceleration will be disabled.")
-    print("       To fix this on Arch Linux: sudo pacman -S python-pyopengl python-glfw")
-    print("       Or via pip: pip install PyOpenGL glfw")
+    print("[WIMF] GPU acceleration disabled. Please install GLFW and OpenGL.")
 
 try:
     import vulkan as vk

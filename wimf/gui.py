@@ -87,7 +87,7 @@ class CustomButton(tk.Canvas):
         c = color or self.current_color
         if self.is_disabled: c = "#222"
         self.create_rectangle(0, 0, w, h, fill=c, outline="")
-        self.create_text(w//2, h//2, text=self.text, fill="#000" if not self.is_disabled else "#555", font=("Segoe UI Bold", 10))
+        self.create_text(w//2, h//2, text=self.text, fill="#000" if not self.is_disabled else "#555", font=("Segoe UI Bold", 11))
     def on_enter(self, e): 
         if not self.is_disabled: self.current_color = self.hover_color; self.draw()
     def on_leave(self, e): 
@@ -133,7 +133,7 @@ class WorstImageFormatApp:
         from .hwaccel import OPENGL_AVAILABLE
         if not OPENGL_AVAILABLE:
             self.root.after(100, lambda: messagebox.showwarning("GPU Disabled", 
-                "PyOpenGL or glfw not found.\n\nGPU acceleration is disabled.\nRun: sudo pacman -S python-pyopengl python-glfw"))
+                "Please install GLFW and OpenGL."))
 
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
         
@@ -244,7 +244,7 @@ class WorstImageFormatApp:
         self.log(f"GPU Support: {'YES' if gpu.enabled else 'NO'}")
         self.log(f"Active Renderer: {gpu.get_info()}")
         if not gpu.enabled:
-            self.log("Hint: Try 'sudo pacman -S python-pyopengl python-glfw'")
+            self.log("Please install GLFW and OpenGL.")
         self.log("Diagnostics Complete.")
 
     def create_io(self, parent, label, var, cmd):
