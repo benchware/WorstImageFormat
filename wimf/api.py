@@ -175,7 +175,7 @@ class WIMFEncoder:
             'anti_rot': False
         }
 
-    # anti rot is like raid but for an image
+    # anti rot is like data protection but for an image
     def set_anti_rot(self, enabled=True):
         self.tuning['anti_rot'] = enabled
         return self

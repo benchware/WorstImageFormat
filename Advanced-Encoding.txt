@@ -1,0 +1,67 @@
+# "Advanced" Encoding (WIMFEncoder)
+
+Use this class if you want to mess with the codec settings or use the "watermarking" features mate
+
+> **Disclaimer**: The "watermarking" features are just for tagging your work and shouldn't actually be used for serious legal evidence
+
+
+## Custom Tuning
+
+You can override the internal math if you want to tune the compression for specific images
+
+```python
+from wimf import WIMFEncoder
+
+encoder = WIMFEncoder(my_pil_img)
+
+# change tile size, turn off color math, or set custom dict size
+encoder.set_tuning(
+    tile_size=16, 
+    disable_ycocg=True,
+    lzma_dict_size=64 # in MB
+)
+
+data = encoder.encode(quality=9)
+```
+
+## Anti-Rot (Self-healing)
+
+Turn this on if you're worried about your hard drive dying. It adds extra parity data so the decoder can fix the file if bits flip. it takes more space but it's basically "indestructible"
+
+```python
+encoder.set_anti_rot(True)
+data = encoder.encode()
+# wimf.open() will now auto-fix this file if it breaks
+```
+
+## Saving History (Chrono-Layers)
+
+You can save multiple versions of an image into one file. It's basically a delta-compressed undo history
+
+```python
+encoder = WIMFEncoder(sketch)
+encoder.add_chrono_state(lineart)
+encoder.add_chrono_state(final_render)
+
+# saves all states in one file
+data = encoder.encode()
+```
+
+## 3D Depth Map Packing
+
+If you do VFX or 3D work, you can pack a depth map as a 5th channel
+
+```python
+# the library and CLI will handle stacking the L channel
+encoder.set_metadata(depth=True)
+```
+
+## Hidden Watermarking
+
+Hide text inside the pixels. It's built into the frequency layers so it's hard to remove
+
+```python
+encoder.set_metadata(watermark_payload="proprietary asset 2026")
+data = encoder.encode()
+```
+
