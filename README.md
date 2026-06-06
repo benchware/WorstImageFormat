@@ -1,7 +1,6 @@
 # Worst IMage Format (wimf)
 
-A high-performance wavelet-based image codec implemented as a Python library.
-
+wimf but python library
 ## Installation
 
 ```bash
