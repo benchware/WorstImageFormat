@@ -47,16 +47,25 @@ def decode_lossless(data, w, h, channels):
     def decode_channel(ch):
         c_res = res[..., ch]
         c_arr = np.zeros((h, w), dtype=np.int16)
-        c_arr[0, 0] = c_res[0, 0]
-        for x in range(1, w): c_arr[0, x] = (c_res[0, x] + c_arr[0, x-1]) % 256
-        for y in range(1, h): c_arr[y, 0] = (c_res[y, 0] + c_arr[y-1, 0]) % 256
+        c_arr[0, :] = np.cumsum(c_res[0, :]) % 256
+        c_arr[:, 0] = np.cumsum(c_res[:, 0]) % 256
+        
         for y in range(1, h):
+            res_row = c_res[y]
+            arr_row = c_arr[y]
+            prev_row = c_arr[y-1]
             for x in range(1, w):
-                a, b, c_val = c_arr[y, x-1], c_arr[y-1, x], c_arr[y-1, x-1]
+                a = arr_row[x-1]
+                b = prev_row[x]
+                c_val = prev_row[x-1]
                 p = a + b - c_val
-                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c_val)
-                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c_val)
-                c_arr[y, x] = (c_res[y, x] + pr) % 256
+                pa = abs(p - a)
+                pb = abs(p - b)
+                pc = abs(p - c_val)
+                if pa <= pb and pa <= pc: pr = a
+                elif pb <= pc: pr = b
+                else: pr = c_val
+                arr_row[x] = (res_row[x] + pr) % 256
         return c_arr.astype(np.uint8)
 
     with ThreadPoolExecutor(max_workers=min(channels, 8)) as executor:
@@ -118,15 +127,28 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         # Apply noise floor to high bands
         for b in [L1_HL, L1_LH, L1_HH]: b[np.abs(b) < (noise_floor)] = 0
 
-        L2_LL_q = np.round(L2_LL).astype(np.int16)
-        L2_HL_q, L2_LH_q, L2_HH_q = np.round(L2_HL/q2).astype(np.int16), np.round(L2_LH/q2).astype(np.int16), np.round(L2_HH/q2).astype(np.int16)
-        L1_HL_q, L1_LH_q, L1_HH_q = np.round(L1_HL/q1).astype(np.int16), np.round(L1_LH/q1).astype(np.int16), np.round(L1_HH/q1).astype(np.int16)
+        # In-place quantization
+        L2_LL = np.round(L2_LL).astype(np.int16)
         
-        return [L2_LL_q, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]
+        np.divide(L2_HL, q2, out=L2_HL); L2_HL_q = np.round(L2_HL).astype(np.int16)
+        np.divide(L2_LH, q2, out=L2_LH); L2_LH_q = np.round(L2_LH).astype(np.int16)
+        np.divide(L2_HH, q2, out=L2_HH); L2_HH_q = np.round(L2_HH).astype(np.int16)
+        
+        np.divide(L1_HL, q1, out=L1_HL); L1_HL_q = np.round(L1_HL).astype(np.int16)
+        np.divide(L1_LH, q1, out=L1_LH); L1_LH_q = np.round(L1_LH).astype(np.int16)
+        np.divide(L1_HH, q1, out=L1_HH); L1_HH_q = np.round(L1_HH).astype(np.int16)
+        
+        return [L2_LL, L2_HL_q, L2_LH_q, L2_HH_q, L1_HL_q, L1_LH_q, L1_HH_q]
 
-    y_bands = process_channel(y_blocks, quality)
-    co_bands = process_channel(co_blocks, quality - 1)
-    cg_bands = process_channel(cg_blocks, quality - 1)
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(process_channel, y_blocks, quality),
+            executor.submit(process_channel, co_blocks, quality - 1),
+            executor.submit(process_channel, cg_blocks, quality - 1)
+        ]
+        results = [f.result() for f in futures]
+    
+    y_bands, co_bands, cg_bands = results[0], results[1], results[2]
     
     # --- PROGRESSIVE LAYER PACKING ---
     # Layer 0: Base DC (1/4 size)
@@ -266,20 +288,20 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         L1_LL = ihaar_level(b_list[0], b_list[1], b_list[2], b_list[3])
         return ihaar_level(L1_LL, b_list[4], b_list[5], b_list[6])
 
-    y_rec = reconstruct_channel(bands[0])
-    c1_rec = reconstruct_channel(bands[1])
-    c2_rec = reconstruct_channel(bands[2])
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(reconstruct_channel, bands))
+    
+    y_rec, c1_rec, c2_rec = results[0], results[1], results[2]
     
     if mode_flag == 9:
         # Reversible Inverse YCoCg-R (Vectorized)
-        tmp = y_rec - np.floor(c2_rec / 2.0)
-        g = c2_rec + tmp
-        b = tmp - np.floor(c1_rec / 2.0)
-        r = b + c1_rec
+        y_rec -= np.floor(c2_rec / 2.0) # y_rec is now tmp
+        g = c2_rec + y_rec
+        y_rec -= np.floor(c1_rec / 2.0) # y_rec is now b
+        r = y_rec + c1_rec
+        b = y_rec
     else:
         # Legacy YCbCr
-        y_rec += (c1_rec * 0.1) 
-        y_rec += (c2_rec * 0.1) 
         y, cb, cr = y_rec + mid_point, c1_rec + mid_point, c2_rec + mid_point
         cb_f, cr_f = cb - mid_point, cr - mid_point
         r = y + 1.402 * cr_f

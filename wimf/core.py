@@ -35,27 +35,18 @@ def ihaar_level(LL, HL, LH, HH):
     LL, HL, LH, HH = LL.astype(np.int32), HL.astype(np.int32), LH.astype(np.int32), HH.astype(np.int32)
     
     # Inverse Vertical
-    s_h_even = LL - (HL >> 1)
-    s_h_odd = s_h_even + HL
-    
-    s_h = np.zeros((LL.shape[0], LL.shape[1], LL.shape[2]*2, LL.shape[3]), dtype=np.int32)
-    s_h[:, :, 0::2, :] = s_h_even
-    s_h[:, :, 1::2, :] = s_h_odd
+    s_h = np.empty((LL.shape[0], LL.shape[1], LL.shape[2]*2, LL.shape[3]), dtype=np.int32)
+    s_h[:, :, 0::2, :] = LL - (HL >> 1)
+    s_h[:, :, 1::2, :] = s_h[:, :, 0::2, :] + HL
     
     # Inverse Horizontal
-    d_h_even = LH - (HH >> 1)
-    d_h_odd = d_h_even + HH
-    
-    d_h = np.zeros((LL.shape[0], LL.shape[1], LL.shape[2]*2, LL.shape[3]), dtype=np.int32)
-    d_h[:, :, 0::2, :] = d_h_even
-    d_h[:, :, 1::2, :] = d_h_odd
+    d_h = np.empty((LL.shape[0], LL.shape[1], LL.shape[2]*2, LL.shape[3]), dtype=np.int32)
+    d_h[:, :, 0::2, :] = LH - (HH >> 1)
+    d_h[:, :, 1::2, :] = d_h[:, :, 0::2, :] + HH
     
     # Final Merge
-    b_even = s_h - (d_h >> 1)
-    b_odd = b_even + d_h
-    
-    b = np.zeros((LL.shape[0], LL.shape[1], LL.shape[2]*2, LL.shape[3]*2), dtype=np.int32)
-    b[:, :, :, 0::2] = b_even
-    b[:, :, :, 1::2] = b_odd
+    b = np.empty((LL.shape[0], LL.shape[1], LL.shape[2]*2, LL.shape[3]*2), dtype=np.int32)
+    b[:, :, :, 0::2] = s_h - (d_h >> 1)
+    b[:, :, :, 1::2] = b[:, :, :, 0::2] + d_h
     
     return b.astype(np.float32) # Return as float for consistency with existing codec expectations
