@@ -87,17 +87,29 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
     gpu = get_gpu_manager(gpu_mode or 'off')
     if gpu.enabled:
         print(f"[WIMF] Hardware Acceleration Active: {gpu.get_info()}")
-        # TODO: Implement actual shader dispatch here
-        print(f"[WIMF] Note: Shaders not yet fully dispatched, using CPU fallback.")
-    elif gpu_mode and gpu_mode != 'off':
-        print(f"[WIMF] GPU requested ({gpu_mode}) but not available. Using CPU.")
-    
-    # --- REVERSIBLE YCoCg-R TRANSFORM ---
-    r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-    co = r - b
-    tmp = b + (co >> 1)
-    cg = g - tmp
-    y = tmp + (cg >> 1)
+        gpu_res = gpu.dispatch_ycocg_fwd(arr, w, h)
+        if gpu_res is not None:
+            # Extract Y, Co, Cg from GPU result (which is RGBA32F)
+            y = gpu_res[..., 0]
+            co = gpu_res[..., 1]
+            cg = gpu_res[..., 2]
+            print(f"[WIMF] GPU Dispatch Successful.")
+        else:
+            print(f"[WIMF] GPU Dispatch Failed, falling back to CPU.")
+            r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+            co = r - b
+            tmp = b + (co >> 1)
+            cg = g - tmp
+            y = tmp + (cg >> 1)
+    else:
+        if gpu_mode and gpu_mode != 'off':
+            print(f"[WIMF] GPU requested ({gpu_mode}) but not available. Using CPU.")
+        # --- REVERSIBLE YCoCg-R TRANSFORM ---
+        r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+        co = r - b
+        tmp = b + (co >> 1)
+        cg = g - tmp
+        y = tmp + (cg >> 1)
     
     # Pad to 16x16 blocks
     ph, pw = (16 - h % 16) % 16, (16 - w % 16) % 16
@@ -299,8 +311,22 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     
     y_rec, c1_rec, c2_rec = results[0], results[1], results[2]
     
-    if mode_flag == 9:
-        # Reversible Inverse YCoCg-R (Vectorized)
+    gpu = get_gpu_manager(gpu_mode or 'off')
+    if mode_flag == 9 and gpu.enabled:
+        # Reversible Inverse YCoCg-R (GPU)
+        stack = np.stack([y_rec, c1_rec, c2_rec, np.ones_like(y_rec)], axis=-1)
+        gpu_res = gpu.dispatch_ycocg_inv(stack, stack.shape[1], stack.shape[0])
+        if gpu_res is not None:
+            r, g, b = gpu_res[..., 0], gpu_res[..., 1], gpu_res[..., 2]
+        else:
+            # CPU Fallback
+            y_rec -= np.floor(c2_rec / 2.0)
+            g = c2_rec + y_rec
+            y_rec -= np.floor(c1_rec / 2.0)
+            r = y_rec + c1_rec
+            b = y_rec
+    elif mode_flag == 9:
+        # Reversible Inverse YCoCg-R (Vectorized CPU)
         y_rec -= np.floor(c2_rec / 2.0) # y_rec is now tmp
         g = c2_rec + y_rec
         y_rec -= np.floor(c1_rec / 2.0) # y_rec is now b
