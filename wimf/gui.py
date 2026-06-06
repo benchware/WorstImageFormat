@@ -128,6 +128,12 @@ class WorstImageFormatApp:
         self.root.geometry("1100x850")
         self.root.configure(bg="#050505")
         
+        # Dependency Check
+        from .hwaccel import OPENGL_AVAILABLE
+        if not OPENGL_AVAILABLE:
+            self.root.after(100, lambda: messagebox.showwarning("GPU Disabled", 
+                "PyOpenGL or glfw not found.\n\nGPU acceleration is disabled.\nRun: sudo pacman -S python-pyopengl python-glfw"))
+
         self.colors = {"bg": "#050505", "surface": "#0f0f0f", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#555"}
         
         self.input_path, self.output_path = tk.StringVar(), tk.StringVar()

@@ -21,6 +21,7 @@ dependencies = [
     "PyOpenGL",
     "glfw",
     "tqdm",
+    "vulkan",
 ]
 
 [project.scripts]

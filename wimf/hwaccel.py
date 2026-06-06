@@ -10,6 +10,16 @@ try:
     OPENGL_AVAILABLE = True
 except ImportError:
     OPENGL_AVAILABLE = False
+    print("[WIMF] PyOpenGL or glfw not found. GPU acceleration will be disabled.")
+    print("       To fix this on Arch Linux: sudo pacman -S python-pyopengl python-glfw")
+    print("       Or via pip: pip install PyOpenGL glfw")
+
+try:
+    import vulkan as vk
+    VULKAN_AVAILABLE = True
+except ImportError:
+    VULKAN_AVAILABLE = False
+    # Only print this if they actually try to use Vulkan later to avoid noise
 
 class GPUManager:
     def __init__(self, mode='auto', device_index=0):
