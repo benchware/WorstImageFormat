@@ -7,6 +7,7 @@ wimf/cli.py
 wimf/codec.py
 wimf/core.py
 wimf/gui.py
+wimf/hwaccel.py
 wimf/io.py
 wimf/viewer.py
 wimf.egg-info/PKG-INFO

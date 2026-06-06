@@ -27,10 +27,14 @@ class GPUManager:
 
     def _init_opengl(self):
         if not OPENGL_AVAILABLE:
-            print("[WIMF] PyOpenGL not found. GPU disabled.")
+            print("[WIMF] PyOpenGL and GLFW is missing, Hardware Acceleration is now disabled.")
             return
+            
+        # Set error callback to catch issues early
+        glfw.set_error_callback(lambda code, desc: print(f"[WIMF] GLFW Error {code}: {desc}"))
+
         if not glfw.init():
-            print("[WIMF] GLFW init failed. GPU disabled.")
+            print("[WIMF] Failed to initialize GLFW. GPU acceleration disabled.")
             return
 
         glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
@@ -39,28 +43,38 @@ class GPUManager:
         glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
         glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
         
-        self.context = glfw.create_window(1, 1, "WIMF Compute", None, None)
+        try:
+            self.context = glfw.create_window(1, 1, "WIMF Compute", None, None)
+        except Exception as e:
+            print(f"[WIMF] Exception during context creation: {e}")
+            self.context = None
+
         if not self.context:
             print("[WIMF] OpenGL 4.3 Context Creation Failed. GPU disabled.")
-            glfw.terminate()
             return
 
         glfw.make_context_current(self.context)
-        renderer = glGetString(GL_RENDERER).decode()
-        self.devices = [renderer]
-        
-        major = glGetIntegerv(GL_MAJOR_VERSION)
-        minor = glGetIntegerv(GL_MINOR_VERSION)
-        
-        if major < 4 or (major == 4 and minor < 3):
-            print(f"[WIMF] OpenGL {major}.{minor} too old for Compute Shaders. GPU disabled.")
-            self.cleanup()
-            return
+        try:
+            renderer = glGetString(GL_RENDERER).decode()
+            self.devices = [renderer]
+            
+            major = glGetIntegerv(GL_MAJOR_VERSION)
+            minor = glGetIntegerv(GL_MINOR_VERSION)
+            
+            if major < 4 or (major == 4 and minor < 3):
+                print(f"[WIMF] OpenGL {major}.{minor} too old for Compute Shaders. GPU disabled.")
+                self.cleanup()
+                return
 
-        self.enabled = True
-        self._load_shaders()
-        glfw.make_context_current(None)
-        print(f"[WIMF] GPU Acceleration Ready: {renderer}")
+            self.enabled = True
+            self._load_shaders()
+            
+            # CRITICAL: Detach context from the main thread so worker threads can claim it!
+            glfw.make_context_current(None)
+            print(f"[WIMF] GPU Acceleration Ready: {renderer}")
+        except Exception as e:
+            print(f"[WIMF] Error during OpenGL feature probe: {e}")
+            self.cleanup()
 
     def _load_shaders(self):
         ycocg_fwd_src = """
@@ -109,8 +123,6 @@ class GPUManager:
             ph, pw = data_np.shape[0], data_np.shape[1]
             tex_in = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex_in)
-            # Ensure input is float32 and 3-channel for glTexImage2D (though shader expects RGBA, we provide RGB)
-            # Actually better to pad to 4 channels here to avoid driver issues
             data_rgba = np.zeros((ph, pw, 4), dtype=np.float32)
             data_rgba[..., :3] = data_np.astype(np.float32)
             

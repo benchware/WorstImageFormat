@@ -11,7 +11,11 @@ Requires-Python: >=3.8
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: numpy
-Requires-Dist: pillow
+Requires-Dist: Pillow
+Requires-Dist: PyOpenGL
+Requires-Dist: glfw
+Requires-Dist: tqdm
+Requires-Dist: vulkan
 Dynamic: license-file
 
 <p align="center">

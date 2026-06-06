@@ -1,2 +1,6 @@
 numpy
-pillow
+Pillow
+PyOpenGL
+glfw
+tqdm
+vulkan
