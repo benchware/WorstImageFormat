@@ -7,8 +7,6 @@ import threading
 import time
 import numpy as np
 
-# --- ULTIMATE MODERN WIDGETS ---
-
 class CustomButton(tk.Canvas):
     def __init__(self, master, text, command=None, color="#bb86fc", **kwargs):
         super().__init__(master, height=50, bg="#0a0a0a", highlightthickness=0, cursor="hand2", **kwargs)
@@ -90,13 +88,12 @@ class ModernSlider(tk.Canvas):
         self.val = int(self.from_ + ratio * (self.to - self.from_))
         if self.command: self.command(self.val)
 
-# --- THE ERGONOMIC APP ---
 
 class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Worst IMage Format (WIMF)")
-        self.root.geometry("800x950") # Expanded for Hyper-Tech Modules
+        self.root.geometry("800x950")
         self.root.configure(bg="#0a0a0a")
         
         self.colors = {"bg": "#0a0a0a", "surface": "#161616", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#888888"}
@@ -107,7 +104,6 @@ class WorstImageFormatApp:
         self.compression_mode = tk.IntVar(value=2)
         self.preset = tk.StringVar(value="Extreme")
         
-        # Hyper-Tech Variables
         self.opt_alpha = tk.BooleanVar()
         self.opt_hdr = tk.BooleanVar()
         self.opt_anim = tk.BooleanVar()
@@ -140,14 +136,12 @@ class WorstImageFormatApp:
         self.create_modern_io(content, "SOURCE ASSET (IMAGE/WIMF)", self.input_path, self.browse_input)
         self.create_modern_io(content, "EXPORT DESTINATION", self.output_path, self.browse_output)
 
-        # SETTINGS CARD
         self.card = tk.Frame(content, bg=self.colors["surface"], padx=35, pady=20, highlightthickness=1, highlightbackground="#252525")
         self.card.pack(fill="x", pady=15)
 
         r1 = tk.Frame(self.card, bg=self.colors["surface"])
         r1.pack(fill="x")
 
-        # Modes
         m_f = tk.Frame(r1, bg=self.colors["surface"])
         m_f.pack(side="left")
         tk.Label(m_f, text="ENCODING METHOD", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")

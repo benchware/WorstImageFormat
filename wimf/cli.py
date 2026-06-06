@@ -77,7 +77,7 @@ Examples:
     group.add_argument("--lossless", action="store_true", help="Force WIMF Lossless mode")
     group.add_argument("--raw", action="store_true", help="Force WIMF Raw mode")
 
-    # Hyper-Tech Flags
+    # Experimental Flags
     parser.add_argument("--alpha", action="store_true", help="Enable RGBA Transparency")
     parser.add_argument("--hdr", action="store_true", help="Enable 10-bit HDR precision")
     parser.add_argument("--animated", action="store_true", help="Process input as multi-frame animation")

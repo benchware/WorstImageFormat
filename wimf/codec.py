@@ -125,17 +125,24 @@ def decode_lossy(data, w, h, channels):
     
     # Entropy-Aware Re-Quantization mapping
     q_base = quality
-    var_mod = 0 
-    q_eff = q_base 
-    q1 = max(1.0, 30.0 - (q_eff * 3.0))
-    q2 = max(1.0, 15.0 - (q_eff * 1.5))
+    
+    def get_steps(q):
+        q_eff = q
+        q1 = max(1.0, 16.0 - (q_eff * 1.5))
+        q2 = max(1.0, 8.0 - (q_eff * 0.75))
+        return q1, q2
+
+    luma_q1, luma_q2 = get_steps(q_base)
+    chroma_q1, chroma_q2 = get_steps(max(1, q_base - 1))
     
     for i, sz in enumerate([sz_L2, sz_L2, sz_L2, sz_L2, sz_L1, sz_L1, sz_L1]):
         for c in range(3): # Y, Cb, Cr
             chunk = np.frombuffer(payload[offset : offset+sz], dtype=np.int16).astype(np.float32)
             offset += sz
             
-            # De-quantize
+            # De-quantize using channel-specific steps
+            q1, q2 = (luma_q1, luma_q2) if c == 0 else (chroma_q1, chroma_q2)
+            
             if i > 0 and i < 4: chunk *= q2
             elif i >= 4: chunk *= q1
             

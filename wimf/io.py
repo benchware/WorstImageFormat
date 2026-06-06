@@ -48,7 +48,7 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
     else:
         if compression == 2:
             data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels)
-            final_flags = 8 # Mode 8: Software Perfection
+            final_flags = 8
         elif compression == 1:
             data = encode_lossless(pixels, w, h, channels)
             final_flags = 1
