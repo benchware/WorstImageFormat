@@ -4,11 +4,11 @@ import sys
 import os
 import argparse
 
-def convert(input_path, output_path, compression=1, quality=5, author="Unknown", preset="Balanced"):
+def convert(input_path, output_path, compression=1, quality=5, preset="Balanced", meta=None):
     try:
+        if meta is None: meta = {"author": "Unknown", "engine": "WIMF Open Suite v18.3"}
         in_ext = os.path.splitext(input_path)[1].lower()
         out_ext = os.path.splitext(output_path)[1].lower()
-        meta = {"author": author, "engine": "WIMF Open Suite v18.3"}
 
         if in_ext in ['.wimf', '.wif', '.awif']:
             # Decode WIMF to Image
@@ -79,7 +79,8 @@ Examples:
 
     # Experimental Flags
     parser.add_argument("--alpha", action="store_true", help="Enable RGBA Transparency")
-    parser.add_argument("--hdr", action="store_true", help="Enable 10-bit HDR precision")
+    parser.add_argument("--hdr", action="store_true", help="Enable HDR metadata")
+    parser.add_argument("--10bit", dest="bit10", action="store_true", help="Enable 10-bit precision")
     parser.add_argument("--animated", action="store_true", help="Process input as multi-frame animation")
     parser.add_argument("--depth", action="store_true", help="Include 3D Depth-Map layer")
 
@@ -89,8 +90,16 @@ Examples:
     comp_mode = 2 # Default: Lossy
     if args.lossless: comp_mode = 1
     if args.raw: comp_mode = 0
+
+    # Build metadata
+    meta = {"author": args.author, "engine": "WIMF Open Suite v18.3"}
+    if args.hdr: meta['hdr'] = True
+    if args.bit10: meta['bit10'] = True
+    if args.alpha: meta['alpha'] = True
+    if args.depth: meta['depth'] = True
+    if args.animated: meta['is_animated'] = True
         
-    convert(args.input, args.output, compression=comp_mode, quality=args.quality, author=args.author, preset=args.preset)
+    convert(args.input, args.output, compression=comp_mode, quality=args.quality, preset=args.preset, meta=meta)
 
 if __name__ == "__main__":
     main()

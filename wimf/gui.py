@@ -106,6 +106,7 @@ class WorstImageFormatApp:
         
         self.opt_alpha = tk.BooleanVar()
         self.opt_hdr = tk.BooleanVar()
+        self.opt_10bit = tk.BooleanVar()
         self.opt_anim = tk.BooleanVar()
         self.opt_depth = tk.BooleanVar()
         
@@ -179,18 +180,20 @@ class WorstImageFormatApp:
 
         # Row 1 Checkboxes
         tk.Checkbutton(ht_frame, text="ALPHA (RGBA)", variable=self.opt_alpha, **cb_style).grid(row=0, column=0, sticky="w", padx=5)
-        tk.Checkbutton(ht_frame, text="HDR (10-BIT)", variable=self.opt_hdr, **cb_style).grid(row=0, column=1, sticky="w", padx=5)
-        tk.Checkbutton(ht_frame, text="ANIMATED", variable=self.opt_anim, **cb_style).grid(row=0, column=2, sticky="w", padx=5)
+        tk.Checkbutton(ht_frame, text="HDR", variable=self.opt_hdr, **cb_style).grid(row=0, column=1, sticky="w", padx=5)
+        tk.Checkbutton(ht_frame, text="10-BIT", variable=self.opt_10bit, **cb_style).grid(row=0, column=2, sticky="w", padx=5)
         
         # Row 2 Checkboxes
-        tk.Checkbutton(ht_frame, text="DEPTH MAP", variable=self.opt_depth, **cb_style).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
+        tk.Checkbutton(ht_frame, text="ANIMATED", variable=self.opt_anim, **cb_style).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
+        tk.Checkbutton(ht_frame, text="DEPTH MAP", variable=self.opt_depth, **cb_style).grid(row=2, column=1, sticky="w", padx=5, pady=(5,0))
 
         # Descriptions (Row 1 & 3)
         lbl_style = {"bg": self.colors["surface"], "fg": "#666666", "font": ("Segoe UI", 7)}
         tk.Label(ht_frame, text="Lossless transparency", **lbl_style).grid(row=1, column=0, sticky="w", padx=25)
-        tk.Label(ht_frame, text="High precision color", **lbl_style).grid(row=1, column=1, sticky="w", padx=25)
-        tk.Label(ht_frame, text="Motion delta P-frames", **lbl_style).grid(row=1, column=2, sticky="w", padx=25)
-        tk.Label(ht_frame, text="5-Channel 3D data", **lbl_style).grid(row=3, column=0, sticky="w", padx=25)
+        tk.Label(ht_frame, text="Tone-mapping hint", **lbl_style).grid(row=1, column=1, sticky="w", padx=25)
+        tk.Label(ht_frame, text="High precision", **lbl_style).grid(row=1, column=2, sticky="w", padx=25)
+        tk.Label(ht_frame, text="Motion delta P-frames", **lbl_style).grid(row=3, column=0, sticky="w", padx=25)
+        tk.Label(ht_frame, text="5-Channel 3D data", **lbl_style).grid(row=3, column=1, sticky="w", padx=25)
 
         # METADATA
         meta_f = tk.Frame(content, bg=self.colors["bg"])
@@ -325,6 +328,7 @@ class WorstImageFormatApp:
                 
                 meta = {"author": self.author_entry.get(), "engine": "WIMF Open Suite v18.5"}
                 if self.opt_hdr.get(): meta['hdr'] = True
+                if self.opt_10bit.get(): meta['bit10'] = True
                 if self.opt_depth.get(): meta['depth'] = True
                 
                 if self.opt_anim.get():
