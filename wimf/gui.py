@@ -93,7 +93,8 @@ class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Worst IMage Format (WIMF)")
-        self.root.geometry("800x950")
+        self.root.geometry("750x650")
+        self.root.resizable(False, False)
         self.root.configure(bg="#0a0a0a")
         
         self.colors = {"bg": "#0a0a0a", "surface": "#161616", "accent": "#bb86fc", "neon": "#03dac6", "text": "#ffffff", "sub": "#888888"}
@@ -102,7 +103,7 @@ class WorstImageFormatApp:
         self.output_path = tk.StringVar(value="")
         
         self.compression_mode = tk.IntVar(value=2)
-        self.preset = tk.StringVar(value="Extreme")
+        self.preset = tk.StringVar(value="Balanced")
         
         self.opt_alpha = tk.BooleanVar()
         self.opt_hdr = tk.BooleanVar()
@@ -128,20 +129,20 @@ class WorstImageFormatApp:
         self.main_container = tk.Frame(self.root, bg=self.colors["bg"])
         self.main_container.pack(expand=True, fill="both")
 
-        # Create two columns if preview is enabled
+        # Create two columns
         self.body = tk.Frame(self.main_container, bg=self.colors["bg"])
-        self.body.pack(expand=True, fill="both")
+        self.body.pack(expand=True, fill="both", pady=10)
         
-        self.left_panel = tk.Frame(self.body, bg=self.colors["bg"], padx=40)
+        self.left_panel = tk.Frame(self.body, bg=self.colors["bg"], padx=25)
         self.left_panel.pack(side="left", fill="both", expand=True)
         
-        self.right_panel = tk.Frame(self.body, bg=self.colors["bg"], padx=20)
+        self.right_panel = tk.Frame(self.body, bg=self.colors["bg"], padx=15)
         self.right_panel.pack(side="right", fill="both", expand=False)
 
-        # HERO (On left panel)
-        hero = tk.Frame(self.left_panel, bg=self.colors["bg"], pady=20)
+        # HERO (More compact)
+        hero = tk.Frame(self.left_panel, bg=self.colors["bg"], pady=5)
         hero.pack(fill="x")
-        tk.Label(hero, text="Worst IMage Format", font=("Segoe UI Semilight", 30), bg=self.colors["bg"], fg=self.colors["text"]).pack()
+        tk.Label(hero, text="WIMF Studio", font=("Segoe UI Semilight", 24), bg=self.colors["bg"], fg=self.colors["text"]).pack()
         
         content = tk.Frame(self.left_panel, bg=self.colors["bg"])
         content.pack(expand=True, fill="both")
@@ -149,65 +150,77 @@ class WorstImageFormatApp:
         self.create_modern_io(content, "SOURCE ASSET", self.input_path, self.browse_input)
         self.create_modern_io(content, "EXPORT DESTINATION", self.output_path, self.browse_output)
 
-        self.card = tk.Frame(content, bg=self.colors["surface"], padx=25, pady=15, highlightthickness=1, highlightbackground="#252525")
-        self.card.pack(fill="x", pady=10)
+        self.card = tk.Frame(content, bg=self.colors["surface"], padx=20, pady=10, highlightthickness=1, highlightbackground="#252525")
+        self.card.pack(fill="x", pady=5)
 
         r1 = tk.Frame(self.card, bg=self.colors["surface"])
         r1.pack(fill="x")
 
         m_f = tk.Frame(r1, bg=self.colors["surface"])
         m_f.pack(side="left")
-        tk.Label(m_f, text="ENCODING METHOD", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
-        for t, v in [("RAW", 0), ("LOSSLESS", 1), ("LOSSY", 2)]:
+        tk.Label(m_f, text="METHOD", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
+        for t, v in [("RAW", 0), ("LL", 1), ("LOSSY", 2)]:
             tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="white", 
-                           font=("Segoe UI Bold", 9), selectcolor="#333333", activebackground=self.colors["surface"],
-                           activeforeground=self.colors["accent"], command=self.update_ui_states).pack(side="left", padx=(0, 10))
+                           font=("Segoe UI Bold", 8), selectcolor="#333333", activebackground=self.colors["surface"],
+                           activeforeground=self.colors["accent"], command=self.update_ui_states).pack(side="left", padx=(0, 8))
 
         # Preset & GPU
         p_f = tk.Frame(r1, bg=self.colors["surface"])
         p_f.pack(side="right")
         
-        tk.Label(p_f, text="PRESET", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
-        self.preset_cb = ttk.Combobox(p_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=10)
-        self.preset_cb.pack(pady=2)
+        tk.Label(p_f, text="PRESET", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
+        self.preset_cb = ttk.Combobox(p_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=8)
+        self.preset_cb.pack(pady=1)
         
-        tk.Label(p_f, text="GPU MODE", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w", pady=(5,0))
-        self.gpu_cb = ttk.Combobox(p_f, values=["off", "auto", "opengl", "vulkan"], textvariable=self.gpu_mode, state="readonly", width=10)
-        self.gpu_cb.pack(pady=2)
+        tk.Label(p_f, text="GPU", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
+        self.gpu_cb = ttk.Combobox(p_f, values=["off", "auto", "opengl", "vulkan"], textvariable=self.gpu_mode, state="readonly", width=8)
+        self.gpu_cb.pack(pady=1)
 
         # Slider
         self.slider_frame = tk.Frame(self.card, bg=self.colors["surface"])
-        self.slider_frame.pack(fill="x", pady=(10, 0))
-        tk.Label(self.slider_frame, text="QUALITY", font=("Segoe UI Bold", 8), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
-        self.q_label = tk.Label(self.slider_frame, text="7", font=("Segoe UI Bold", 10), bg=self.colors["surface"], fg=self.colors["accent"])
+        self.slider_frame.pack(fill="x", pady=(8, 0))
+        tk.Label(self.slider_frame, text="QUALITY", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
+        self.q_label = tk.Label(self.slider_frame, text="7", font=("Segoe UI Bold", 9), bg=self.colors["surface"], fg=self.colors["accent"])
         self.q_label.pack(side="right")
         
         self.slider = ModernSlider(self.card, from_=1, to=10, initial=7, command=self.update_q_label)
-        self.slider.pack(fill="x", pady=2)
+        self.slider.pack(fill="x", pady=1)
 
         # PREVIEW PANEL
-        tk.Label(self.right_panel, text="LIVE PREVIEW", font=("Segoe UI Bold", 10), bg=self.colors["bg"], fg=self.colors["sub"]).pack(pady=(20, 5))
-        self.preview_container = tk.Frame(self.right_panel, bg="#111111", width=300, height=300, highlightthickness=1, highlightbackground="#333333")
+        tk.Label(self.right_panel, text="PREVIEW", font=("Segoe UI Bold", 9), bg=self.colors["bg"], fg=self.colors["sub"]).pack(pady=(10, 2))
+        self.preview_container = tk.Frame(self.right_panel, bg="#111111", width=240, height=240, highlightthickness=1, highlightbackground="#333333")
         self.preview_container.pack_propagate(False)
-        self.preview_container.pack(pady=5)
+        self.preview_container.pack(pady=2)
         
         self.preview_label = tk.Label(self.preview_container, bg="#111111")
         self.preview_label.pack(expand=True, fill="both")
         
         self.stats_frame = tk.Frame(self.right_panel, bg=self.colors["bg"])
-        self.stats_frame.pack(fill="x", pady=10)
-        self.rmse_label = tk.Label(self.stats_frame, text="RMSE: 0.0000", font=("Consolas", 11), bg=self.colors["bg"], fg=self.colors["neon"])
+        self.stats_frame.pack(fill="x", pady=5)
+        self.rmse_label = tk.Label(self.stats_frame, text="RMSE: 0.0000", font=("Consolas", 10), bg=self.colors["bg"], fg=self.colors["neon"])
         self.rmse_label.pack()
-        self.size_label = tk.Label(self.stats_frame, text="Est. Size: --", font=("Segoe UI", 9), bg=self.colors["bg"], fg=self.colors["sub"])
+        self.size_label = tk.Label(self.stats_frame, text="Est. Size: --", font=("Segoe UI", 8), bg=self.colors["bg"], fg=self.colors["sub"])
         self.size_label.pack()
         
-        tk.Checkbutton(self.right_panel, text="REAL-TIME PREVIEW", variable=self.show_preview, bg=self.colors["bg"], fg="white", 
-                       font=("Segoe UI Bold", 8), selectcolor="#222222", activebackground=self.colors["bg"],
-                       activeforeground=self.colors["accent"]).pack(pady=10)
+        tk.Checkbutton(self.right_panel, text="LIVE PREVIEW", variable=self.show_preview, bg=self.colors["bg"], fg="white", 
+                       font=("Segoe UI Bold", 7), selectcolor="#222222", activebackground=self.colors["bg"],
+                       activeforeground=self.colors["accent"]).pack(pady=5)
 
-        # EXPERIMENTAL FEATURES
-        ht_frame = tk.LabelFrame(self.left_panel, text=" EXPERIMENTAL FEATURES ", font=("Segoe UI Bold", 8), 
-                                 bg=self.colors["bg"], fg=self.colors["sub"], padx=15, pady=10, bd=1, highlightthickness=1)
+        # EXPERIMENTAL (Grid for space)
+        ht_frame = tk.Frame(self.left_panel, bg=self.colors["bg"], pady=5)
+        ht_frame.pack(fill="x")
+        
+        tk.Checkbutton(ht_frame, text="ALPHA", variable=self.opt_alpha, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 7), selectcolor="#222222").grid(row=0, column=0, sticky="w")
+        tk.Checkbutton(ht_frame, text="10-BIT", variable=self.opt_10bit, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 7), selectcolor="#222222").grid(row=0, column=1, sticky="w")
+        tk.Checkbutton(ht_frame, text="ANIM", variable=self.opt_anim, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 7), selectcolor="#222222").grid(row=0, column=2, sticky="w")
+
+        # CONSOLE
+        self.console = tk.Text(content, height=3, bg="#000000", fg=self.colors["neon"], font=("Consolas", 9), padx=10, pady=5, bd=0)
+        self.console.pack(fill="x", pady=5)
+
+        # START BUTTON
+        self.btn_run = CustomButton(content, text="START ENCODING", command=self.run, color=self.colors["accent"])
+        self.btn_run.pack(fill="x", pady=2)
         ht_frame.config(highlightbackground="#222222")
         ht_frame.pack(fill="x", pady=(15, 0))
 
