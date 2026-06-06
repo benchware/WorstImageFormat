@@ -139,6 +139,7 @@ Examples:
     group.add_argument("--raw", action="store_true", help="Force WIMF Raw mode")
 
     # Experimental Flags
+    parser.add_argument("--gpu", choices=['auto', 'opengl', 'vulkan'], nargs='?', const='auto', help="Enable Hardware Acceleration (Default: auto if flag set)")
     parser.add_argument("--alpha", action="store_true", help="Enable RGBA Transparency")
     parser.add_argument("--hdr", action="store_true", help="Enable HDR metadata")
     parser.add_argument("--10bit", dest="bit10", action="store_true", help="Enable 10-bit precision")
@@ -159,6 +160,7 @@ Examples:
     if args.alpha: meta['alpha'] = True
     if args.depth: meta['depth'] = True
     if args.animated: meta['is_animated'] = True
+    if args.gpu: meta['gpu_mode'] = args.gpu
     
     # New metadata fields
     if args.copyright: meta['copyright'] = args.copyright
