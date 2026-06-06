@@ -6,6 +6,33 @@ from PIL import Image, ImageTk
 import threading
 import time
 import numpy as np
+import subprocess
+
+def modern_file_picker(title="Select File", mode="open", default_ext=".wimf"):
+    # Try Zenity (Standard on GNOME/many Arch setups)
+    try:
+        cmd = ["zenity", "--file-selection", f"--title={title}"]
+        if mode == "save":
+            cmd.extend(["--save", "--confirm-overwrite", f"--filename=output{default_ext}"])
+        res = subprocess.check_output(cmd).decode().strip()
+        if res: return res
+    except: pass
+
+    # Try KDialog (Standard on Plasma)
+    try:
+        cmd = ["kdialog", "--title", title]
+        if mode == "save":
+            cmd.extend(["--getsavefilename", ".", f"*{default_ext}"])
+        else:
+            cmd.append("--getopenfilename")
+        res = subprocess.check_output(cmd).decode().strip()
+        if res: return res
+    except: pass
+
+    # Fallback to Tkinter (The "outdated" one)
+    if mode == "save":
+        return filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
+    return filedialog.askopenfilename(title=title)
 
 class Tooltip:
     def __init__(self, widget, text):
@@ -17,8 +44,9 @@ class Tooltip:
 
     def show_tip(self, event=None):
         if self.tip_window or not self.text: return
-        x = self.widget.winfo_rootx() + 25
-        y = self.widget.winfo_rooty() + 20
+        x, y, _, _ = self.widget.bbox("insert")
+        x = x + self.widget.winfo_rootx() + 25
+        y = y + self.widget.winfo_rooty() + 20
         self.tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
@@ -32,7 +60,7 @@ class Tooltip:
 
 class CustomButton(tk.Canvas):
     def __init__(self, master, text, command=None, color="#bb86fc", **kwargs):
-        super().__init__(master, height=40, bg="#0a0a0a", highlightthickness=0, cursor="hand2", **kwargs)
+        super().__init__(master, height=45, bg="#0a0a0a", highlightthickness=0, cursor="hand2", **kwargs)
         self.text = text
         self.command = command
         self.base_color = color
@@ -100,7 +128,7 @@ class WorstImageFormatApp:
     def __init__(self, root):
         self.root = root
         self.root.title("WIMF Studio")
-        self.root.geometry("780x580")
+        self.root.geometry("950x600")
         self.root.resizable(True, True)
         self.root.configure(bg="#0a0a0a")
         
@@ -126,62 +154,62 @@ class WorstImageFormatApp:
         body = tk.Frame(self.root, bg=self.colors["bg"])
         body.pack(expand=True, fill="both", pady=10)
         
-        lp = tk.Frame(body, bg=self.colors["bg"], padx=25); lp.pack(side="left", fill="both", expand=True)
-        rp = tk.Frame(body, bg=self.colors["bg"], padx=20); rp.pack(side="right", fill="both", expand=False)
+        lp = tk.Frame(body, bg=self.colors["bg"], padx=40); lp.pack(side="left", fill="both", expand=True)
+        rp = tk.Frame(body, bg=self.colors["bg"], padx=30); rp.pack(side="right", fill="both", expand=False)
 
-        tk.Label(lp, text="WIMF Studio", font=("Segoe UI Semilight", 22), bg=self.colors["bg"], fg=self.colors["text"]).pack(pady=(0, 10))
+        tk.Label(lp, text="WIMF Studio", font=("Segoe UI Semilight", 28), bg=self.colors["bg"], fg=self.colors["text"]).pack(pady=(0, 20))
         
         self.create_io(lp, "SOURCE ASSET", self.input_path, self.browse_input)
         self.create_io(lp, "EXPORT DESTINATION", self.output_path, self.browse_output)
 
-        card = tk.Frame(lp, bg=self.colors["surface"], padx=20, pady=12, highlightthickness=1, highlightbackground="#252525")
+        card = tk.Frame(lp, bg=self.colors["surface"], padx=20, pady=15, highlightthickness=1, highlightbackground="#252525")
         card.pack(fill="x", pady=10)
 
         r1 = tk.Frame(card, bg=self.colors["surface"]); r1.pack(fill="x")
         m_f = tk.Frame(r1, bg=self.colors["surface"]); m_f.pack(side="left")
         tk.Label(m_f, text="ENCODING METHOD", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
         for t, v in [("RAW", 0), ("LOSSLESS", 1), ("LOSSY", 2)]:
-            tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#333333", command=self.update_ui).pack(side="left", padx=(0, 12))
+            tk.Radiobutton(m_f, text=t, variable=self.compression_mode, value=v, bg=self.colors["surface"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#333333", command=self.update_ui).pack(side="left", padx=(0, 15))
 
         p_f = tk.Frame(r1, bg=self.colors["surface"]); p_f.pack(side="right")
         tk.Label(p_f, text="PRESET / GPU", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["sub"]).pack(anchor="w")
         cb_f = tk.Frame(p_f, bg=self.colors["surface"]); cb_f.pack()
-        self.preset_cb = ttk.Combobox(cb_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=9, font=("Segoe UI", 8))
+        self.preset_cb = ttk.Combobox(cb_f, values=["Fast", "Balanced", "Extreme"], textvariable=self.preset, state="readonly", width=10, font=("Segoe UI", 8))
         self.preset_cb.pack(side="left", padx=2)
-        self.gpu_cb = ttk.Combobox(cb_f, values=["off", "auto", "opengl", "vulkan"], textvariable=self.gpu_mode, state="readonly", width=7, font=("Segoe UI", 8))
+        self.gpu_cb = ttk.Combobox(cb_f, values=["off", "auto", "opengl", "vulkan"], textvariable=self.gpu_mode, state="readonly", width=8, font=("Segoe UI", 8))
         self.gpu_cb.pack(side="left", padx=2)
 
-        sf = tk.Frame(card, bg=self.colors["surface"]); sf.pack(fill="x", pady=(12, 0))
+        sf = tk.Frame(card, bg=self.colors["surface"]); sf.pack(fill="x", pady=(15, 0))
         tk.Label(sf, text="COMPRESSION QUALITY", font=("Segoe UI Bold", 7), bg=self.colors["surface"], fg=self.colors["sub"]).pack(side="left")
-        self.q_label = tk.Label(sf, text="7", font=("Segoe UI Bold", 10), bg=self.colors["surface"], fg=self.colors["accent"]); self.q_label.pack(side="right")
-        self.slider = ModernSlider(card, from_=1, to=10, initial=7, command=self.update_q_label); self.slider.pack(fill="x", pady=2)
+        self.q_label = tk.Label(sf, text="7", font=("Segoe UI Bold", 12), bg=self.colors["surface"], fg=self.colors["accent"]); self.q_label.pack(side="right")
+        self.slider = ModernSlider(card, from_=1, to=10, initial=7, command=self.update_q_label); self.slider.pack(fill="x", pady=5)
 
-        tk.Label(rp, text="LIVE PREVIEW", font=("Segoe UI Bold", 9), bg=self.colors["bg"], fg=self.colors["sub"]).pack(pady=(5, 5))
-        self.pc = tk.Frame(rp, bg="#111111", width=220, height=220, highlightthickness=1, highlightbackground="#333333")
-        self.pc.pack_propagate(False); self.pc.pack(pady=2)
+        tk.Label(rp, text="LIVE PREVIEW", font=("Segoe UI Bold", 11), bg=self.colors["bg"], fg=self.colors["sub"]).pack(pady=(5, 10))
+        self.pc = tk.Frame(rp, bg="#111111", width=320, height=320, highlightthickness=1, highlightbackground="#333333")
+        self.pc.pack_propagate(False); self.pc.pack(pady=5)
         self.pl = tk.Label(self.pc, bg="#111111"); self.pl.pack(expand=True, fill="both")
         
-        self.rmse_l = tk.Label(rp, text="RMSE: 0.0000", font=("Consolas", 11), bg=self.colors["bg"], fg=self.colors["neon"]); self.rmse_l.pack(pady=5)
-        tk.Checkbutton(rp, text="ENABLE PREVIEW", variable=self.show_preview, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 7), selectcolor="#222222").pack(pady=2)
+        self.rmse_l = tk.Label(rp, text="RMSE: 0.0000", font=("Consolas", 12), bg=self.colors["bg"], fg=self.colors["neon"]); self.rmse_l.pack(pady=10)
+        tk.Checkbutton(rp, text="ENABLE PREVIEW", variable=self.show_preview, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222").pack(pady=5)
 
-        tk.Label(lp, text="EXPERIMENTAL FEATURES", font=("Segoe UI Bold", 7), bg=self.colors["bg"], fg=self.colors["sub"]).pack(anchor="w", pady=(5, 0))
-        hf = tk.Frame(lp, bg=self.colors["bg"], pady=5); hf.pack(fill="x")
+        tk.Label(lp, text="EXPERIMENTAL FEATURES", font=("Segoe UI Bold", 8), bg=self.colors["bg"], fg=self.colors["sub"]).pack(anchor="w", pady=(15, 0))
+        hf = tk.Frame(lp, bg=self.colors["bg"], pady=10); hf.pack(fill="x")
         
         c_alpha = tk.Checkbutton(hf, text="ALPHA CHANNEL", variable=self.opt_alpha, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222")
-        c_alpha.grid(row=0, column=0, sticky="w", padx=(0, 15))
+        c_alpha.grid(row=0, column=0, sticky="w", padx=(0, 20))
         Tooltip(c_alpha, "Preserve transparency using a lossless Paeth-predicted sub-stream.")
 
         c_10bit = tk.Checkbutton(hf, text="10-BIT DEPTH", variable=self.opt_10bit, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222")
-        c_10bit.grid(row=0, column=1, sticky="w", padx=(0, 15))
+        c_10bit.grid(row=0, column=1, sticky="w", padx=(0, 20))
         Tooltip(c_10bit, "Increase color precision to 1024 levels per channel for HDR content.")
 
         c_anim = tk.Checkbutton(hf, text="ANIMATION", variable=self.opt_anim, bg=self.colors["bg"], fg="white", font=("Segoe UI Bold", 8), selectcolor="#222222")
         c_anim.grid(row=0, column=2, sticky="w")
         Tooltip(c_anim, "Encode multiple frames using temporal Wavelet delta compression (AWIF).")
 
-        self.console = tk.Text(lp, height=3, bg="#000000", fg=self.colors["neon"], font=("Consolas", 9), padx=10, pady=8, bd=0)
+        self.console = tk.Text(lp, height=3, bg="#000000", fg=self.colors["neon"], font=("Consolas", 9), padx=10, pady=10, bd=0)
         self.console.pack(fill="x", pady=10)
-        self.btn_run = CustomButton(lp, text="START ENCODING SEQUENCE", command=self.run, color=self.colors["accent"]); self.btn_run.pack(fill="x", pady=5)
+        self.btn_run = CustomButton(lp, text="START ENCODING SEQUENCE", command=self.run, color=self.colors["accent"]); self.btn_run.pack(fill="x", pady=10)
 
     def create_io(self, parent, label, var, cmd):
         f = tk.Frame(parent, bg=self.colors["bg"], pady=5); f.pack(fill="x")
@@ -200,11 +228,11 @@ class WorstImageFormatApp:
         self.console.config(state="normal"); self.console.insert("end", f"> {m}\n"); self.console.see("end"); self.console.config(state="disabled")
 
     def browse_input(self):
-        p = filedialog.askopenfilename()
+        p = modern_file_picker(title="Select Source Image", mode="open")
         if p: self.input_path.set(p); self.log(f"Linked: {os.path.basename(p)}")
 
     def browse_output(self):
-        p = filedialog.asksaveasfilename(defaultextension=".wimf")
+        p = modern_file_picker(title="Select Export Path", mode="save", default_ext=".wimf")
         if p: self.output_path.set(p)
 
     def run(self):
