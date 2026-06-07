@@ -2,7 +2,7 @@ import builtins as _builtins
 from .io import loadImage, saveImage, stream_load
 from .api import WIMFImage, WIMFDecoder, WIMFEncoder, open_image, edit_metadata as edit_meta
 
-__version__ = "1.3.0"
+__version__ = "1.3.2"
 __all__ = ["WIMFImage", "WIMFDecoder", "WIMFEncoder", "open", "save", "info", "edit_meta"]
 
 def open(path):

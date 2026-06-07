@@ -34,7 +34,7 @@ def protect(data, num_chunks=10):
 # check if the file is rot and fix it if one chunk is dead
 def verify_and_repair(data):
     if not data.startswith(b"ROT!"):
-        return data, False # not protected, just return it
+        return data, False, False # not protected, just return it
         
     offset = 4
     orig_len = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
@@ -66,7 +66,7 @@ def verify_and_repair(data):
         chunks.append(c_arr)
         
     if broken_idx == -1:
-        return raw_payload, False
+        return raw_payload, True, False
         
     print(f"chunk {broken_idx} is dead. fixing it now.")
     
@@ -91,4 +91,4 @@ def verify_and_repair(data):
             new_payload.extend(chunks[i][:target_size].tobytes())
             
     print(f"fixed it. bit-rot defeated.")
-    return bytes(new_payload), True
+    return bytes(new_payload), True, True

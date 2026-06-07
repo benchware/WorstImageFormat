@@ -11,7 +11,7 @@ def surgical_read(path):
         data = f.read()
         
     # Auto-repair if needed
-    repaired, _ = parity.verify_and_repair(data)
+    repaired, was_protected, was_corrupt = parity.verify_and_repair(data)
     
     magic = repaired[:4]
     if magic not in [b"WIMF", b"AWIF"]:
@@ -26,17 +26,26 @@ def surgical_read(path):
     pixel_data = repaired[offset+mlen:]
     
     meta = json.loads(meta_bytes.decode('utf-8'))
-    return magic, w, h, flags, meta, pixel_data
+    return magic, w, h, flags, meta, pixel_data, was_protected
 
-def surgical_write(path, magic, w, h, flags, meta, pixel_data):
+def surgical_write(path, magic, w, h, flags, meta, pixel_data, protect=False):
     m_bytes = json.dumps(meta).encode('utf-8')
+    payload = bytearray()
+    payload.extend(magic)
+    payload.extend(w.to_bytes(4, 'little'))
+    payload.extend(h.to_bytes(4, 'little'))
+    payload.extend(flags.to_bytes(1, 'little'))
+    payload.extend(len(m_bytes).to_bytes(4, 'little'))
+    payload.extend(m_bytes)
+    payload.extend(pixel_data)
+    
+    if protect:
+        final_data = parity.protect(bytes(payload))
+    else:
+        final_data = bytes(payload)
+        
     with open(path, 'wb') as f:
-        f.write(magic)
-        f.write(w.to_bytes(4, 'little') + h.to_bytes(4, 'little'))
-        f.write(flags.to_bytes(1, 'little'))
-        f.write(len(m_bytes).to_bytes(4, 'little'))
-        f.write(m_bytes)
-        f.write(pixel_data)
+        f.write(final_data)
 
 def main():
     parser = argparse.ArgumentParser(description="WIMF Metadata Surgery Tool")
@@ -48,7 +57,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        magic, w, h, flags, meta, pixel_data = surgical_read(args.file)
+        magic, w, h, flags, meta, pixel_data, was_protected = surgical_read(args.file)
         
         if args.show:
             print(f"File: {args.file} ({w}x{h})")
@@ -69,7 +78,7 @@ def main():
                     modified = True
         
         if modified:
-            surgical_write(args.file, magic, w, h, flags, meta, pixel_data)
+            surgical_write(args.file, magic, w, h, flags, meta, pixel_data, protect=was_protected)
             print(f"[WIMF-META] Successfully updated {args.file}")
             
     except Exception as e:

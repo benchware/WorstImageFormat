@@ -88,6 +88,11 @@ def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     limit = 2**bit_depth - 1
     
+    # Default quality in case first frame isn't a keyframe (shouldn't happen)
+    quality = 5
+    depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
+    q_step = max(1.0, (20.0 * depth_scale) - (quality * 1.5))
+    
     ph, pw = h % 2, w % 2
     th, tw = (h + ph) // 2, (w + pw) // 2
     sz_coeff = th * tw * channels * 2 

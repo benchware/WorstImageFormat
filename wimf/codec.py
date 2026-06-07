@@ -1,7 +1,11 @@
 import numpy as np
 import lzma
 import struct
-from .core import paeth_predictor, haar_level, ihaar_level
+from .core import paeth_predictor, haar_level, ihaar_level, HAS_CPP
+try:
+    from . import wimf_cpp
+except ImportError:
+    pass
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 
@@ -26,11 +30,15 @@ def encode_lossless_channel(channel_2d):
     res2 = arr - above
     
     # this paeth thing is confusing but it basically picks the best neighbor
-    p = left + above - above_left
-    pa, pb, pc = np.abs(p - left), np.abs(p - above), np.abs(p - above_left)
-    pr = np.where((pa <= pb) & (pa <= pc), left, 
-            np.where(pb <= pc, above, above_left))
-    res3 = arr - pr
+    if HAS_CPP:
+        res3 = np.zeros_like(arr)
+        wimf_cpp.paeth_filter(arr, left, above, above_left, res3)
+    else:
+        p = left + above - above_left
+        pa, pb, pc = np.abs(p - left), np.abs(p - above), np.abs(p - above_left)
+        pr = np.where((pa <= pb) & (pa <= pc), left, 
+                np.where(pb <= pc, above, above_left))
+        res3 = arr - pr
     
     # figure out which filter sucks the least for each row
     def row_costs(res):
@@ -118,11 +126,15 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
     
     if not disable_ycocg and channels >= 3:
         arr = arr_full[..., :3].astype(np.int32)
-        r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-        co = r - b
-        tmp = b + (co >> 1)
-        cg = g - tmp
-        y = tmp + (cg >> 1)
+        if HAS_CPP:
+            wimf_cpp.ycocg_forward(arr)
+            y, co, cg = arr[..., 0], arr[..., 1], arr[..., 2]
+        else:
+            r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+            co = r - b
+            tmp = b + (co >> 1)
+            cg = g - tmp
+            y = tmp + (cg >> 1)
         # put them back into a list of channels
         transformed_chans = [y.astype(np.float32), co.astype(np.float32), cg.astype(np.float32)]
         for c in range(3, channels):
@@ -413,10 +425,16 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         
         # inverse ycocg math. it works, trust me.
         if not disable_ycocg:
-            tmp = y_rec - np.floor(c2_rec / 2.0)
-            g = c2_rec + tmp
-            b = tmp - np.floor(c1_rec / 2.0)
-            r = b + c1_rec
+            if HAS_CPP:
+                # Prepare a 3-channel stack for C++
+                stack_3ch = np.stack([y_rec, c1_rec, c2_rec], axis=-1).astype(np.float32)
+                wimf_cpp.ycocg_inverse(stack_3ch)
+                r, g, b = stack_3ch[..., 0], stack_3ch[..., 1], stack_3ch[..., 2]
+            else:
+                tmp = y_rec - np.floor(c2_rec / 2.0)
+                g = c2_rec + tmp
+                b = tmp - np.floor(c1_rec / 2.0)
+                r = b + c1_rec
             processed_chans = [np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)]
             # Add remaining channels (alpha, depth, etc)
             for i in range(3, channels):
@@ -516,10 +534,15 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     
     if mode_flag == 9:
         if not disable_ycocg:
-            tmp = y_rec - np.floor(c2_rec / 2.0)
-            g = c2_rec + tmp
-            b = tmp - np.floor(c1_rec / 2.0)
-            r = b + c1_rec
+            if HAS_CPP:
+                stack_3ch = np.stack([y_rec, c1_rec, c2_rec], axis=-1).astype(np.float32)
+                wimf_cpp.ycocg_inverse(stack_3ch)
+                r, g, b = stack_3ch[..., 0], stack_3ch[..., 1], stack_3ch[..., 2]
+            else:
+                tmp = y_rec - np.floor(c2_rec / 2.0)
+                g = c2_rec + tmp
+                b = tmp - np.floor(c1_rec / 2.0)
+                r = b + c1_rec
             processed_chans = [np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)]
             # results contains all channels reconstructed in parallel
             for i in range(3, channels):
@@ -541,6 +564,12 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     
     block_size = 16 >> mip_level
-    final_img = final_stack.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, channels)[:h >> mip_level, :w >> mip_level]
+    final_img = final_stack.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, channels)
+
+    if roi:
+        rx, ry, rw, rh = [v >> mip_level for v in roi]
+        final_img = final_img[ry:ry+rh, rx:rx+rw]
+    else:
+        final_img = final_img[:h >> mip_level, :w >> mip_level]
 
     return final_img.tobytes()

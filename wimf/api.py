@@ -65,7 +65,7 @@ class WIMFDecoder:
             data = source.read()
             
         # try to fix the file if it's broken
-        repaired, was_corrupt = parity.verify_and_repair(data)
+        repaired, was_protected, was_corrupt = parity.verify_and_repair(data)
         self._buffer = io.BytesIO(repaired)
             
         self._parse_header()
@@ -135,17 +135,21 @@ class WIMFDecoder:
     @property
     def num_states(self):
         if not self.is_animated: return 1
-        return 1 # TODO: actually count frames later
+        self._buffer.seek(self._data_start)
+        # First 4 bytes after metadata is num_frames
+        return int.from_bytes(self._buffer.read(4), 'little')
 
     # get one state from the undo history
     def decode_chrono_state(self, index=0, **kwargs):
         if not self.is_animated: return self.decode(**kwargs)
         
-        self._buffer.seek(self._data_start)
-        data = self._buffer.read()
-        from .animation import decode_animated
-        frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth, metadata=self.metadata)
+        if not hasattr(self, '_cached_frames'):
+            self._buffer.seek(self._data_start)
+            data = self._buffer.read()
+            from .animation import decode_animated
+            self._cached_frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth, metadata=self.metadata)
         
+        frames = self._cached_frames
         if index >= len(frames): index = len(frames) - 1
         
         pix = frames[index]
@@ -288,9 +292,9 @@ def edit_metadata(path):
     class Editor:
         def __init__(self, path): self.path = path
         def __enter__(self):
-            self.magic, self.w, self.h, self.flags, self.meta, self.pixels = surgical_read(self.path)
+            self.magic, self.w, self.h, self.flags, self.meta, self.pixels, self.was_protected = surgical_read(self.path)
             return self.meta
         def __exit__(self, exc_type, exc_val, exc_tb):
             if exc_type is None:
-                surgical_write(self.path, self.magic, self.w, self.h, self.flags, self.meta, self.pixels)
+                surgical_write(self.path, self.magic, self.w, self.h, self.flags, self.meta, self.pixels, protect=self.was_protected)
     return Editor(path)
