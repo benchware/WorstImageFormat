@@ -1,0 +1,52 @@
+name: Build WIMF Wheels
+
+on:
+  push:
+    branches: [ main, experimental, c++ ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [published]
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.17.0
+        env:
+          CIBW_BEFORE_BUILD: pip install pybind11 numpy pillow
+          CIBW_TEST_REQUIRES: pytest numpy pillow
+          CIBW_TEST_COMMAND: "python -m pytest {project}/wimf"
+          # Skip 32-bit builds and outdated Python versions
+          CIBW_SKIP: "cp36-* cp37-* cp38-* cp39-* *-win32 *-manylinux_i686"
+          # Enable AVX2/NEON where appropriate
+          CIBW_ENVIRONMENT_LINUX: "CFLAGS='-O3 -mavx2' CXXFLAGS='-O3 -mavx2'"
+          CIBW_ENVIRONMENT_WINDOWS: "CL='/O2 /arch:AVX2'"
+          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=10.15"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-sdist
+          path: dist/*.tar.gz
