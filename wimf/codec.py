@@ -541,6 +541,12 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     
     block_size = 16 >> mip_level
-    final_img = final_stack.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, channels)[:h >> mip_level, :w >> mip_level]
+    final_img = final_stack.astype(dtype).swapaxes(1, 2).reshape(gh * block_size, gw * block_size, channels)
+
+    if roi:
+        rx, ry, rw, rh = [v >> mip_level for v in roi]
+        final_img = final_img[ry:ry+rh, rx:rx+rw]
+    else:
+        final_img = final_img[:h >> mip_level, :w >> mip_level]
 
     return final_img.tobytes()
