@@ -35,8 +35,19 @@ The engine automatically detects the target architecture during compilation:
 
 - **x86_64**: Enables **AVX2** and **FMA** support (`-mavx2 -mfma`).
 - **ARM (aarch64)**: Enables **NEON** support.
+- **WebAssembly (Wasm)**: Enables compilation via Emscripten with `EMSCRIPTEN_KEEPALIVE` exports.
 
-The Haar transform implementation (`haar_level` and `ihaar_level`) uses 256-bit registers on x86 to process 4 wavelet blocks (16 pixels) simultaneously.
+The Haar transform implementation (`haar_level` and `ihaar_level`) uses:
+- **AVX2** (256-bit) on x86_64 to process 4 blocks simultaneously.
+- **NEON** (128-bit) on ARM/Android to process 4 blocks simultaneously using `vld2q_f32` and `vst1q_f32`.
+
+## 🌐 Web & Mobile Support
+
+### WebAssembly (Wasm)
+The core algorithms are exported with C linkage for Wasm compatibility. Functions like `ycocg_forward_raw` and `haar_level_raw` can be called directly from JavaScript when compiled with Emscripten.
+
+### Android
+The C++ core is optimized for Android using NEON intrinsics, ensuring the WIMF codec remains high-performance on mobile hardware. It is recommended to build using the Android NDK with `-O3` and NEON enabled.
 
 ## 🧪 Testing
 
