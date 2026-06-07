@@ -82,7 +82,8 @@ wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
 - Finish C++ porting
 - Web support
 - Test on ARM
-- GPU acceleration
+- Publish on PyPI
+- Mainly use C++
 
 ## License
 Worst IMage Format is licensed under the GNU General Public License (GPL) v3.0. You are free to use, modify, and distribute this software under the terms of the GPL v3.0.
