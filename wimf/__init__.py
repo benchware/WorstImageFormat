@@ -28,8 +28,13 @@ def save(path, image, **kwargs):
     # Remove meta keys from kwargs before passing to encode
     encode_args = {k: v for k, v in kwargs.items() if k not in meta_keys and k != 'anti_rot'}
     raw = encoder.encode(**encode_args)
-    with _builtins.open(path, 'wb') as f:
-        f.write(raw)
+    
+    try:
+        from . import wimf_cpp
+        wimf_cpp.c_save_file(path, raw)
+    except (ImportError, AttributeError):
+        with _builtins.open(path, 'wb') as f:
+            f.write(raw)
 
 def is_wimf(source):
     """Fast check if a file or byte buffer is WIMF."""

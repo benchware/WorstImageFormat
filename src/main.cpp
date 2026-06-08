@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -8,7 +9,7 @@
 
 namespace py = pybind11;
 
-// --- SIMD ABSTRACTION LAYER ---
+// --- SIMD LAYER ---
 #if defined(__x86_64__) || defined(_M_X64)
     #include <immintrin.h>
     #define WIMF_X86
@@ -17,327 +18,138 @@ namespace py = pybind11;
     #define WIMF_ARM
 #endif
 
-#ifdef __EMSCRIPTEN__
-    #include <emscripten.h>
-    #define WIMF_WASM
-#endif
-
-// --- YCoCg-R TRANSFORM ---
+// --- CORE MATH RAW ---
 extern "C" {
-#ifdef WIMF_WASM
-    EMSCRIPTEN_KEEPALIVE
-#endif
-    void ycocg_forward_raw(int32_t* data, size_t w, size_t h) {
+    void ycocg_forward_raw(int32_t* d, size_t w, size_t h) {
         for (size_t i = 0; i < w * h; ++i) {
-            int32_t r = data[i * 3 + 0];
-            int32_t g = data[i * 3 + 1];
-            int32_t b = data[i * 3 + 2];
-            int32_t co = r - b;
-            int32_t tmp = b + (co >> 1);
-            int32_t cg = g - tmp;
-            int32_t luma = tmp + (cg >> 1);
-            data[i * 3 + 0] = luma;
-            data[i * 3 + 1] = co;
-            data[i * 3 + 2] = cg;
+            int32_t r = d[i*3], g = d[i*3+1], b = d[i*3+2];
+            int32_t co = r-b, t = b+(co>>1), cg = g-t, y = t+(cg>>1);
+            d[i*3] = y; d[i*3+1] = co; d[i*3+2] = cg;
         }
     }
-    void ycocg_inverse_raw(float* data, size_t total_pixels) {
-        for (size_t i = 0; i < total_pixels; ++i) {
-            float luma = data[i * 3 + 0];
-            float co   = data[i * 3 + 1];
-            float cg   = data[i * 3 + 2];
-            float tmp = luma - std::floor(cg * 0.5f);
-            float g = cg + tmp;
-            float b = tmp - std::floor(co * 0.5f);
-            float r = b + co;
-            data[i * 3 + 0] = r;
-            data[i * 3 + 1] = g;
-            data[i * 3 + 2] = b;
+    void ycocg_inverse_raw(float* d, size_t n) {
+        for (size_t i = 0; i < n; ++i) {
+            float y = d[i*3], co = d[i*3+1], cg = d[i*3+2];
+            float t = y-std::floor(cg*0.5f), g = cg+t, b = t-std::floor(co*0.5f), r = b+co;
+            d[i*3] = r; d[i*3+1] = g; d[i*3+2] = b;
         }
     }
-
-#ifdef WIMF_WASM
-    EMSCRIPTEN_KEEPALIVE
-    void haar_level_raw(float* input, float* LL, float* HL, float* LH, float* HH, int n, int c, int h, int w) {
-        size_t out_h = h / 2;
-        size_t out_w = w / 2;
-        for (int i = 0; i < n; ++i) {
-            for (int j = 0; j < c; ++j) {
-                float* base = input + (i * c * h * w) + (j * h * w);
-                for (size_t y = 0; y < out_h; ++y) {
-                    for (size_t x = 0; x < out_w; ++x) {
-                        float a = base[(2*y)*w + (2*x)];
-                        float b = base[(2*y)*w + (2*x+1)];
-                        float c_val = base[(2*y+1)*w + (2*x)];
-                        float d = base[(2*y+1)*w + (2*x+1)];
-                        size_t out_idx = (i * c * out_h * out_w) + (j * out_h * out_w) + (y * out_w) + x;
-                        LL[out_idx] = (a + b + c_val + d) * 0.25f;
-                        HL[out_idx] = (a - b + c_val - d) * 0.25f;
-                        LH[out_idx] = (a + b - c_val - d) * 0.25f;
-                        HH[out_idx] = (a - b - c_val + d) * 0.25f;
-                    }
-                }
+    void haar_2d_raw(const float* b, float* ll, float* hl, float* lh, float* hh, int h, int w) {
+        int oh = h/2, ow = w/2;
+        for (int y = 0; y < oh; ++y) {
+            const float* r0 = &b[(2*y)*w], *r1 = &b[(2*y+1)*w];
+            float* wll = &ll[y*ow], *whl = &hl[y*ow], *wlh = &lh[y*ow], *whh = &hh[y*ow];
+            int x = 0;
+            #ifdef WIMF_X86
+            for (; x <= ow-4; x += 4) {
+                __m256 v0 = _mm256_loadu_ps(&r0[x*2]), v1 = _mm256_loadu_ps(&r1[x*2]);
+                __m256 v0_e = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v0,v0,0x88)),0xD8));
+                __m256 v0_o = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v0,v0,0xDD)),0xD8));
+                __m256 v1_e = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v1,v1,0x88)),0xD8));
+                __m256 v1_o = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v1,v1,0xDD)),0xD8));
+                __m256 resLL = _mm256_mul_ps(_mm256_add_ps(_mm256_add_ps(v0_e, v0_o), _mm256_add_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
+                __m256 resHL = _mm256_mul_ps(_mm256_add_ps(_mm256_sub_ps(v0_e, v0_o), _mm256_sub_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
+                __m256 resLH = _mm256_mul_ps(_mm256_sub_ps(_mm256_add_ps(v0_e, v0_o), _mm256_add_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
+                __m256 resHH = _mm256_mul_ps(_mm256_sub_ps(_mm256_sub_ps(v0_e, v0_o), _mm256_sub_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
+                _mm_storeu_ps(&wll[x],_mm256_castps256_ps128(resLL)); _mm_storeu_ps(&whl[x],_mm256_castps256_ps128(resHL));
+                _mm_storeu_ps(&wlh[x],_mm256_castps256_ps128(resLH)); _mm_storeu_ps(&whh[x],_mm256_castps256_ps128(resHH));
+            }
+            #endif
+            for (; x < ow; ++x) {
+                float a = r0[2*x], b_v = r0[2*x+1], c = r1[2*x], d = r1[2*x+1];
+                wll[x] = (a+b_v+c+d)*0.25f; whl[x] = (a-b_v+c-d)*0.25f;
+                wlh[x] = (a+b_v-c-d)*0.25f; whh[x] = (a-b_v-c+d)*0.25f;
             }
         }
     }
-#endif
-}
-
-void ycocg_forward(py::array_t<int32_t> arr) {
-    if (arr.ndim() != 3) throw std::runtime_error("ycocg_forward expects a 3D array [H, W, 3]");
-    auto buf = arr.mutable_unchecked<3>();
-    
-    ssize_t h = buf.shape(0);
-    ssize_t w = buf.shape(1);
-
-    for (ssize_t y = 0; y < h; ++y) {
-        int32_t* row_ptr = &buf(y, 0, 0);
-        for (ssize_t x = 0; x < w; ++x) {
-            int32_t r = row_ptr[x * 3 + 0];
-            int32_t g = row_ptr[x * 3 + 1];
-            int32_t b = row_ptr[x * 3 + 2];
-
-            int32_t co = r - b;
-            int32_t tmp = b + (co >> 1);
-            int32_t cg = g - tmp;
-            int32_t luma = tmp + (cg >> 1);
-
-            row_ptr[x * 3 + 0] = luma;
-            row_ptr[x * 3 + 1] = co;
-            row_ptr[x * 3 + 2] = cg;
-        }
-    }
-}
-
-void ycocg_inverse(const py::buffer& b) {
-    py::buffer_info info = b.request();
-    if (info.format != py::format_descriptor<float>::format())
-        throw std::runtime_error("Incompatible format: expected float");
-
-    if (info.shape.empty() || info.shape.back() != 3)
-        throw std::runtime_error("Last dimension must be 3 (RGB)");
-
-    auto* data = static_cast<float*>(info.ptr);
-    ssize_t total_pixels = info.size / 3;
-
-    for (ssize_t i = 0; i < total_pixels; ++i) {
-        float luma = data[i * 3 + 0];
-        float co   = data[i * 3 + 1];
-        float cg   = data[i * 3 + 2];
-
-        float tmp = luma - std::floor(cg * 0.5f);
-        float g = cg + tmp;
-        float b = tmp - std::floor(co * 0.5f);
-        float r = b + co;
-
-        data[i * 3 + 0] = r;
-        data[i * 3 + 1] = g;
-        data[i * 3 + 2] = b;
-    }
-}
-
-// --- HAAR WAVELET TRANSFORM ---
-py::tuple haar_level(const py::array_t<float>& b) {
-    auto buf = b.unchecked<4>();
-    ssize_t n = buf.shape(0);
-    ssize_t c = buf.shape(1);
-    ssize_t h = buf.shape(2);
-    ssize_t w = buf.shape(3);
-
-    ssize_t out_h = h / 2;
-    ssize_t out_w = w / 2;
-
-    auto LL = py::array_t<float>({n, c, out_h, out_w});
-    auto HL = py::array_t<float>({n, c, out_h, out_w});
-    auto LH = py::array_t<float>({n, c, out_h, out_w});
-    auto HH = py::array_t<float>({n, c, out_h, out_w});
-
-    auto mLL = LL.mutable_unchecked<4>();
-    auto mHL = HL.mutable_unchecked<4>();
-    auto mLH = LH.mutable_unchecked<4>();
-    auto mHH = HH.mutable_unchecked<4>();
-
-    for (ssize_t i = 0; i < n; ++i) {
-        for (ssize_t j = 0; j < c; ++j) {
-            for (ssize_t y = 0; y < out_h; ++y) {
-                const float* r0 = &buf(i, j, 2*y, 0);
-                const float* r1 = &buf(i, j, 2*y + 1, 0);
-                float* wLL = &mLL(i, j, y, 0);
-                float* wHL = &mHL(i, j, y, 0);
-                float* wLH = &mLH(i, j, y, 0);
-                float* wHH = &mHH(i, j, y, 0);
-
-                ssize_t x = 0;
-                #ifdef WIMF_X86
-                for (; x <= out_w - 4; x += 4) {
-                    __m256 v0 = _mm256_loadu_ps(&r0[x * 2]);
-                    __m256 v1 = _mm256_loadu_ps(&r1[x * 2]);
-
-                    __m256 v0_e = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v0, v0, 0x88)), 0xD8));
-                    __m256 v0_o = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v0, v0, 0xDD)), 0xD8));
-                    __m256 v1_e = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v1, v1, 0x88)), 0xD8));
-                    __m256 v1_o = _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(_mm256_shuffle_ps(v1, v1, 0xDD)), 0xD8));
-
-                    __m256 resLL = _mm256_mul_ps(_mm256_add_ps(_mm256_add_ps(v0_e, v0_o), _mm256_add_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
-                    __m256 resHL = _mm256_mul_ps(_mm256_add_ps(_mm256_sub_ps(v0_e, v0_o), _mm256_sub_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
-                    __m256 resLH = _mm256_mul_ps(_mm256_sub_ps(_mm256_add_ps(v0_e, v0_o), _mm256_add_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
-                    __m256 resHH = _mm256_mul_ps(_mm256_sub_ps(_mm256_sub_ps(v0_e, v0_o), _mm256_sub_ps(v1_e, v1_o)), _mm256_set1_ps(0.25f));
-
-                    _mm_storeu_ps(&wLL[x], _mm256_castps256_ps128(resLL));
-                    _mm_storeu_ps(&wHL[x], _mm256_castps256_ps128(resHL));
-                    _mm_storeu_ps(&wLH[x], _mm256_castps256_ps128(resLH));
-                    _mm_storeu_ps(&wHH[x], _mm256_castps256_ps128(resHH));
-                }
-                #elif defined(WIMF_ARM)
-                for (; x <= out_w - 4; x += 4) {
-                    float32x4x2_t v0 = vld2q_f32(&r0[x * 2]); // Load [a0, b0, a1, b1, ...] de-interleaved
-                    float32x4x2_t v1 = vld2q_f32(&r1[x * 2]); // Load [c0, d0, c1, d1, ...] de-interleaved
-                    
-                    float32x4_t a = v0.val[0];
-                    float32x4_t b_val = v0.val[1];
-                    float32x4_t c_val = v1.val[0];
-                    float32x4_t d = v1.val[1];
-                    
-                    float32x4_t qtr = vdupq_n_f32(0.25f);
-                    
-                    vst1q_f32(&wLL[x], vmulq_f32(vaddq_f32(vaddq_f32(a, b_val), vaddq_f32(c_val, d)), qtr));
-                    vst1q_f32(&wHL[x], vmulq_f32(vaddq_f32(vsubq_f32(a, b_val), vsubq_f32(c_val, d)), qtr));
-                    vst1q_f32(&wLH[x], vmulq_f32(vsubq_f32(vaddq_f32(a, b_val), vaddq_f32(c_val, d)), qtr));
-                    vst1q_f32(&wHH[x], vmulq_f32(vsubq_f32(vsubq_f32(a, b_val), vsubq_f32(c_val, d)), qtr));
-                }
-                #endif
-
-                for (; x < out_w; ++x) {
-                    float a = r0[2*x];
-                    float b_val = r0[2*x + 1];
-                    float c_val = r1[2*x];
-                    float d = r1[2*x + 1];
-
-                    wLL[x] = (a + b_val + c_val + d) * 0.25f;
-                    wHL[x] = (a - b_val + c_val - d) * 0.25f;
-                    wLH[x] = (a + b_val - c_val - d) * 0.25f;
-                    wHH[x] = (a - b_val - c_val + d) * 0.25f;
-                }
+    void ihaar_2d_raw(const float* ll, const float* hl, const float* lh, const float* hh, float* b, int oh, int ow) {
+        int w = ow*2;
+        for (int y = 0; y < oh; ++y) {
+            const float* rll = &ll[y*ow], *rhl = &hl[y*ow], *rlh = &lh[y*ow], *rhh = &hh[y*ow];
+            float* w0 = &b[(2*y)*w], *w1 = &b[(2*y+1)*w];
+            int x = 0;
+            #ifdef WIMF_X86
+            for (; x <= ow-4; x += 4) {
+                __m128 vLL = _mm_loadu_ps(&rll[x]), vHL = _mm_loadu_ps(&rhl[x]), vLH = _mm_loadu_ps(&rlh[x]), vHH = _mm_loadu_ps(&rhh[x]);
+                __m128 a = _mm_add_ps(_mm_add_ps(vLL,vHL),_mm_add_ps(vLH,vHH)), b_v = _mm_add_ps(_mm_sub_ps(vLL,vHL),_mm_sub_ps(vLH,vHH));
+                __m128 c = _mm_sub_ps(_mm_add_ps(vLL,vHL),_mm_add_ps(vLH,vHH)), d = _mm_sub_ps(_mm_sub_ps(vLL,vHL),_mm_sub_ps(vLH,vHH));
+                __m128 r0l = _mm_unpacklo_ps(a,b_v), r0h = _mm_unpackhi_ps(a,b_v), r1l = _mm_unpacklo_ps(c,d), r1h = _mm_unpackhi_ps(c,d);
+                _mm_storeu_ps(&w0[x*2],r0l); _mm_storeu_ps(&w0[x*2+4],r0h); _mm_storeu_ps(&w1[x*2],r1l); _mm_storeu_ps(&w1[x*2+4],r1h);
+            }
+            #endif
+            for (; x < ow; ++x) {
+                float a = rll[x], b_v = rhl[x], c = rlh[x], d = rhh[x];
+                w0[2*x] = a+b_v+c+d; w0[2*x+1] = a-b_v+c-d; w1[2*x] = a+b_v-c-d; w1[2*x+1] = a-b_v-c+d;
             }
         }
     }
-
-    return py::make_tuple(LL, HL, LH, HH);
 }
 
-py::array_t<float> ihaar_level(const py::array_t<float>& LL, const py::array_t<float>& HL, const py::array_t<float>& LH, const py::array_t<float>& HH) {
-    auto mLL = LL.unchecked<4>();
-    auto mHL = HL.unchecked<4>();
-    auto mLH = LH.unchecked<4>();
-    auto mHH = HH.unchecked<4>();
+// --- MONOLITHIC ---
+struct ChannelBands { std::vector<int16_t> bands[7]; };
 
-    ssize_t n = mLL.shape(0);
-    ssize_t c = mLL.shape(1);
-    ssize_t h = mLL.shape(2);
-    ssize_t w = mLL.shape(3);
-
-    auto out = py::array_t<float>({n, c, h * 2, w * 2});
-    auto mOut = out.mutable_unchecked<4>();
-
-    for (ssize_t i = 0; i < n; ++i) {
-        for (ssize_t j = 0; j < c; ++j) {
-            for (ssize_t y = 0; y < h; ++y) {
-                const float* rLL = &mLL(i, j, y, 0);
-                const float* rHL = &mHL(i, j, y, 0);
-                const float* rLH = &mLH(i, j, y, 0);
-                const float* rHH = &mHH(i, j, y, 0);
-                float* w0 = &mOut(i, j, 2*y, 0);
-                float* w1 = &mOut(i, j, 2*y + 1, 0);
-
-                ssize_t x = 0;
-                #ifdef WIMF_X86
-                for (; x <= w - 4; x += 4) {
-                    __m128 vLL = _mm_loadu_ps(&rLL[x]);
-                    __m128 vHL = _mm_loadu_ps(&rHL[x]);
-                    __m128 vLH = _mm_loadu_ps(&rLH[x]);
-                    __m128 vHH = _mm_loadu_ps(&rHH[x]);
-
-                    __m128 a = _mm_add_ps(_mm_add_ps(vLL, vHL), _mm_add_ps(vLH, vHH));
-                    __m128 b = _mm_add_ps(_mm_sub_ps(vLL, vHL), _mm_sub_ps(vLH, vHH));
-                    __m128 c_val = _mm_sub_ps(_mm_add_ps(vLL, vHL), _mm_add_ps(vLH, vHH));
-                    __m128 d = _mm_sub_ps(_mm_sub_ps(vLL, vHL), _mm_sub_ps(vLH, vHH));
-
-                    __m128 r0_low = _mm_unpacklo_ps(a, b);
-                    __m128 r0_high = _mm_unpackhi_ps(a, b);
-                    _mm_storeu_ps(&w0[x * 2], r0_low);
-                    _mm_storeu_ps(&w0[x * 2 + 4], r0_high);
-
-                    __m128 r1_low = _mm_unpacklo_ps(c_val, d);
-                    __m128 r1_high = _mm_unpackhi_ps(c_val, d);
-                    _mm_storeu_ps(&w1[x * 2], r1_low);
-                    _mm_storeu_ps(&w1[x * 2 + 4], r1_high);
-                }
-                #elif defined(WIMF_ARM)
-                for (; x <= w - 4; x += 4) {
-                    float32x4_t ll = vld1q_f32(&rLL[x]);
-                    float32x4_t hl = vld1q_f32(&rHL[x]);
-                    float32x4_t lh = vld1q_f32(&rLH[x]);
-                    float32x4_t hh = vld1q_f32(&rHH[x]);
-
-                    float32x4_t a = vaddq_f32(vaddq_f32(ll, hl), vaddq_f32(lh, hh));
-                    float32x4_t b = vaddq_f32(vsubq_f32(ll, hl), vsubq_f32(lh, hh));
-                    float32x4_t c_val = vsubq_f32(vaddq_f32(ll, hl), vaddq_f32(lh, hh));
-                    float32x4_t d = vsubq_f32(vsubq_f32(ll, hl), vsubq_f32(lh, hh));
-
-                    float32x4x2_t r0 = vzipq_f32(a, b);
-                    float32x4x2_t r1 = vzipq_f32(c_val, d);
-                    
-                    vst1q_f32(&w0[x * 2], r0.val[0]);
-                    vst1q_f32(&w0[x * 2 + 4], r0.val[1]);
-                    vst1q_f32(&w1[x * 2], r1.val[0]);
-                    vst1q_f32(&w1[x * 2 + 4], r1.val[1]);
-                }
-                #endif
-
-                for (; x < w; ++x) {
-                    float ll = rLL[x];
-                    float hl = rHL[x];
-                    float lh = rLH[x];
-                    float hh = rHH[x];
-
-                    w0[2*x] = ll + hl + lh + hh;
-                    w0[2*x + 1] = ll - hl + lh - hh;
-                    w1[2*x] = ll + hl - lh - hh;
-                    w1[2*x + 1] = ll - hl - lh + hh;
-                }
-            }
+void process_channel_to_bands(const float* input, int h, int w, ChannelBands& out, float q1, float q2, float nf) {
+    size_t sz_l1 = (size_t)(h/2)*(w/2), sz_l2 = (size_t)(h/4)*(w/4);
+    std::vector<float> l1_ll(sz_l1), l1_hl(sz_l1), l1_lh(sz_l1), l1_hh(sz_l1);
+    std::vector<float> l2_ll(sz_l2), l2_hl(sz_l2), l2_lh(sz_l2), l2_hh(sz_l2);
+    haar_2d_raw(input, l1_ll.data(), l1_hl.data(), l1_lh.data(), l1_hh.data(), h, w);
+    haar_2d_raw(l1_ll.data(), l2_ll.data(), l2_hl.data(), l2_lh.data(), l2_hh.data(), h/2, w/2);
+    auto quant = [&](const std::vector<float>& src, std::vector<int16_t>& dst, float q, float deadzone) {
+        dst.resize(src.size()); for (size_t i = 0; i < src.size(); ++i) {
+            float v = src[i]; dst[i] = (std::abs(v) < deadzone) ? 0 : (int16_t)std::round(v / q);
         }
-    }
-
-    return out;
+    };
+    quant(l2_ll, out.bands[0], 1.0f, 0.0f);
+    for (int i=1; i<4; ++i) quant(i==1?l2_hl:(i==2?l2_lh:l2_hh), out.bands[i], q2, nf);
+    for (int i=4; i<7; ++i) quant(i==4?l1_hl:(i==5?l1_lh:l1_hh), out.bands[i], q1, nf);
 }
 
-// --- PAETH PREDICTOR ---
-inline int32_t paeth_scalar(int32_t a, int32_t b, int32_t c) {
-    int32_t p = a + b - c;
-    int32_t pa = std::abs(p - a);
-    int32_t pb = std::abs(p - b);
-    int32_t pc = std::abs(p - c);
-    if (pa <= pb && pa <= pc) return a;
-    if (pb <= pc) return b;
-    return c;
+py::bytes c_encode_lossy(py::array_t<float> input, int chans, int quality, std::string preset, py::dict meta) {
+    auto buf = input.unchecked<3>(); int h = (int)buf.shape(1), w = (int)buf.shape(2);
+    float ds = meta.contains("bit10") ? 4.0f : 1.0f;
+    float q1 = std::max(1.0f, (16.0f*ds)-(quality*1.5f)), q2 = std::max(1.0f, (8.0f*ds)-(quality*0.75f)), nf = std::max(0.0f, (2.0f*ds)-(quality*0.2f));
+    std::vector<int16_t> l0, l1, l2;
+    for (int c = 0; c < chans; ++c) {
+        ChannelBands cb; process_channel_to_bands(buf.data(c,0,0), h, w, cb, q1, q2, nf);
+        l0.insert(l0.end(), cb.bands[0].begin(), cb.bands[0].end());
+        for(int i=1; i<4; ++i) l1.insert(l1.end(), cb.bands[i].begin(), cb.bands[i].end());
+        for(int i=4; i<7; ++i) l2.insert(l2.end(), cb.bands[i].begin(), cb.bands[i].end());
+    }
+    auto lzma = py::module_::import("lzma"); int lvl = (preset == "Extreme") ? 9 : 2;
+    auto comp = [&](const std::vector<int16_t>& v) {
+        return py::cast<std::string>(lzma.attr("compress")(py::bytes((char*)v.data(), v.size()*2), py::arg("preset")=lvl));
+    };
+    std::string s0 = comp(l0), s1 = comp(l1), s2 = comp(l2);
+    std::string res = ""; res += (char)(quality << 4 | 9);
+    auto add = [&](const std::string& s) { uint32_t len = s.size(); res.append((char*)&len, 4); res.append(s); };
+    add(s0); add(s1); add(s2); return py::bytes(res);
 }
 
-void paeth_filter(const py::array_t<int16_t>& arr, const py::array_t<int16_t>& left, const py::array_t<int16_t>& above, const py::array_t<int16_t>& above_left, py::array_t<int16_t>& out) {
-    auto rArr = arr.unchecked<2>();
-    auto rL = left.unchecked<2>();
-    auto rA = above.unchecked<2>();
-    auto rAL = above_left.unchecked<2>();
-    auto mOut = out.mutable_unchecked<2>();
-
-    ssize_t h = rArr.shape(0);
-    ssize_t w = rArr.shape(1);
-
-    for (ssize_t y = 0; y < h; ++y) {
-        for (ssize_t x = 0; x < w; ++x) {
-            mOut(y, x) = static_cast<int16_t>(rArr(y, x) - paeth_scalar(rL(y, x), rA(y, x), rAL(y, x)));
-        }
+py::array_t<uint8_t> c_decode_lossy(py::bytes data_bytes, int w, int h, int chans, py::dict meta) {
+    std::string data = data_bytes; int offset = 1; int quality = (unsigned char)data[0] >> 4;
+    float ds = meta.contains("bit10") ? 4.0f : 1.0f;
+    float q1 = std::max(1.0f, (16.0f*ds)-(quality*1.5f)), q2 = std::max(1.0f, (8.0f*ds)-(quality*0.75f));
+    auto lzma = py::module_::import("lzma");
+    auto decomp = [&](int& off) {
+        uint32_t len; std::memcpy(&len, &data[off], 4); off += 4;
+        std::string d = py::cast<std::string>(lzma.attr("decompress")(py::bytes(&data[off], len))); off += len;
+        std::vector<int16_t> res(d.size()/2); std::memcpy(res.data(), d.data(), d.size()); return res;
+    };
+    std::vector<int16_t> l0 = decomp(offset), l1 = decomp(offset), l2 = decomp(offset);
+    int gh = (h+15)/16, gw = (w+15)/16;
+    size_t sz_l0 = (size_t)gh*gw*16, sz_l1 = (size_t)gh*gw*16, sz_l2 = (size_t)gh*gw*64;
+    auto result = py::array_t<uint8_t>({(size_t)h, (size_t)w, (size_t)chans}); auto mRes = result.mutable_unchecked<3>();
+    for (int c = 0; c < chans; ++c) {
+        std::vector<float> r2_ll(sz_l0), r2_hl(sz_l0), r2_lh(sz_l0), r2_hh(sz_l0), r1_ll(sz_l2);
+        for(size_t i=0; i<sz_l0; ++i) r2_ll[i] = (float)l0[c*sz_l0+i];
+        for(size_t i=0; i<sz_l0; ++i) { r2_hl[i]=(float)l1[(c*3+0)*sz_l1+i]*q2; r2_lh[i]=(float)l1[(c*3+1)*sz_l1+i]*q2; r2_hh[i]=(float)l1[(c*3+2)*sz_l1+i]*q2; }
+        ihaar_2d_raw(r2_ll.data(), r2_hl.data(), r2_lh.data(), r2_hh.data(), r1_ll.data(), gh*4, gw*4);
+        std::vector<float> r1_hl(sz_l2), r1_lh(sz_l2), r1_hh(sz_l2), r_full((size_t)gh*16*gw*16);
+        for(size_t i=0; i<sz_l2; ++i) { r1_hl[i]=(float)l2[(c*3+0)*sz_l2+i]*q1; r1_lh[i]=(float)l2[(c*3+1)*sz_l2+i]*q1; r1_hh[i]=(float)l2[(c*3+2)*sz_l2+i]*q1; }
+        ihaar_2d_raw(r1_ll.data(), r1_hl.data(), r1_lh.data(), r1_hh.data(), r_full.data(), gh*8, gw*8);
+        for(int y=0; y<h; ++y) for(int x=0; x<w; ++x) mRes(y,x,c) = (uint8_t)std::clamp(r_full[y*gw*16+x], 0.0f, 255.0f);
     }
+    return result;
 }
 
 // --- PARITY ENGINE ---
@@ -346,13 +158,10 @@ extern "C" {
         uint64_t sum = 0;
         size_t i = 0;
         #ifdef WIMF_X86
-        // Fast sum using AVX2 (approximate for speed)
-        // For byte sum, we can use _mm256_sad_epu8
         for (; i <= size - 32; i += 32) {
             __m256i v = _mm256_loadu_si256((const __m256i*)&data[i]);
             __m256i zero = _mm256_setzero_si256();
             __m256i sad = _mm256_sad_epu8(v, zero);
-            // sad results in 4 64-bit sums. Extract them safely.
             sum += (uint64_t)_mm256_extract_epi64(sad, 0);
             sum += (uint64_t)_mm256_extract_epi64(sad, 1);
             sum += (uint64_t)_mm256_extract_epi64(sad, 2);
@@ -382,126 +191,99 @@ extern "C" {
     }
 }
 
-uint32_t calculate_checksum(py::array_t<uint8_t> data) {
-    auto buf = data.unchecked<1>();
-    return calculate_checksum_raw(buf.data(0), buf.size());
-}
-
-void block_xor(py::array_t<uint8_t> target, py::array_t<uint8_t> source) {
-auto bT = target.mutable_unchecked<1>();
-auto bS = source.unchecked<1>();
-if (bT.size() != bS.size()) throw std::runtime_error("Size mismatch in block_xor");
-block_xor_raw((uint8_t*)bT.data(0), (const uint8_t*)bS.data(0), bT.size());
-}
-
 // --- ANIMATION & LOSSLESS ---
-void calculate_frame_diff(py::array_t<uint8_t> prev, py::array_t<uint8_t> curr, py::array_t<float> diff) {
-auto bP = prev.unchecked<1>();
-auto bC = curr.unchecked<1>();
-auto bD = diff.mutable_unchecked<1>();
-size_t size = bP.size();
-for (size_t i = 0; i < size; ++i) {
-    bD(i) = (float)bC(i) - (float)bP(i);
-}
-}
-
-py::array_t<uint8_t> select_best_filters(py::array_t<int16_t> res0, py::array_t<int16_t> res1, py::array_t<int16_t> res2, py::array_t<int16_t> res3) {
-auto r0 = res0.unchecked<2>();
-auto r1 = res1.unchecked<2>();
-auto r2 = res2.unchecked<2>();
-auto r3 = res3.unchecked<2>();
-
-ssize_t h = r0.shape(0);
-ssize_t w = r0.shape(1);
-
-auto best = py::array_t<uint8_t>(h);
-auto mBest = best.mutable_unchecked<1>();
-
-for (ssize_t y = 0; y < h; ++y) {
-    int64_t c[4] = {0, 0, 0, 0};
-    for (ssize_t x = 0; x < w; ++x) {
-        c[0] += std::abs((int8_t)(r0(y, x) % 256));
-        c[1] += std::abs((int8_t)(r1(y, x) % 256));
-        c[2] += std::abs((int8_t)(r2(y, x) % 256));
-        c[3] += std::abs((int8_t)(r3(y, x) % 256));
-    }
-    uint8_t b = 0;
-    int64_t min_c = c[0];
-    for (uint8_t i = 1; i < 4; ++i) {
-        if (c[i] < min_c) {
-            min_c = c[i];
-            b = i;
+extern "C" {
+    void calculate_frame_diff_raw(const uint8_t* prev, const uint8_t* curr, float* diff, size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            diff[i] = (float)curr[i] - (float)prev[i];
         }
     }
-    mBest(y) = b;
-}
-return best;
-}
-
-// --- TILING ---
-void tile_copy(py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw) {
-auto src = source.unchecked<4>(); // gh, 16, gw, 16
-auto dst = target.mutable_unchecked<4>(); // tile_size, 16, tile_size, 16
-
-for (int y = 0; y < tile_size; ++y) {
-    if (ty + y >= gh) break;
-    for (int x = 0; x < tile_size; ++x) {
-        if (tx + x >= gw) break;
-        for (int sy = 0; sy < 16; ++sy) {
-            for (int sx = 0; sx < 16; ++sx) {
-                dst(y, sy, x, sx) = src(ty + y, sy, tx + x, sx);
+    py::array_t<uint8_t> select_best_filters_raw(const int16_t* r0, const int16_t* r1, const int16_t* r2, const int16_t* r3, int h, int w) {
+        auto best = py::array_t<uint8_t>(h); auto mB = best.mutable_unchecked<1>();
+        for (int y = 0; y < h; ++y) {
+            int64_t c[4] = {0,0,0,0};
+            for (int x = 0; x < w; ++x) {
+                size_t off = y*w+x;
+                c[0] += std::abs((int8_t)(r0[off] % 256)); c[1] += std::abs((int8_t)(r1[off] % 256));
+                c[2] += std::abs((int8_t)(r2[off] % 256)); c[3] += std::abs((int8_t)(r3[off] % 256));
             }
+            uint8_t b = 0; int64_t min_c = c[0];
+            for (uint8_t i = 1; i < 4; ++i) { if (c[i] < min_c) { min_c = c[i]; b = i; } }
+            mB(y) = b;
         }
+        return best;
     }
 }
+
+// --- FILE I/O ---
+#include <fstream>
+void c_save_file(std::string path, py::bytes data) {
+    std::string str = data;
+    std::ofstream f(path, std::ios::out | std::ios::binary);
+    if (!f) throw std::runtime_error("Could not open file for writing.");
+    f.write(str.data(), str.size());
+    f.close();
 }
 
-void untile_copy(py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw) {
-auto src = source.unchecked<4>(); // tile_size, 16, tile_size, 16
-auto dst = target.mutable_unchecked<4>(); // gh, 16, gw, 16
-
-for (int y = 0; y < tile_size; ++y) {
-    if (ty + y >= gh) break;
-    for (int x = 0; x < tile_size; ++x) {
-        if (tx + x >= gw) break;
-        for (int sy = 0; sy < 16; ++sy) {
-            for (int sx = 0; sx < 16; ++sx) {
-                dst(ty + y, sy, tx + x, sx) = src(y, sy, x, sx);
-            }
-        }
-    }
-}
+py::bytes c_load_file(std::string path) {
+    std::ifstream f(path, std::ios::in | std::ios::binary | std::ios::ate);
+    if (!f) throw std::runtime_error("Could not open file for reading.");
+    std::streamsize size = f.tellg();
+    f.seekg(0, std::ios::beg);
+    std::string buffer(size, '\0');
+    if (f.read(&buffer[0], size)) return py::bytes(buffer);
+    throw std::runtime_error("File read error.");
 }
 
-// --- BITSTREAM ---
-py::tuple parse_header(py::array_t<uint8_t> data) {
-    auto buf = data.unchecked<1>();
-    if (buf.size() < 17) throw std::runtime_error("Buffer too small for WIMF header");
-    const uint8_t* ptr = buf.data(0);
-
-    // Skip magic (4 bytes)
-    uint32_t w, h, mlen;
-    std::memcpy(&w, ptr + 4, 4);
-    std::memcpy(&h, ptr + 8, 4);
-    uint8_t flags = ptr[12];
-    std::memcpy(&mlen, ptr + 13, 4);
-
-    return py::make_tuple(w, h, flags, mlen);
-}
-
-// Python binding module
 PYBIND11_MODULE(wimf_cpp, m) {
-m.doc() = "WIMF Optimized C++ Extension";
-m.def("ycocg_forward", &ycocg_forward, "Forward YCoCg-R transform");
-m.def("ycocg_inverse", &ycocg_inverse, "Inverse YCoCg-R transform");
-m.def("haar_level", &haar_level, "Forward Haar wavelet level");
-m.def("ihaar_level", &ihaar_level, "Inverse Haar wavelet level");
-m.def("paeth_filter", &paeth_filter, "Batch Paeth filter processing");
-m.def("calculate_checksum", &calculate_checksum, "Fast byte sum checksum");
-m.def("block_xor", &block_xor, "SIMD XOR for two buffers");
-m.def("calculate_frame_diff", &calculate_frame_diff, "Fast frame difference for animation");
-m.def("select_best_filters", &select_best_filters, "Pick best lossless filters for each row");
-m.def("tile_copy", &tile_copy, "Optimized tile extraction");
-m.def("untile_copy", &untile_copy, "Optimized tile reassembly");
-m.def("parse_header", &parse_header, "Fast binary header parsing");
+    m.def("ycocg_forward", [](py::array_t<int32_t> a){ auto b = a.mutable_unchecked<3>(); ycocg_forward_raw(b.mutable_data(0,0,0), b.shape(1), b.shape(0)); });
+    m.def("ycocg_inverse", [](const py::buffer& b){ py::buffer_info i = b.request(); ycocg_inverse_raw((float*)i.ptr, i.size/3); });
+    m.def("haar_level", [](const py::array_t<float>& b){
+        auto buf = b.unchecked<4>(); ssize_t n = buf.shape(0), c = buf.shape(1), h = buf.shape(2), w = buf.shape(3);
+        auto LL = py::array_t<float>({n, c, h/2, w/2}), HL = py::array_t<float>({n, c, h/2, w/2});
+        auto LH = py::array_t<float>({n, c, h/2, w/2}), HH = py::array_t<float>({n, c, h/2, w/2});
+        auto mLL = LL.mutable_unchecked<4>(), mHL = HL.mutable_unchecked<4>(), mLH = LH.mutable_unchecked<4>(), mHH = HH.mutable_unchecked<4>();
+        for (ssize_t i = 0; i < (ssize_t)n; ++i) for (ssize_t j = 0; j < (ssize_t)c; ++j) haar_2d_raw((float*)buf.data(i,j,0,0), mLL.mutable_data(i,j,0,0), mHL.mutable_data(i,j,0,0), mLH.mutable_data(i,j,0,0), mHH.mutable_data(i,j,0,0), (int)h, (int)w);
+        return py::make_tuple(LL, HL, LH, HH);
+    });
+    m.def("calculate_checksum", [](py::array_t<uint8_t> d){ return calculate_checksum_raw(d.data(0), d.size()); });
+    m.def("block_xor", [](py::array_t<uint8_t> t, py::array_t<uint8_t> s){ block_xor_raw((uint8_t*)t.mutable_data(0), (const uint8_t*)s.data(0), t.size()); });
+    m.def("calculate_frame_diff", [](py::array_t<uint8_t> p, py::array_t<uint8_t> c, py::array_t<float> d){ calculate_frame_diff_raw(p.data(0), c.data(0), (float*)d.mutable_data(0), p.size()); });
+    m.def("select_best_filters", [](py::array_t<int16_t> r0, py::array_t<int16_t> r1, py::array_t<int16_t> r2, py::array_t<int16_t> r3){
+        return select_best_filters_raw(r0.data(0,0), r1.data(0,0), r2.data(0,0), r3.data(0,0), r0.shape(0), r0.shape(1));
+    });
+    m.def("parse_header", [](py::array_t<uint8_t> d){ const uint8_t* p=d.data(0); uint32_t w,h,m_len; std::memcpy(&w,p+4,4); std::memcpy(&h,p+8,4); std::memcpy(&m_len,p+13,4); return py::make_tuple(w,h,p[12],m_len); });
+    m.def("c_encode_lossy", &c_encode_lossy); m.def("c_decode_lossy", &c_decode_lossy);
+    m.def("c_save_file", &c_save_file); m.def("c_load_file", &c_load_file);
+    
+    // Crucial missing exports:
+    m.def("paeth_filter", [](const py::array_t<int16_t>& arr, const py::array_t<int16_t>& left, const py::array_t<int16_t>& above, const py::array_t<int16_t>& above_left, py::array_t<int16_t>& out){
+        auto rArr = arr.unchecked<2>(), rL = left.unchecked<2>(), rA = above.unchecked<2>(), rAL = above_left.unchecked<2>();
+        auto mOut = out.mutable_unchecked<2>();
+        for (ssize_t y = 0; y < rArr.shape(0); ++y)
+            for (ssize_t x = 0; x < rArr.shape(1); ++x) {
+                int32_t a = rL(y,x), b = rA(y,x), c = rAL(y,x);
+                int32_t p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
+                int32_t pr = (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+                mOut(y, x) = static_cast<int16_t>(rArr(y, x) - pr);
+            }
+    });
+    m.def("tile_copy", [](py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw){
+        auto src = source.unchecked<4>();
+        auto dst = target.mutable_unchecked<4>();
+        for (int y = 0; y < tile_size && ty + y < gh; ++y)
+            for (int x = 0; x < tile_size && tx + x < gw; ++x)
+                for (int sy = 0; sy < 16; ++sy)
+                    for (int sx = 0; sx < 16; ++sx)
+                        dst(y, sy, x, sx) = src(ty + y, sy, tx + x, sx);
+    });
+    m.def("untile_copy", [](py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw){
+        auto src = source.unchecked<4>();
+        auto dst = target.mutable_unchecked<4>();
+        for (int y = 0; y < tile_size && ty + y < gh; ++y)
+            for (int x = 0; x < tile_size && tx + x < gw; ++x)
+                for (int sy = 0; sy < 16; ++sy)
+                    for (int sx = 0; sx < 16; ++sx)
+                        dst(ty + y, sy, tx + x, sx) = src(y, sy, x, sx);
+    });
 }
