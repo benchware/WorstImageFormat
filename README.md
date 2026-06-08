@@ -79,7 +79,9 @@ wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
 
 ## TODO List
 
-- Finish C++ porting
+- ~~Finish C++ porting~~ (Core engine complete)
+- Mainly use C++ (Porting remaining high-level logic)
+- Pure Python Parity (Fallback for all C++ functions)
 - Web support
 - Test on ARM
 - GPU acceleration

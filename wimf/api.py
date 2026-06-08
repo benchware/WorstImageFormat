@@ -46,6 +46,10 @@ class WIMFImage:
         self.pil.show()
         
     def to_numpy(self):
+        if self.raw_pixels is not None:
+            h, w = self.height, self.width
+            chans = self.metadata.get('channels', 3)
+            return np.frombuffer(self.raw_pixels, dtype=np.uint8).reshape((h, w, chans))
         return np.array(self.pil)
         
     def to_opencv(self):
@@ -77,14 +81,29 @@ class WIMFDecoder:
     # just read the json stuff at the start
     def _parse_header(self):
         self._buffer.seek(0)
-        magic = self._buffer.read(4)
+        data = self._buffer.read(17) # Read enough for C++ parser
+        if len(data) < 17: raise ValueError("file too short")
+        
+        magic = data[:4]
         if magic not in [b"WIMF", b"AWIF"]:
             raise ValueError("not a wimf file lol")
+            
         self.magic = magic
-        self.width = int.from_bytes(self._buffer.read(4), 'little')
-        self.height = int.from_bytes(self._buffer.read(4), 'little')
-        self.flags = int.from_bytes(self._buffer.read(1), 'little')
-        mlen = int.from_bytes(self._buffer.read(4), 'little')
+        
+        try:
+            from . import wimf_cpp
+            w, h, flags, mlen = wimf_cpp.parse_header(np.frombuffer(data, dtype=np.uint8))
+        except (ImportError, AttributeError):
+            w = int.from_bytes(data[4:8], 'little')
+            h = int.from_bytes(data[8:12], 'little')
+            flags = data[12]
+            mlen = int.from_bytes(data[13:17], 'little')
+            
+        self.width = w
+        self.height = h
+        self.flags = flags
+        
+        self._buffer.seek(17)
         self.metadata = json.loads(self._buffer.read(mlen).decode('utf-8'))
         self._data_start = self._buffer.tell()
         
@@ -117,17 +136,23 @@ class WIMFDecoder:
             arr = np.frombuffer(pix, dtype=np.uint16).reshape((h, w, self.channels))
             pix = (arr >> 2).astype(np.uint8).tobytes()
             
-        mode = 'RGBA' if self.channels >= 4 else 'RGB'
-        # strip depth channel if it's there or pil will complain
-        pil_pix = pix
-        if self.metadata.get('depth') and self.channels == 5:
+        # standard modes for pil
+        if self.channels == 3: mode, pil_pix = 'RGB', pix
+        elif self.channels == 4: mode, pil_pix = 'RGBA', pix
+        elif self.channels == 5 and self.metadata.get('depth'):
             arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, 5))
             pil_pix = arr[..., :4].tobytes()
             mode = 'RGBA'
-        elif self.metadata.get('depth') and self.channels == 4 and mode == 'RGB':
-             arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, 4))
-             pil_pix = arr[..., :3].tobytes()
-             mode = 'RGB'
+        else:
+            # high channel count fallback: use first 3 channels for a dummy pil image
+            try:
+                arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, self.channels))
+                pil_pix = arr[..., :3].tobytes()
+                mode = 'RGB'
+            except Exception:
+                # absolute fallback
+                pil_pix = b'\x00' * (w * h * 3)
+                mode = 'RGB'
 
         pil_img = Image.frombytes(mode, (w, h), pil_pix)
         return WIMFImage(pil_img, self.metadata, raw_pixels=pix)
@@ -157,8 +182,24 @@ class WIMFDecoder:
             arr = np.frombuffer(pix, dtype=np.uint16).reshape((self.height, self.width, self.channels))
             pix = (arr >> 2).astype(np.uint8).tobytes()
             
-        mode = 'RGBA' if self.channels >= 4 else 'RGB'
-        pil_img = Image.frombytes(mode, (self.width, self.height), pix)
+        # standard modes for pil
+        if self.channels == 3: mode, pil_pix = 'RGB', pix
+        elif self.channels == 4: mode, pil_pix = 'RGBA', pix
+        elif self.channels == 5 and self.metadata.get('depth'):
+            arr = np.frombuffer(pix, dtype=np.uint8).reshape((self.height, self.width, 5))
+            pil_pix = arr[..., :4].tobytes()
+            mode = 'RGBA'
+        else:
+            # high channel count fallback
+            try:
+                arr = np.frombuffer(pix, dtype=np.uint8).reshape((self.height, self.width, self.channels))
+                pil_pix = arr[..., :3].tobytes()
+                mode = 'RGB'
+            except Exception:
+                pil_pix = b'\x00' * (self.width * self.height * 3)
+                mode = 'RGB'
+
+        pil_img = Image.frombytes(mode, (self.width, self.height), pil_pix)
         return WIMFImage(pil_img, self.metadata, raw_pixels=pix)
 
 # use this to build a wimf file
@@ -168,18 +209,30 @@ class WIMFEncoder:
             self.pil = image.pil
             self.metadata = image.metadata.copy()
         elif isinstance(image, np.ndarray):
-            if image.shape[-1] == 5:
-                self.pil = Image.fromarray(image[..., :4], 'RGBA')
-                self.raw_data = image
-                self.metadata = {'depth': True, 'channels': 5}
-            else:
-                mode = 'RGB' if image.shape[-1] == 3 else 'RGBA'
-                self.pil = Image.fromarray(image, mode)
-                self.metadata = {}
+            h, w = image.shape[:2]
+            if h == 0 or w == 0: raise ValueError("image dimensions must be > 0")
+            self.raw_data = image
+            chans = image.shape[-1]
+            
+            # Pillow only supports a few modes, so we fallback for N-channel
+            try:
+                if chans == 5:
+                    self.pil = Image.fromarray(image[..., :4], 'RGBA')
+                    self.metadata = {'depth': True, 'channels': 5}
+                else:
+                    mode = 'RGB' if chans == 3 else 'RGBA'
+                    self.pil = Image.fromarray(image, mode)
+                    self.metadata = {'channels': chans}
+            except Exception:
+                # Bypassing Pillow for non-standard channel counts
+                self.pil = Image.new('RGB', (1, 1))
+                self.metadata = {'channels': chans}
         else:
             self.pil = image
+            if self.pil.width == 0 or self.pil.height == 0: raise ValueError("image dimensions must be > 0")
             self.metadata = {}
-            
+            self.raw_data = None
+
         self.states = [self.pil] 
         self.metadata = self.metadata or {}
         if 'author' not in self.metadata:
@@ -208,9 +261,15 @@ class WIMFEncoder:
     # add a step to the undo history
     def add_chrono_state(self, image):
         if isinstance(image, np.ndarray):
+            if image.size == 0: raise ValueError("empty frame")
+            h, w = image.shape[:2]
+            if w != self.pil.width or h != self.pil.height:
+                raise ValueError(f"frame size mismatch: got {w}x{h}, expected {self.pil.width}x{self.pil.height}")
             mode = 'RGB' if image.shape[-1] == 3 else 'RGBA'
             image = Image.fromarray(image, mode)
         elif isinstance(image, WIMFImage):
+            if image.width != self.pil.width or image.height != self.pil.height:
+                raise ValueError("image size mismatch")
             image = image.pil
         self.states.append(image)
         return self
@@ -224,17 +283,24 @@ class WIMFEncoder:
         meta = self.metadata.copy()
         meta['tuning'] = self.tuning 
         
-        w, h = self.pil.size
         # Check for transparency across all states
         has_alpha = any(s.mode in ('RGBA', 'LA') for s in self.states)
-        if hasattr(self, 'raw_data'): has_alpha = True # 5ch always has alpha
-
+        
+        if self.raw_data is not None:
+            h, w = self.raw_data.shape[:2]
+            channels = self.raw_data.shape[2] if len(self.raw_data.shape) > 2 else 1
+            if channels >= 4: has_alpha = True
+        else:
+            w, h = self.pil.size
+            channels = len(self.pil.getbands())
+            
         target_mode = 'RGBA' if has_alpha else 'RGB'
+        meta['channels'] = channels
 
         pixel_states = []
         actual_channels = 0
         for s in self.states:
-            if hasattr(self, 'raw_data') and len(self.states) == 1:
+            if self.raw_data is not None and len(self.states) == 1:
                 pixel_states.append(self.raw_data.tobytes())
                 actual_channels = self.raw_data.shape[-1]
             else:

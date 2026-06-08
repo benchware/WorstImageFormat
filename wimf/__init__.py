@@ -18,12 +18,15 @@ def save(path, image, **kwargs):
     encoder = WIMFEncoder(image)
     # Extract known metadata keys from kwargs
     meta_keys = ['author', 'copyright', 'desc', 'make', 'model', 'bit10', 'alpha', 'depth', 'is_animated']
+    if 'anti_rot' in kwargs:
+        encoder.set_anti_rot(kwargs['anti_rot'])
+    
     meta_args = {k: v for k, v in kwargs.items() if k in meta_keys}
     if meta_args:
         encoder.set_metadata(**meta_args)
         
     # Remove meta keys from kwargs before passing to encode
-    encode_args = {k: v for k, v in kwargs.items() if k not in meta_keys}
+    encode_args = {k: v for k, v in kwargs.items() if k not in meta_keys and k != 'anti_rot'}
     raw = encoder.encode(**encode_args)
     with _builtins.open(path, 'wb') as f:
         f.write(raw)
