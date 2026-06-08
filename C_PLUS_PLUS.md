@@ -2,7 +2,7 @@
 
 WIMF (Worst IMage Format) uses a high-performance C++ core to handle computationally intensive image processing tasks. This document provides instructions for building, extending, and maintaining the C++ components.
 
-## 🚀 Architecture Overview
+## Architecture Overview
 
 The C++ engine is located in `src/main.cpp` and is exposed to Python via `pybind11`. It focuses on three critical areas:
 
@@ -10,7 +10,7 @@ The C++ engine is located in `src/main.cpp` and is exposed to Python via `pybind
 2.  **Reversible YCoCg-R**: A bit-perfect integer-based color transform implemented in C++ for maximum speed during lossless and lossy encoding.
 3.  **Fast Paeth Predictor**: Accelerates the lossless spatial prediction filter used in WIMF's "PNG-style" compression.
 
-## 🛠️ Building the Extension
+## Building the Extension
 
 ### Prerequisites
 - A modern C++ compiler (GCC 7+, Clang 10+, or MSVC 2019+)
@@ -29,7 +29,7 @@ This will compile `src/main.cpp` and place the resulting shared object (`.so` or
 python setup.py build_ext --inplace
 ```
 
-## 🏎️ SIMD Optimizations
+## SIMD Optimizations
 
 The engine automatically detects the target architecture during compilation:
 
@@ -41,7 +41,7 @@ The Haar transform implementation (`haar_level` and `ihaar_level`) uses:
 - **AVX2** (256-bit) on x86_64 to process 4 blocks simultaneously.
 - **NEON** (128-bit) on ARM/Android to process 4 blocks simultaneously using `vld2q_f32` and `vst1q_f32`.
 
-## 🌐 Web & Mobile Support
+## Web & Mobile Support
 
 ### WebAssembly (Wasm)
 The core algorithms are exported with C linkage for Wasm compatibility. Functions like `ycocg_forward_raw` and `haar_level_raw` can be called directly from JavaScript when compiled with Emscripten.
@@ -49,7 +49,7 @@ The core algorithms are exported with C linkage for Wasm compatibility. Function
 ### Android
 The C++ core is optimized for Android using NEON intrinsics, ensuring the WIMF codec remains high-performance on mobile hardware. It is recommended to build using the Android NDK with `-O3` and NEON enabled.
 
-## 🧪 Testing
+## Testing
 
 The C++ components are verified using `pytest`. Ensure you have the extension built before running tests:
 ```bash
@@ -57,13 +57,13 @@ pip install pytest numpy pillow
 pytest wimf/
 ```
 
-## 📂 File Structure
+## File Structure
 
 - `src/main.cpp`: The monolithic C++ source containing all core algorithms and Python bindings.
 - `setup.py`: Build configuration for the C++ extension.
 - `.github/workflows/wheels.yml`: Production CI that builds optimized binary wheels for multiple platforms.
 
-## 🔧 Extending the C++ Engine
+## Extending the C++ Engine
 
 To add a new function to the C++ core:
 
@@ -76,6 +76,6 @@ To add a new function to the C++ core:
 m.def("my_new_function", &my_new_function, "Description of what it does");
 ```
 
-## 📦 Production Distribution
+## Production Distribution
 
 Production builds are handled by `cibuildwheel` in the GitHub Actions workflow. This ensures that users on Linux, Windows, and macOS receive pre-compiled binaries optimized for their specific CPU architecture.
