@@ -84,7 +84,10 @@ wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
 - Pure Python Parity (Fallback for all C++ functions)
 - Web support
 - Test on ARM
-- GPU acceleration
+- Publish on PyPI
+- Mainly use C++
 
 ## License
-WIMF is licensed under the GPL 3.0.
+Worst IMage Format is licensed under the GNU General Public License (GPL) v3.0. You are free to use, modify, and distribute this software under the terms of the GPL v3.0.
+
+For more information, see GNU General Public License.
