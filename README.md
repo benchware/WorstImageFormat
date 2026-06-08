@@ -78,13 +78,6 @@ wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
 ```
 
 ## TODO List
-
-- ~~Finish C++ porting~~ (Core engine complete)
-- ~~Mainly use C++~~ (Core high-level logic ported)
-- Port encode_lossy and decode_lossy pipelines to C++
-- C++ Tiling, Quantization, and LZMA integration
-- Direct C++ Bitstream/File I/O orchestration
-- Pure Python Parity (Fallback for all C++ functions)
 - Web support
 - Test on ARM
 - Publish on PyPI
