@@ -215,6 +215,26 @@ extern "C" {
     }
 }
 
+// --- FILE I/O ---
+#include <fstream>
+void c_save_file(std::string path, py::bytes data) {
+    std::string str = data;
+    std::ofstream f(path, std::ios::out | std::ios::binary);
+    if (!f) throw std::runtime_error("Could not open file for writing.");
+    f.write(str.data(), str.size());
+    f.close();
+}
+
+py::bytes c_load_file(std::string path) {
+    std::ifstream f(path, std::ios::in | std::ios::binary | std::ios::ate);
+    if (!f) throw std::runtime_error("Could not open file for reading.");
+    std::streamsize size = f.tellg();
+    f.seekg(0, std::ios::beg);
+    std::string buffer(size, '\0');
+    if (f.read(&buffer[0], size)) return py::bytes(buffer);
+    throw std::runtime_error("File read error.");
+}
+
 PYBIND11_MODULE(wimf_cpp, m) {
     m.def("ycocg_forward", [](py::array_t<int32_t> a){ auto b = a.mutable_unchecked<3>(); ycocg_forward_raw(b.mutable_data(0,0,0), b.shape(1), b.shape(0)); });
     m.def("ycocg_inverse", [](const py::buffer& b){ py::buffer_info i = b.request(); ycocg_inverse_raw((float*)i.ptr, i.size/3); });
@@ -234,4 +254,5 @@ PYBIND11_MODULE(wimf_cpp, m) {
     });
     m.def("parse_header", [](py::array_t<uint8_t> d){ const uint8_t* p=d.data(0); uint32_t w,h,m; std::memcpy(&w,p+4,4); std::memcpy(&h,p+8,4); std::memcpy(&m,p+13,4); return py::make_tuple(w,h,p[12],m); });
     m.def("c_encode_lossy", &c_encode_lossy); m.def("c_decode_lossy", &c_decode_lossy);
+    m.def("c_save_file", &c_save_file); m.def("c_load_file", &c_load_file);
 }
