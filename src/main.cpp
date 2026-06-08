@@ -252,7 +252,38 @@ PYBIND11_MODULE(wimf_cpp, m) {
     m.def("select_best_filters", [](py::array_t<int16_t> r0, py::array_t<int16_t> r1, py::array_t<int16_t> r2, py::array_t<int16_t> r3){
         return select_best_filters_raw(r0.data(0,0), r1.data(0,0), r2.data(0,0), r3.data(0,0), r0.shape(0), r0.shape(1));
     });
-    m.def("parse_header", [](py::array_t<uint8_t> d){ const uint8_t* p=d.data(0); uint32_t w,h,m; std::memcpy(&w,p+4,4); std::memcpy(&h,p+8,4); std::memcpy(&m,p+13,4); return py::make_tuple(w,h,p[12],m); });
+    m.def("parse_header", [](py::array_t<uint8_t> d){ const uint8_t* p=d.data(0); uint32_t w,h,m_len; std::memcpy(&w,p+4,4); std::memcpy(&h,p+8,4); std::memcpy(&m_len,p+13,4); return py::make_tuple(w,h,p[12],m_len); });
     m.def("c_encode_lossy", &c_encode_lossy); m.def("c_decode_lossy", &c_decode_lossy);
     m.def("c_save_file", &c_save_file); m.def("c_load_file", &c_load_file);
+    
+    // Crucial missing exports:
+    m.def("paeth_filter", [](const py::array_t<int16_t>& arr, const py::array_t<int16_t>& left, const py::array_t<int16_t>& above, const py::array_t<int16_t>& above_left, py::array_t<int16_t>& out){
+        auto rArr = arr.unchecked<2>(), rL = left.unchecked<2>(), rA = above.unchecked<2>(), rAL = above_left.unchecked<2>();
+        auto mOut = out.mutable_unchecked<2>();
+        for (ssize_t y = 0; y < rArr.shape(0); ++y)
+            for (ssize_t x = 0; x < rArr.shape(1); ++x) {
+                int32_t a = rL(y,x), b = rA(y,x), c = rAL(y,x);
+                int32_t p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
+                int32_t pr = (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+                mOut(y, x) = static_cast<int16_t>(rArr(y, x) - pr);
+            }
+    });
+    m.def("tile_copy", [](py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw){
+        auto src = source.unchecked<4>();
+        auto dst = target.mutable_unchecked<4>();
+        for (int y = 0; y < tile_size && ty + y < gh; ++y)
+            for (int x = 0; x < tile_size && tx + x < gw; ++x)
+                for (int sy = 0; sy < 16; ++sy)
+                    for (int sx = 0; sx < 16; ++sx)
+                        dst(y, sy, x, sx) = src(ty + y, sy, tx + x, sx);
+    });
+    m.def("untile_copy", [](py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw){
+        auto src = source.unchecked<4>();
+        auto dst = target.mutable_unchecked<4>();
+        for (int y = 0; y < tile_size && ty + y < gh; ++y)
+            for (int x = 0; x < tile_size && tx + x < gw; ++x)
+                for (int sy = 0; sy < 16; ++sy)
+                    for (int sx = 0; sx < 16; ++sx)
+                        dst(ty + y, sy, tx + x, sx) = src(y, sy, x, sx);
+    });
 }
