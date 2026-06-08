@@ -120,6 +120,14 @@ def decode_lossless(data, w, h, channels):
 
 # the main event. lossy compression using magic wavelets.
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, metadata=None):
+    if HAS_CPP and bit_depth == 8 and (w % 16 == 0 and h % 16 == 0):
+        # Monolithic C++ path for standard dimensions
+        arr_full = np.frombuffer(pixels, dtype=np.uint8).reshape((h, w, channels)).astype(np.float32)
+        # We transpose to [C, H, W] for C++ consistency if needed, but for now we pass as is.
+        # Actually, my C++ c_encode_lossy expects [C, H, W] in the unchecked<3>() access if I use it like that.
+        # Let's transpose to match C++ expectations.
+        return wimf_cpp.c_encode_lossy(arr_full.transpose(2, 0, 1), channels, quality, preset, metadata or {})
+
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     arr_full = np.frombuffer(pixels, dtype=dtype).reshape((h, w, channels))
     
@@ -311,6 +319,10 @@ def reconstruct_channel(b_list, mip_level=0):
 
 # the decoder monster
 def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, roi=None, mip_level=0, metadata=None):
+    if HAS_CPP and bit_depth == 8 and not roi and mip_level == 0:
+        # Monolithic C++ path for standard full-image decodes
+        return wimf_cpp.c_decode_lossy(data, w, h, channels, metadata or {}).tobytes()
+
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
     
