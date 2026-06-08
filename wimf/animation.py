@@ -3,7 +3,11 @@ import lzma
 import struct
 from .codec import encode_lossy, decode_lossy
 
-from .core import haar_level, ihaar_level
+from .core import haar_level, ihaar_level, HAS_CPP
+try:
+    from . import wimf_cpp
+except ImportError:
+    pass
 
 def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_depth=8):
     out_payload = bytearray()
@@ -29,8 +33,15 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
             out_payload.extend(compressed)
             prev_arr = np.frombuffer(frame, dtype=dtype).reshape(h, w, channels).astype(np.float32)
         else:
-            curr_arr = np.frombuffer(frame, dtype=dtype).reshape(h, w, channels).astype(np.float32)
-            delta = curr_arr - prev_arr
+            if HAS_CPP and bit_depth == 8:
+                # Optimized C++ frame diff
+                curr_arr_u8 = np.frombuffer(frame, dtype=np.uint8)
+                prev_arr_u8 = prev_arr.astype(np.uint8).reshape(-1)
+                delta = np.zeros((h, w, channels), dtype=np.float32)
+                wimf_cpp.calculate_frame_diff(prev_arr_u8, curr_arr_u8, delta.reshape(-1))
+            else:
+                curr_arr = np.frombuffer(frame, dtype=dtype).reshape(h, w, channels).astype(np.float32)
+                delta = curr_arr - prev_arr
             
             # --- WAVELET RESIDUAL CODING ---
             cur_h, cur_w, _ = delta.shape

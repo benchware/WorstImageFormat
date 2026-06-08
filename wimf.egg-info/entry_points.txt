@@ -1,0 +1,5 @@
+[console_scripts]
+wimf-cat = wimf.cat:main
+wimf-convert = wimf.cli:main
+wimf-meta = wimf.meta_tool:main
+wimf-view = wimf.viewer:main

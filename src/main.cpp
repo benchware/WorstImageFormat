@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace py = pybind11;
 
@@ -26,8 +27,8 @@ extern "C" {
 #ifdef WIMF_WASM
     EMSCRIPTEN_KEEPALIVE
 #endif
-    void ycocg_forward_raw(int32_t* data, int w, int h) {
-        for (int i = 0; i < w * h; ++i) {
+    void ycocg_forward_raw(int32_t* data, size_t w, size_t h) {
+        for (size_t i = 0; i < w * h; ++i) {
             int32_t r = data[i * 3 + 0];
             int32_t g = data[i * 3 + 1];
             int32_t b = data[i * 3 + 2];
@@ -40,8 +41,8 @@ extern "C" {
             data[i * 3 + 2] = cg;
         }
     }
-    void ycocg_inverse_raw(float* data, int total_pixels) {
-        for (int i = 0; i < total_pixels; ++i) {
+    void ycocg_inverse_raw(float* data, size_t total_pixels) {
+        for (size_t i = 0; i < total_pixels; ++i) {
             float luma = data[i * 3 + 0];
             float co   = data[i * 3 + 1];
             float cg   = data[i * 3 + 2];
@@ -58,18 +59,18 @@ extern "C" {
 #ifdef WIMF_WASM
     EMSCRIPTEN_KEEPALIVE
     void haar_level_raw(float* input, float* LL, float* HL, float* LH, float* HH, int n, int c, int h, int w) {
-        int out_h = h / 2;
-        int out_w = w / 2;
+        size_t out_h = h / 2;
+        size_t out_w = w / 2;
         for (int i = 0; i < n; ++i) {
             for (int j = 0; j < c; ++j) {
                 float* base = input + (i * c * h * w) + (j * h * w);
-                for (int y = 0; y < out_h; ++y) {
-                    for (int x = 0; x < out_w; ++x) {
+                for (size_t y = 0; y < out_h; ++y) {
+                    for (size_t x = 0; x < out_w; ++x) {
                         float a = base[(2*y)*w + (2*x)];
                         float b = base[(2*y)*w + (2*x+1)];
                         float c_val = base[(2*y+1)*w + (2*x)];
                         float d = base[(2*y+1)*w + (2*x+1)];
-                        int out_idx = (i * c * out_h * out_w) + (j * out_h * out_w) + (y * out_w) + x;
+                        size_t out_idx = (i * c * out_h * out_w) + (j * out_h * out_w) + (y * out_w) + x;
                         LL[out_idx] = (a + b + c_val + d) * 0.25f;
                         HL[out_idx] = (a - b + c_val - d) * 0.25f;
                         LH[out_idx] = (a + b - c_val - d) * 0.25f;
@@ -339,12 +340,168 @@ void paeth_filter(const py::array_t<int16_t>& arr, const py::array_t<int16_t>& l
     }
 }
 
+// --- PARITY ENGINE ---
+extern "C" {
+    uint32_t calculate_checksum_raw(const uint8_t* data, size_t size) {
+        uint64_t sum = 0;
+        size_t i = 0;
+        #ifdef WIMF_X86
+        // Fast sum using AVX2 (approximate for speed)
+        // For byte sum, we can use _mm256_sad_epu8
+        for (; i <= size - 32; i += 32) {
+            __m256i v = _mm256_loadu_si256((const __m256i*)&data[i]);
+            __m256i zero = _mm256_setzero_si256();
+            __m256i sad = _mm256_sad_epu8(v, zero);
+            // sad results in 4 64-bit sums. Extract them safely.
+            sum += (uint64_t)_mm256_extract_epi64(sad, 0);
+            sum += (uint64_t)_mm256_extract_epi64(sad, 1);
+            sum += (uint64_t)_mm256_extract_epi64(sad, 2);
+            sum += (uint64_t)_mm256_extract_epi64(sad, 3);
+        }
+        #endif
+        for (; i < size; ++i) sum += data[i];
+        return (uint32_t)(sum % 4294967295ULL);
+    }
+
+    void block_xor_raw(uint8_t* target, const uint8_t* source, size_t size) {
+        size_t i = 0;
+        #ifdef WIMF_X86
+        for (; i <= size - 32; i += 32) {
+            __m256i v0 = _mm256_loadu_si256((__m256i*)&target[i]);
+            __m256i v1 = _mm256_loadu_si256((const __m256i*)&source[i]);
+            _mm256_storeu_si256((__m256i*)&target[i], _mm256_xor_si256(v0, v1));
+        }
+        #elif defined(WIMF_ARM)
+        for (; i <= size - 16; i += 16) {
+            uint8x16_t v0 = vld1q_u8(&target[i]);
+            uint8x16_t v1 = vld1q_u8(&source[i]);
+            vst1q_u8(&target[i], veorq_u8(v0, v1));
+        }
+        #endif
+        for (; i < size; ++i) target[i] ^= source[i];
+    }
+}
+
+uint32_t calculate_checksum(py::array_t<uint8_t> data) {
+    auto buf = data.unchecked<1>();
+    return calculate_checksum_raw(buf.data(0), buf.size());
+}
+
+void block_xor(py::array_t<uint8_t> target, py::array_t<uint8_t> source) {
+auto bT = target.mutable_unchecked<1>();
+auto bS = source.unchecked<1>();
+if (bT.size() != bS.size()) throw std::runtime_error("Size mismatch in block_xor");
+block_xor_raw((uint8_t*)bT.data(0), (const uint8_t*)bS.data(0), bT.size());
+}
+
+// --- ANIMATION & LOSSLESS ---
+void calculate_frame_diff(py::array_t<uint8_t> prev, py::array_t<uint8_t> curr, py::array_t<float> diff) {
+auto bP = prev.unchecked<1>();
+auto bC = curr.unchecked<1>();
+auto bD = diff.mutable_unchecked<1>();
+size_t size = bP.size();
+for (size_t i = 0; i < size; ++i) {
+    bD(i) = (float)bC(i) - (float)bP(i);
+}
+}
+
+py::array_t<uint8_t> select_best_filters(py::array_t<int16_t> res0, py::array_t<int16_t> res1, py::array_t<int16_t> res2, py::array_t<int16_t> res3) {
+auto r0 = res0.unchecked<2>();
+auto r1 = res1.unchecked<2>();
+auto r2 = res2.unchecked<2>();
+auto r3 = res3.unchecked<2>();
+
+ssize_t h = r0.shape(0);
+ssize_t w = r0.shape(1);
+
+auto best = py::array_t<uint8_t>(h);
+auto mBest = best.mutable_unchecked<1>();
+
+for (ssize_t y = 0; y < h; ++y) {
+    int64_t c[4] = {0, 0, 0, 0};
+    for (ssize_t x = 0; x < w; ++x) {
+        c[0] += std::abs((int8_t)(r0(y, x) % 256));
+        c[1] += std::abs((int8_t)(r1(y, x) % 256));
+        c[2] += std::abs((int8_t)(r2(y, x) % 256));
+        c[3] += std::abs((int8_t)(r3(y, x) % 256));
+    }
+    uint8_t b = 0;
+    int64_t min_c = c[0];
+    for (uint8_t i = 1; i < 4; ++i) {
+        if (c[i] < min_c) {
+            min_c = c[i];
+            b = i;
+        }
+    }
+    mBest(y) = b;
+}
+return best;
+}
+
+// --- TILING ---
+void tile_copy(py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw) {
+auto src = source.unchecked<4>(); // gh, 16, gw, 16
+auto dst = target.mutable_unchecked<4>(); // tile_size, 16, tile_size, 16
+
+for (int y = 0; y < tile_size; ++y) {
+    if (ty + y >= gh) break;
+    for (int x = 0; x < tile_size; ++x) {
+        if (tx + x >= gw) break;
+        for (int sy = 0; sy < 16; ++sy) {
+            for (int sx = 0; sx < 16; ++sx) {
+                dst(y, sy, x, sx) = src(ty + y, sy, tx + x, sx);
+            }
+        }
+    }
+}
+}
+
+void untile_copy(py::array_t<float> source, py::array_t<float> target, int ty, int tx, int tile_size, int gh, int gw) {
+auto src = source.unchecked<4>(); // tile_size, 16, tile_size, 16
+auto dst = target.mutable_unchecked<4>(); // gh, 16, gw, 16
+
+for (int y = 0; y < tile_size; ++y) {
+    if (ty + y >= gh) break;
+    for (int x = 0; x < tile_size; ++x) {
+        if (tx + x >= gw) break;
+        for (int sy = 0; sy < 16; ++sy) {
+            for (int sx = 0; sx < 16; ++sx) {
+                dst(ty + y, sy, tx + x, sx) = src(y, sy, x, sx);
+            }
+        }
+    }
+}
+}
+
+// --- BITSTREAM ---
+py::tuple parse_header(py::array_t<uint8_t> data) {
+    auto buf = data.unchecked<1>();
+    if (buf.size() < 17) throw std::runtime_error("Buffer too small for WIMF header");
+    const uint8_t* ptr = buf.data(0);
+
+    // Skip magic (4 bytes)
+    uint32_t w, h, mlen;
+    std::memcpy(&w, ptr + 4, 4);
+    std::memcpy(&h, ptr + 8, 4);
+    uint8_t flags = ptr[12];
+    std::memcpy(&mlen, ptr + 13, 4);
+
+    return py::make_tuple(w, h, flags, mlen);
+}
+
 // Python binding module
 PYBIND11_MODULE(wimf_cpp, m) {
-    m.doc() = "WIMF Optimized C++ Extension";
-    m.def("ycocg_forward", &ycocg_forward, "Forward YCoCg-R transform");
-    m.def("ycocg_inverse", &ycocg_inverse, "Inverse YCoCg-R transform");
-    m.def("haar_level", &haar_level, "Forward Haar wavelet level");
-    m.def("ihaar_level", &ihaar_level, "Inverse Haar wavelet level");
-    m.def("paeth_filter", &paeth_filter, "Batch Paeth filter processing");
+m.doc() = "WIMF Optimized C++ Extension";
+m.def("ycocg_forward", &ycocg_forward, "Forward YCoCg-R transform");
+m.def("ycocg_inverse", &ycocg_inverse, "Inverse YCoCg-R transform");
+m.def("haar_level", &haar_level, "Forward Haar wavelet level");
+m.def("ihaar_level", &ihaar_level, "Inverse Haar wavelet level");
+m.def("paeth_filter", &paeth_filter, "Batch Paeth filter processing");
+m.def("calculate_checksum", &calculate_checksum, "Fast byte sum checksum");
+m.def("block_xor", &block_xor, "SIMD XOR for two buffers");
+m.def("calculate_frame_diff", &calculate_frame_diff, "Fast frame difference for animation");
+m.def("select_best_filters", &select_best_filters, "Pick best lossless filters for each row");
+m.def("tile_copy", &tile_copy, "Optimized tile extraction");
+m.def("untile_copy", &untile_copy, "Optimized tile reassembly");
+m.def("parse_header", &parse_header, "Fast binary header parsing");
 }
