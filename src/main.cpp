@@ -121,7 +121,7 @@ py::bytes c_encode_lossy(py::array_t<float> input, int chans, int quality, std::
     };
     std::string s0 = comp(l0), s1 = comp(l1), s2 = comp(l2);
     std::string res = ""; res += (char)(quality << 4 | 9);
-    auto add = [&](std::string& s) { uint32_t len = s.size(); res.append((char*)&len, 4); res.append(s); };
+    auto add = [&](const std::string& s) { uint32_t len = s.size(); res.append((char*)&len, 4); res.append(s); };
     add(s0); add(s1); add(s2); return py::bytes(res);
 }
 
@@ -152,6 +152,69 @@ py::array_t<uint8_t> c_decode_lossy(py::bytes data_bytes, int w, int h, int chan
     return result;
 }
 
+// --- PARITY ENGINE ---
+extern "C" {
+    uint32_t calculate_checksum_raw(const uint8_t* data, size_t size) {
+        uint64_t sum = 0;
+        size_t i = 0;
+        #ifdef WIMF_X86
+        for (; i <= size - 32; i += 32) {
+            __m256i v = _mm256_loadu_si256((const __m256i*)&data[i]);
+            __m256i zero = _mm256_setzero_si256();
+            __m256i sad = _mm256_sad_epu8(v, zero);
+            sum += (uint64_t)_mm256_extract_epi64(sad, 0);
+            sum += (uint64_t)_mm256_extract_epi64(sad, 1);
+            sum += (uint64_t)_mm256_extract_epi64(sad, 2);
+            sum += (uint64_t)_mm256_extract_epi64(sad, 3);
+        }
+        #endif
+        for (; i < size; ++i) sum += data[i];
+        return (uint32_t)(sum % 4294967295ULL);
+    }
+
+    void block_xor_raw(uint8_t* target, const uint8_t* source, size_t size) {
+        size_t i = 0;
+        #ifdef WIMF_X86
+        for (; i <= size - 32; i += 32) {
+            __m256i v0 = _mm256_loadu_si256((__m256i*)&target[i]);
+            __m256i v1 = _mm256_loadu_si256((const __m256i*)&source[i]);
+            _mm256_storeu_si256((__m256i*)&target[i], _mm256_xor_si256(v0, v1));
+        }
+        #elif defined(WIMF_ARM)
+        for (; i <= size - 16; i += 16) {
+            uint8x16_t v0 = vld1q_u8(&target[i]);
+            uint8x16_t v1 = vld1q_u8(&source[i]);
+            vst1q_u8(&target[i], veorq_u8(v0, v1));
+        }
+        #endif
+        for (; i < size; ++i) target[i] ^= source[i];
+    }
+}
+
+// --- ANIMATION & LOSSLESS ---
+extern "C" {
+    void calculate_frame_diff_raw(const uint8_t* prev, const uint8_t* curr, float* diff, size_t size) {
+        for (size_t i = 0; i < size; ++i) {
+            diff[i] = (float)curr[i] - (float)prev[i];
+        }
+    }
+    py::array_t<uint8_t> select_best_filters_raw(const int16_t* r0, const int16_t* r1, const int16_t* r2, const int16_t* r3, int h, int w) {
+        auto best = py::array_t<uint8_t>(h); auto mB = best.mutable_unchecked<1>();
+        for (int y = 0; y < h; ++y) {
+            int64_t c[4] = {0,0,0,0};
+            for (int x = 0; x < w; ++x) {
+                size_t off = y*w+x;
+                c[0] += std::abs((int8_t)(r0[off] % 256)); c[1] += std::abs((int8_t)(r1[off] % 256));
+                c[2] += std::abs((int8_t)(r2[off] % 256)); c[3] += std::abs((int8_t)(r3[off] % 256));
+            }
+            uint8_t b = 0; int64_t min_c = c[0];
+            for (uint8_t i = 1; i < 4; ++i) { if (c[i] < min_c) { min_c = c[i]; b = i; } }
+            mB(y) = b;
+        }
+        return best;
+    }
+}
+
 PYBIND11_MODULE(wimf_cpp, m) {
     m.def("ycocg_forward", [](py::array_t<int32_t> a){ auto b = a.mutable_unchecked<3>(); ycocg_forward_raw(b.mutable_data(0,0,0), b.shape(1), b.shape(0)); });
     m.def("ycocg_inverse", [](const py::buffer& b){ py::buffer_info i = b.request(); ycocg_inverse_raw((float*)i.ptr, i.size/3); });
@@ -163,8 +226,12 @@ PYBIND11_MODULE(wimf_cpp, m) {
         for (ssize_t i = 0; i < (ssize_t)n; ++i) for (ssize_t j = 0; j < (ssize_t)c; ++j) haar_2d_raw((float*)buf.data(i,j,0,0), mLL.mutable_data(i,j,0,0), mHL.mutable_data(i,j,0,0), mLH.mutable_data(i,j,0,0), mHH.mutable_data(i,j,0,0), (int)h, (int)w);
         return py::make_tuple(LL, HL, LH, HH);
     });
-    m.def("calculate_checksum", [](py::array_t<uint8_t> d){ uint64_t s=0; auto b=d.unchecked<1>(); for(size_t i=0;i<b.size();++i) s+=b[i]; return (uint32_t)(s%4294967295ULL); });
-    m.def("block_xor", [](py::array_t<uint8_t> t, py::array_t<uint8_t> s){ auto bt = t.mutable_unchecked<1>(); auto bs = s.unchecked<1>(); for(size_t i=0; i<bt.size(); ++i) bt(i) ^= bs(i); });
+    m.def("calculate_checksum", [](py::array_t<uint8_t> d){ return calculate_checksum_raw(d.data(0), d.size()); });
+    m.def("block_xor", [](py::array_t<uint8_t> t, py::array_t<uint8_t> s){ block_xor_raw((uint8_t*)t.mutable_data(0), (const uint8_t*)s.data(0), t.size()); });
+    m.def("calculate_frame_diff", [](py::array_t<uint8_t> p, py::array_t<uint8_t> c, py::array_t<float> d){ calculate_frame_diff_raw(p.data(0), c.data(0), (float*)d.mutable_data(0), p.size()); });
+    m.def("select_best_filters", [](py::array_t<int16_t> r0, py::array_t<int16_t> r1, py::array_t<int16_t> r2, py::array_t<int16_t> r3){
+        return select_best_filters_raw(r0.data(0,0), r1.data(0,0), r2.data(0,0), r3.data(0,0), r0.shape(0), r0.shape(1));
+    });
     m.def("parse_header", [](py::array_t<uint8_t> d){ const uint8_t* p=d.data(0); uint32_t w,h,m; std::memcpy(&w,p+4,4); std::memcpy(&h,p+8,4); std::memcpy(&m,p+13,4); return py::make_tuple(w,h,p[12],m); });
     m.def("c_encode_lossy", &c_encode_lossy); m.def("c_decode_lossy", &c_decode_lossy);
 }

@@ -2,7 +2,7 @@ name: Build WIMF Wheels
 
 on:
   push:
-    branches: [ main, experimental, c++ ]
+    branches: [ main, experimental, "c**" ]
   pull_request:
     branches: [ main ]
   release:
