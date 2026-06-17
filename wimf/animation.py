@@ -8,7 +8,7 @@ from .codec import decode_lossy, encode_lossy
 from .core import HAS_CPP, haar_level, ihaar_level
 
 try:
-    from . import wimf_cpp
+    from . import wimf_cpp  # type: ignore[attr-defined]
 except ImportError:
     pass
 

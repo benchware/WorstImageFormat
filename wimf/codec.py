@@ -7,7 +7,7 @@ import numpy as np
 from .core import HAS_CPP, get_quantization_steps, haar_level, ihaar_level
 
 try:
-    from . import wimf_cpp
+    from . import wimf_cpp  # type: ignore[attr-defined]
 except ImportError:
     pass
 import multiprocessing

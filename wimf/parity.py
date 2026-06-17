@@ -5,7 +5,7 @@ import zlib
 import numpy as np
 
 try:
-    from . import wimf_cpp
+    from . import wimf_cpp  # type: ignore[attr-defined]
 
     HAS_CPP = True
 except ImportError:
