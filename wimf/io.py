@@ -1,7 +1,12 @@
 import json
 import struct
+import logging
+from .core import parse_header
 from .codec import encode_lossless, decode_lossless, encode_lossy, decode_lossy
 from .animation import encode_animated, decode_animated
+
+logger = logging.getLogger(__name__)
+
 
 def stream_load(filename):
     """
@@ -9,51 +14,55 @@ def stream_load(filename):
     Yields: (w, h, pix, meta, is_final)
     """
     with open(filename, 'rb') as f:
-        header = f.read(4)
-        if header not in [b"WIMF"]: raise ValueError("Streaming only supported for STILL WIMF")
-        w, h = int.from_bytes(f.read(4), 'little'), int.from_bytes(f.read(4), 'little')
-        flags = int.from_bytes(f.read(1), 'little')
-        mlen = int.from_bytes(f.read(4), 'little')
-        meta = json.loads(f.read(mlen).decode('utf-8')) if mlen > 0 else {}
-        data = f.read()
-        channels = meta.get('channels', 3)
-        bit_depth = 10 if meta.get('bit10') else 8
-        
-        if flags == 1: # Lossless
-            yield w, h, decode_lossless(data, w, h, channels), meta, True
-            return
+        raw = f.read()
 
-        # Check for Progressive Mode (9)
-        mode = data[0] & 0x0F
-        if mode == 9:
-            for layer in range(3):
-                pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=layer)
-                yield w, h, pix, meta, (layer == 2)
-        else:
-            # Legacy or other
-            pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth)
-            yield w, h, pix, meta, True
+    magic, w, h, flags, mlen = parse_header(raw)
+    if magic != b"WIMF":
+        raise ValueError("Streaming only supported for STILL WIMF files")
+
+    meta = json.loads(raw[17 : 17 + mlen].decode('utf-8')) if mlen > 0 else {}
+    data = raw[17 + mlen:]
+    channels = meta.get('channels', 3)
+    bit_depth = 10 if meta.get('bit10') else 8
+
+    if flags == 1:  # Lossless
+        yield w, h, decode_lossless(data, w, h, channels), meta, True
+        return
+
+    # Check for Progressive Mode (9)
+    mode = data[0] & 0x0F
+    if mode == 9:
+        for layer in range(3):
+            pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=layer)
+            yield w, h, pix, meta, (layer == 2)
+    else:
+        # Legacy or other
+        pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth)
+        yield w, h, pix, meta, True
+
 
 def loadImage(filename, target_layer=2, roi=None, mip_level=0):
     with open(filename, 'rb') as f:
-        header = f.read(4)
-        if header not in [b"WIMF", b"AWIF"]: raise ValueError(f"Invalid Magic Byte: {header}")
-        w, h = int.from_bytes(f.read(4), 'little'), int.from_bytes(f.read(4), 'little')
-        flags = int.from_bytes(f.read(1), 'little')
-        mlen = int.from_bytes(f.read(4), 'little')
-        meta = json.loads(f.read(mlen).decode('utf-8')) if mlen > 0 else {}
-        data = f.read()
-        channels = meta.get('channels', 3)
-        bit_depth = 10 if meta.get('bit10') else 8
-        
-        if header == b"AWIF":
-            frames = decode_animated(data, w, h, channels, bit_depth=bit_depth, metadata=meta)
-            meta['is_animated'] = True
-            return w, h, frames, meta
-        if flags == 1: pix = decode_lossless(data, w, h, channels)
-        elif flags in [5, 6, 8, 9, 10]: pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, roi=roi, mip_level=mip_level, metadata=meta)
-        else: pix = data
-        return w, h, pix, meta
+        raw = f.read()
+
+    magic, w, h, flags, mlen = parse_header(raw)
+    meta = json.loads(raw[17 : 17 + mlen].decode('utf-8')) if mlen > 0 else {}
+    data = raw[17 + mlen:]
+    channels = meta.get('channels', 3)
+    bit_depth = 10 if meta.get('bit10') else 8
+
+    if magic == b"AWIF":
+        frames = decode_animated(data, w, h, channels, bit_depth=bit_depth, metadata=meta)
+        meta['is_animated'] = True
+        return w, h, frames, meta
+    if flags == 1:
+        pix = decode_lossless(data, w, h, channels)
+    elif flags in [5, 6, 8, 9, 10]:
+        pix = decode_lossy(data, w, h, channels, bit_depth=bit_depth, target_layer=target_layer, roi=roi, mip_level=mip_level, metadata=meta)
+    else:
+        pix = data
+    return w, h, pix, meta
+
 
 def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, preset="Balanced"):
     if metadata is None: metadata = {}
@@ -86,7 +95,7 @@ def saveImage(filename, w, h, pixels, compression=1, quality=5, metadata=None, p
     else:
         if compression == 2:
             data = encode_lossy(pixels, w, h, quality=quality, preset=preset, channels=channels, bit_depth=bit_depth, metadata=metadata)
-            final_flags = 9 # Mode 9: Progressive YCoCg-R
+            final_flags = data[0] & 0x0F  # derive from codec output, not hardcoded
         elif compression == 1:
             data = encode_lossless(pixels, w, h, channels, preset=preset)
             final_flags = 1

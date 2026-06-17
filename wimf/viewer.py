@@ -130,7 +130,8 @@ class WIMFViewer:
         if self.playing:
             self.current_frame = (self.current_frame + 1) % len(self.frames)
             self.update_display()
-        self.root.after(33, self.play_loop) # ~30fps
+            self.update_status()
+        self.root.after(33, self.play_loop)  # ~30fps
 
     def toggle_playback(self, event=None):
         if self.is_animated:

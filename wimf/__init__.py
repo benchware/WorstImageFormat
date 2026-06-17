@@ -16,17 +16,18 @@ def info(path):
 def save(path, image, **kwargs):
     """Convenience function to save any image-like object as WIMF."""
     encoder = WIMFEncoder(image)
-    # Extract known metadata keys from kwargs
-    meta_keys = ['author', 'copyright', 'desc', 'make', 'model', 'bit10', 'alpha', 'depth', 'is_animated']
+    # Keys that control encoding behaviour (passed to encode())
+    encode_keys = {'quality', 'preset', 'lossless'}
+
     if 'anti_rot' in kwargs:
         encoder.set_anti_rot(kwargs['anti_rot'])
-    
-    meta_args = {k: v for k, v in kwargs.items() if k in meta_keys}
+
+    # Any kwarg that is neither an encode arg nor anti_rot goes into metadata
+    meta_args = {k: v for k, v in kwargs.items() if k not in encode_keys and k != 'anti_rot'}
     if meta_args:
         encoder.set_metadata(**meta_args)
-        
-    # Remove meta keys from kwargs before passing to encode
-    encode_args = {k: v for k, v in kwargs.items() if k not in meta_keys and k != 'anti_rot'}
+
+    encode_args = {k: v for k, v in kwargs.items() if k in encode_keys}
     raw = encoder.encode(**encode_args)
     
     try:

@@ -1,15 +1,21 @@
+import builtins
 from PIL import Image
 from .io import saveImage, loadImage
 import sys
 import os
 import argparse
 import glob
+import tempfile
+import logging
 
 from PIL import Image, ExifTags, ImageSequence
 import numpy as np
 import base64
 import io
 import time
+
+logger = logging.getLogger(__name__)
+
 
 # some generic converter function. handles basically everything.
 def convert(input_path, output_path, compression=1, quality=5, preset="Balanced", meta=None, roi=None, depth_map_path=None, mip_level=0):
@@ -35,13 +41,13 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
             if is_10bit_file:
                 arr = np.frombuffer(pixels, dtype=np.uint16).reshape((h, w, channels))
                 pixels = (arr >> 2).astype(np.uint8).tobytes()
-                print("made it 8-bit so pil doesn't crash.")
+                logger.debug("downsampled 10-bit to 8-bit for PIL output")
 
             # handle the depth channel. i think it's at the end.
             has_depth = loaded_meta.get('depth', False)
 
             if has_depth:
-                print(f"found depth map at channel {channels-1}. skipping it for now.")
+                logger.debug("found depth map at channel %d — skipping for 2D output", channels - 1)
                 channels -= 1 
 
             img_mode = 'RGBA' if channels >= 4 else 'RGB'
@@ -63,11 +69,11 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
 
             if isinstance(pixels, list):
                 pixels = pixels[0]
-                print("only extracted frame 0 of the animation.")
+                logger.debug("multi-frame file: only extracting frame 0")
                 
             img = Image.frombytes(img_mode, (w, h), pixels)
             img.save(output_path, icc_profile=icc)
-            print(f"saved to {output_path}. cya.")
+            print(f"saved to {output_path}")
         
         elif out_ext in ['.wimf', '.wif', '.awif']:
             # encode whatever into wimf
@@ -154,16 +160,16 @@ def convert(input_path, output_path, compression=1, quality=5, preset="Balanced"
             
             orig_size = os.path.getsize(input_path)
             new_size = os.path.getsize(output_path)
-            ratio = new_size / orig_size if orig_size > 0 else 0
-            print(f"done. file is {new_size} bytes now.")
+            print(f"done. {new_size:,} bytes (was {orig_size:,})")
         
         else:
             # i don't know what this extension is but pil might
             Image.open(input_path).save(output_path)
 
     except Exception as e:
-        print(f"bruh: {e}")
+        print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 def main():
     parser = argparse.ArgumentParser(description="WIMF CLI Tool")
@@ -237,6 +243,7 @@ def main():
             
     if args.benchmark:
         if len(input_files) > 1:
+            print("error: benchmark only supports a single input file", file=sys.stderr)
             sys.exit(1)
         in_file = input_files[0]
         
@@ -255,32 +262,44 @@ def main():
         s_wimf = os.path.getsize(bench_out)
         
         img = Image.open(in_file).convert("RGB")
-        s = time.time()
-        img.save("bench.jpg", format="JPEG", quality=90)
-        t_jpg = time.time() - s
-        s_jpg = os.path.getsize("bench.jpg")
-        
-        s = time.time()
-        img.save("bench.webp", format="WEBP", quality=80)
-        t_webp = time.time() - s
-        s_webp = os.path.getsize("bench.webp")
-        
-        print("\n" + "="*60)
-        print(f"{'FORMAT':<15} | {'SIZE':<15} | {'ENCODE TIME':<15} | {'RATIO':<10}")
-        print("-" * 60)
-        print(f"{'WIMF':<15} | {s_wimf:>12,} B | {t_wimf:>14.3f}s | {1.0:>9.2f}x")
-        print(f"{'JPEG (Q90)':<15} | {s_jpg:>12,} B | {t_jpg:>14.3f}s | {s_jpg/s_wimf:>9.2f}x")
-        print(f"{'WebP (Q80)':<15} | {s_webp:>12,} B | {t_webp:>14.3f}s | {s_webp/s_wimf:>9.2f}x")
-        print("="*60 + "\n")
-        
-        for f in ["bench.jpg", "bench.webp"]:
-            if os.path.exists(f): os.remove(f)
+
+        # Bug fix #11: use tempfile so bench artifacts are always cleaned up
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf_jpg:
+            tmp_jpg = tf_jpg.name
+        with tempfile.NamedTemporaryFile(suffix=".webp", delete=False) as tf_webp:
+            tmp_webp = tf_webp.name
+
+        try:
+            s = time.time()
+            img.save(tmp_jpg, format="JPEG", quality=90)
+            t_jpg = time.time() - s
+            s_jpg = os.path.getsize(tmp_jpg)
+            
+            s = time.time()
+            img.save(tmp_webp, format="WEBP", quality=80)
+            t_webp = time.time() - s
+            s_webp = os.path.getsize(tmp_webp)
+            
+            print("\n" + "="*60)
+            print(f"{'FORMAT':<15} | {'SIZE':<15} | {'ENCODE TIME':<15} | {'RATIO':<10}")
+            print("-" * 60)
+            print(f"{'WIMF':<15} | {s_wimf:>12,} B | {t_wimf:>14.3f}s | {1.0:>9.2f}x")
+            print(f"{'JPEG (Q90)':<15} | {s_jpg:>12,} B | {t_jpg:>14.3f}s | {s_jpg/s_wimf:>9.2f}x")
+            print(f"{'WebP (Q80)':<15} | {s_webp:>12,} B | {t_webp:>14.3f}s | {s_webp/s_wimf:>9.2f}x")
+            print("="*60 + "\n")
+        finally:
+            for tmp in [tmp_jpg, tmp_webp]:
+                try:
+                    os.remove(tmp)
+                except OSError as e:
+                    logger.debug("Failed to remove temporary benchmark file %s: %s", tmp, e)
         return
 
     if len(input_files) > 1:
         if not os.path.exists(args.output):
             os.makedirs(args.output)
         elif not os.path.isdir(args.output):
+            print("error: output must be a directory when multiple inputs are given", file=sys.stderr)
             sys.exit(1)
             
         for in_file in input_files:
@@ -304,7 +323,9 @@ def main():
             encoder.add_chrono_state(Image.open(input_files[i]))
         
         data = encoder.encode(quality=args.quality, preset=args.preset)
-        with _builtins.open(args.output, 'wb') as f: f.write(data)
+        # Bug fix #1: use builtins.open (imported at top) instead of _builtins which was never defined here
+        with builtins.open(args.output, 'wb') as f:
+            f.write(data)
     elif args.extract_chrono is not None:
         from .api import WIMFDecoder
         decoder = WIMFDecoder(input_files[0])
@@ -312,6 +333,7 @@ def main():
         img.pil.save(args.output)
     else:
         convert(input_files[0], args.output, compression=comp_mode, quality=args.quality, preset=args.preset, meta=meta, roi=args.roi, depth_map_path=args.depth_map, mip_level=args.mip)
+
 
 if __name__ == "__main__":
     main()
