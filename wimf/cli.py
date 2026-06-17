@@ -2,7 +2,7 @@ import argparse
 import base64
 import builtins
 import glob
-import io as stdio
+import io
 import logging
 import os
 import sys
@@ -12,7 +12,7 @@ import time
 import numpy as np
 from PIL import ExifTags, Image, ImageSequence
 
-from .io import loadImage, saveImage
+from wimf.io import loadImage, saveImage
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def convert(
             # make a tiny preview and hide it in the header. sneaky.
             thumb = img.copy()
             thumb.thumbnail((256, 256), Image.Resampling.LANCZOS)
-            thumb_io = stdio.BytesIO()
+            thumb_io = io.BytesIO()
             thumb.save(thumb_io, format="WEBP", quality=40)
             meta["thumbnail"] = base64.b64encode(thumb_io.getvalue()).decode("utf-8")
 

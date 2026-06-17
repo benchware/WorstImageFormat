@@ -253,7 +253,7 @@ PYBIND11_MODULE(wimf_cpp, m) {
         auto mb = b.mutable_unchecked<4>();
         for (ssize_t i = 0; i < (ssize_t)n; ++i)
             for (ssize_t j = 0; j < (ssize_t)c; ++j)
-                ihaar_2d_raw((float*)bufLL.data(i,j,0,0), (float*)bufHL.data(i,j,0,0), (float*)bufLH.data(i,j,0,0), (float*)bufHH.data(i,j,0,0), mb.mutable_data(i,j,0,0), (int)h*2, (int)w*2);
+                ihaar_2d_raw((float*)bufLL.data(i,j,0,0), (float*)bufHL.data(i,j,0,0), (float*)bufLH.data(i,j,0,0), (float*)bufHH.data(i,j,0,0), mb.mutable_data(i,j,0,0), (int)h, (int)w);
         return b;
     });
     m.def("calculate_checksum", [](py::array_t<uint8_t> d){ return calculate_checksum_raw(d.data(0), d.size()); });
