@@ -18,8 +18,6 @@ def save(path, image, **kwargs):
     encoder = WIMFEncoder(image)
     # Keys that control encoding behaviour (passed to encode())
     encode_keys = {'quality', 'preset', 'lossless'}
-    # Keys that are known metadata fields (passed to set_metadata())
-    meta_keys = {'author', 'copyright', 'desc', 'make', 'model', 'bit10', 'alpha', 'depth', 'is_animated'}
 
     if 'anti_rot' in kwargs:
         encoder.set_anti_rot(kwargs['anti_rot'])
