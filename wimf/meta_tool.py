@@ -1,61 +1,63 @@
-import sys
+import argparse
 import json
 import logging
-import argparse
+import sys
 
-from .core import parse_header
 from . import parity
+from .core import parse_header
 
 logger = logging.getLogger(__name__)
 
 
 def surgical_read(path):
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         data = f.read()
-        
+
     # Auto-repair if needed
     repaired, was_protected, was_corrupt = parity.verify_and_repair(data)
 
     magic, w, h, flags, mlen = parse_header(repaired)
     meta_bytes = repaired[17 : 17 + mlen]
-    pixel_data = repaired[17 + mlen:]
+    pixel_data = repaired[17 + mlen :]
 
-    meta = json.loads(meta_bytes.decode('utf-8'))
+    meta = json.loads(meta_bytes.decode("utf-8"))
     return magic, w, h, flags, meta, pixel_data, was_protected
 
 
 def surgical_write(path, magic, w, h, flags, meta, pixel_data, protect=False):
-    m_bytes = json.dumps(meta).encode('utf-8')
+    m_bytes = json.dumps(meta).encode("utf-8")
     payload = bytearray()
     payload.extend(magic)
-    payload.extend(w.to_bytes(4, 'little'))
-    payload.extend(h.to_bytes(4, 'little'))
-    payload.extend(flags.to_bytes(1, 'little'))
-    payload.extend(len(m_bytes).to_bytes(4, 'little'))
+    payload.extend(w.to_bytes(4, "little"))
+    payload.extend(h.to_bytes(4, "little"))
+    payload.extend(flags.to_bytes(1, "little"))
+    payload.extend(len(m_bytes).to_bytes(4, "little"))
     payload.extend(m_bytes)
     payload.extend(pixel_data)
-    
+
     if protect:
         final_data = parity.protect(bytes(payload))
     else:
         final_data = bytes(payload)
-        
-    with open(path, 'wb') as f:
+
+    with open(path, "wb") as f:
         f.write(final_data)
 
 
 def main():
     parser = argparse.ArgumentParser(description="WIMF Metadata Surgery Tool")
     parser.add_argument("file", help="WIMF file to edit")
-    parser.add_argument("--set", nargs=2, action="append", metavar=("KEY", "VALUE"), help="Set a metadata key-value pair")
+    parser.add_argument(
+        "--set", nargs=2, action="append", metavar=("KEY", "VALUE"), help="Set a metadata key-value pair"
+    )
     parser.add_argument("--clear", action="append", metavar="KEY", help="Remove a metadata key")
     parser.add_argument("--show", action="store_true", help="Print current metadata")
-    
+
     args = parser.parse_args()
-    
+
     try:
         magic, w, h, flags, meta, pixel_data, was_protected = surgical_read(args.file)
-        
+
         if args.show:
             print(f"File: {args.file} ({w}x{h})")
             print(json.dumps(meta, indent=2))
@@ -67,17 +69,17 @@ def main():
             for k, v in args.set:
                 meta[k] = v
                 modified = True
-        
+
         if args.clear:
             for k in args.clear:
                 if k in meta:
                     del meta[k]
                     modified = True
-        
+
         if modified:
             surgical_write(args.file, magic, w, h, flags, meta, pixel_data, protect=was_protected)
             print(f"[WIMF-META] Successfully updated {args.file}")
-            
+
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
