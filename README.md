@@ -47,8 +47,8 @@ WIMF is currently available as a source-only library. To install the developer s
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/benchware/wimf.git
-   cd wimf
+   git clone https://github.com/benchware/WorstImageFormat.git
+   cd WorstImageFormat
    ```
 
 2. Install dependencies:

@@ -1,13 +1,17 @@
 import numpy as np
 import lzma
 import struct
-from .core import paeth_predictor, haar_level, ihaar_level, HAS_CPP
+import logging
+from .core import paeth_predictor, haar_level, ihaar_level, HAS_CPP, get_quantization_steps
 try:
     from . import wimf_cpp
 except ImportError:
     pass
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
+
+logger = logging.getLogger(__name__)
+
 
 # just some math to compress one channel without losing pixels
 def encode_lossless_channel(channel_2d):
@@ -61,6 +65,7 @@ def encode_lossless_channel(channel_2d):
     
     return out_arr.tobytes()
 
+
 # undo the lossless stuff
 def decode_lossless_channel(data_bytes, w, h):
     arr = np.zeros((h, w), dtype=np.uint8)
@@ -74,16 +79,18 @@ def decode_lossless_channel(data_bytes, w, h):
         
         above = arr[y-1] if y > 0 else np.zeros(w, dtype=np.uint8)
         
-        if f_type == 0: # literally just raw pixels
+        if f_type == 0:  # literally just raw pixels
             arr[y] = row_res
-        elif f_type == 1: # left pixel math
+        elif f_type == 1:  # left pixel math
             arr[y] = np.cumsum(row_res, dtype=np.uint8)
-        elif f_type == 2: # top pixel math
+        elif f_type == 2:  # top pixel math
             arr[y] = (row_res.astype(np.uint16) + above.astype(np.uint16)).astype(np.uint8)
-        elif f_type == 3: # paeth is a nightmare to vectorize so we just loop it
+        elif f_type == 3:  # paeth is a nightmare to vectorize so we just loop it
             row_res_int = row_res.astype(np.int16)
             above_int = above.astype(np.int16)
             left = 0
+            # Bug fix #2: above_left must start from the previous row's pixel at x=-1,
+            # which is 0 (out-of-bounds), matching the PNG spec exactly.
             above_left = 0
             row_out = np.zeros(w, dtype=np.uint8)
             for x in range(w):
@@ -94,10 +101,11 @@ def decode_lossless_channel(data_bytes, w, h):
                 val = (row_res_int[x] + pr) % 256
                 row_out[x] = val
                 left = val
-                above_left = b
+                above_left = int(above_int[x])  # correct: carry over the above pixel before advancing
             arr[y] = row_out
                 
     return arr
+
 
 # high level lossless wrapper
 def encode_lossless(pixels, w, h, channels, preset="Balanced"):
@@ -110,6 +118,7 @@ def encode_lossless(pixels, w, h, channels, preset="Balanced"):
     lvl = 9 if preset == "Extreme" else (1 if preset == "Fast" else 4)
     return lzma.compress(payload, preset=lvl)
 
+
 def decode_lossless(data, w, h, channels):
     raw = lzma.decompress(data)
     arr = np.zeros((h, w, channels), dtype=np.uint8)
@@ -118,14 +127,12 @@ def decode_lossless(data, w, h, channels):
         arr[..., c] = decode_lossless_channel(raw[c*sz_chan : (c+1)*sz_chan], w, h)
     return arr.tobytes()
 
+
 # the main event. lossy compression using magic wavelets.
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, metadata=None):
-    if HAS_CPP and bit_depth == 8 and (w % 16 == 0 and h % 16 == 0):
+    if HAS_CPP and bit_depth == 8 and (w % 16 == 0 and h % 16 == 0) and hasattr(wimf_cpp, 'c_encode_lossy'):
         # Monolithic C++ path for standard dimensions
         arr_full = np.frombuffer(pixels, dtype=np.uint8).reshape((h, w, channels)).astype(np.float32)
-        # We transpose to [C, H, W] for C++ consistency if needed, but for now we pass as is.
-        # Actually, my C++ c_encode_lossy expects [C, H, W] in the unchecked<3>() access if I use it like that.
-        # Let's transpose to match C++ expectations.
         return wimf_cpp.c_encode_lossy(arr_full.transpose(2, 0, 1), channels, quality, preset, metadata or {})
 
     dtype = np.uint8 if bit_depth == 8 else np.uint16
@@ -152,7 +159,8 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
             transformed_chans.append(arr_full[..., c].astype(np.float32))
     else:
         transformed_chans = [arr_full[..., c].astype(np.float32) for c in range(channels)]
-        if not disable_ycocg: print("[WIMF-TUNING] ycocg off. probably gonna look like crap.")
+        if not disable_ycocg:
+            logger.warning("ycocg disabled — chroma quality will be reduced")
     
     # pad it to 16x16 because haar likes powers of 2
     ph, pw = (16 - h % 16) % 16, (16 - w % 16) % 16
@@ -171,9 +179,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
         if q_matrix_override:
             q1, q2 = q_matrix_override
         else:
-            # idk wtf these formulas do but they make the file small
-            q1 = max(1.0, (16.0 * depth_scale) - (q_eff * 1.5))
-            q2 = max(1.0, (8.0 * depth_scale) - (q_eff * 0.75))
+            q1, q2 = get_quantization_steps(q_eff, depth_scale)
 
         L1_LL, L1_HL, L1_LH, L1_HH = haar_level(tile_blocks)
         L2_LL, L2_HL, L2_LH, L2_HH = haar_level(L1_LL)
@@ -195,7 +201,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
     
     if use_mode_10:
         # --- MODE 10: TILED (FOR BIG IMAGES) ---
-        print(f"[WIMF-TUNING] tiling at {tile_size*16}px.")
+        logger.debug("tiling enabled at %dpx", tile_size * 16)
         tile_payloads = []
         for ty in range(0, gh, tile_size):
             for tx in range(0, gw, tile_size):
@@ -227,7 +233,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
                     for i in range(min(len(bits), len(flat))):
                         flat[i] = (int(flat[i]) & ~1) | int(bits[i])
                     tile_bands_all[0][0] = flat.reshape(tile_bands_all[0][0].shape)
-                    print(f"hid {len(bits)//8} bytes in the first tile.")
+                    logger.debug("embedded %d bytes in first tile", len(bits) // 8)
 
                 layers = [bytearray() for _ in range(3)]
                 # layer 0 is the blurry version
@@ -265,7 +271,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
                 body.extend(layer_data)
         return bytes(body)
 
-    if not use_mode_10:
+    else:
         # --- MODE 9: THE SIMPLE WAY ---
         l_qm = (q_matrix[0], q_matrix[1]) if q_matrix else None
         c_qm = (q_matrix[2], q_matrix[3]) if q_matrix else None
@@ -285,7 +291,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
             for i in range(min(len(bits), len(flat))):
                 flat[i] = (int(flat[i]) & ~1) | int(bits[i])
             tile_bands_all[0][0] = flat.reshape(tile_bands_all[0][0].shape)
-            print(f"hid {len(bits)//8} bytes in L0.")
+            logger.debug("embedded %d bytes in L0", len(bits) // 8)
 
         l0_payload = bytearray()
         for c in range(channels):
@@ -310,16 +316,32 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
             body.extend(c)
         return bytes(body)
 
+
+def _extract_watermark(flat_coeffs):
+    """Extract a hidden LSB watermark string from a flat int16 coefficient array.
+    Returns the decoded string, or an empty string if none is found.
+    """
+    bits = "".join(str(int(val) & 1) for val in flat_coeffs)
+    chars = []
+    for i in range(0, len(bits), 8):
+        byte = bits[i:i+8]
+        if len(byte) < 8 or byte == '00000000':
+            break
+        chars.append(chr(int(byte, 2)))
+    return "".join(chars)
+
+
 # undo the wavelet magic
 def reconstruct_channel(b_list, mip_level=0):
-    if mip_level >= 2: return b_list[0] # quarter size (super fast)
+    if mip_level >= 2: return b_list[0]  # quarter size (super fast)
     L1_LL = ihaar_level(b_list[0], b_list[1], b_list[2], b_list[3])
-    if mip_level == 1: return L1_LL # half size
+    if mip_level == 1: return L1_LL  # half size
     return ihaar_level(L1_LL, b_list[4], b_list[5], b_list[6])
 
+
 # the decoder monster
-def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, roi=None, mip_level=0, metadata=None):
-    if HAS_CPP and bit_depth == 8 and not roi and mip_level == 0:
+def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9, roi=None, mip_level=0, metadata=None, extract_watermark=False):
+    if HAS_CPP and bit_depth == 8 and not roi and mip_level == 0 and hasattr(wimf_cpp, 'c_decode_lossy'):
         # Monolithic C++ path for standard full-image decodes
         return wimf_cpp.c_decode_lossy(data, w, h, channels, metadata or {}).tobytes()
 
@@ -331,7 +353,7 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
     limit = 2**bit_depth - 1
 
     quality = data[0] >> 4
-    mode = data[0] & 0x0F
+    mode = data[0] & 0x0F  # always use the in-stream mode, not the caller's mode_flag
     
     tuning = metadata.get('tuning', {}) if metadata else {}
     disable_ycocg = tuning.get('disable_ycocg', False)
@@ -382,26 +404,15 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
                 chunk = np.frombuffer(l0_raw[c*sz_L2*2 : (c+1)*sz_L2*2], dtype=np.int16).astype(np.float32)
                 tile_bands[c].append(chunk.reshape(t_gh, t_gw, 4, 4))
                 
-            # try to find a secret msg
-            if tx == 0 and ty == 0:
+            # optionally extract a secret msg from the first tile
+            if extract_watermark and tx == 0 and ty == 0:
                 y_dc = tile_bands[0][0].flatten().astype(np.int16)
-                bits = "".join(str(int(val) & 1) for val in y_dc)
-                chars = []
-                for i in range(0, len(bits), 8):
-                    byte = bits[i:i+8]
-                    if len(byte) < 8 or byte == '00000000': break
-                    chars.append(chr(int(byte, 2)))
-                extracted = "".join(chars)
+                extracted = _extract_watermark(y_dc)
                 if extracted:
-                    print(f"found a secret: '{extracted}'")
+                    logger.info("watermark found: %r", extracted)
                 
-            def get_steps(q):
-                q1 = max(1.0, (16.0 * depth_scale) - (q * 1.5))
-                q2 = max(1.0, (8.0 * depth_scale) - (q * 0.75))
-                return q1, q2
-
-            luma_q1, luma_q2 = get_steps(quality)
-            chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
+            luma_q1, luma_q2 = get_quantization_steps(quality, depth_scale)
+            chroma_q1, chroma_q2 = get_quantization_steps(max(1, quality - 1), depth_scale)
 
             if eff_target >= 1:
                 l1_off = offset_table[idx+1]
@@ -437,17 +448,9 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
                 
             for c in range(channels):
                 t_rec = reconstruct_channel(tile_bands[c], mip_level)
-                if HAS_CPP:
-                    # Optimized and safe C++ tile reassembly
-                    dst_view = full_bands[c].reshape(gh, gw)
-                    # We need to adapt t_rec to the format expected by untiling helpers if we used them,
-                    # but since t_rec is already reconstructed [gh_blocks, gw_blocks], we just assign it.
-                    # Actually, let's just do the safe Python assignment for now as it's clear.
-                    rh, rw = min(tile_size, gh - ty*tile_size), min(tile_size, gw - tx*tile_size)
-                    full_bands[c][ty*tile_size:ty*tile_size+rh, tx*tile_size:tx*tile_size+rw] = t_rec[:rh, :rw]
-                else:
-                    rh, rw = min(tile_size, gh - ty*tile_size), min(tile_size, gw - tx*tile_size)
-                    full_bands[c][ty*tile_size:ty*tile_size+rh, tx*tile_size:tx*tile_size+rw] = t_rec[:rh, :rw]
+                # Bug fix #3: collapsed identical HAS_CPP/else branches into one
+                rh, rw = min(tile_size, gh - ty*tile_size), min(tile_size, gw - tx*tile_size)
+                full_bands[c][ty*tile_size:ty*tile_size+rh, tx*tile_size:tx*tile_size+rw] = t_rec[:rh, :rw]
         
         # run it in parallel because my cpu has cores
         with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
@@ -509,25 +512,15 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
             chunk = np.frombuffer(l0_raw[c*sz_L2 : (c+1)*sz_L2], dtype=np.int16).astype(np.float32)
             bands[c].append(chunk.reshape(gh, gw, 4, 4))
             
-        # extract secret msg
-        y_dc = bands[0][0].flatten().astype(np.int16)
-        bits = "".join(str(int(val) & 1) for val in y_dc)
-        chars = []
-        for i in range(0, len(bits), 8):
-            byte = bits[i:i+8]
-            if len(byte) < 8 or byte == '00000000': break
-            chars.append(chr(int(byte, 2)))
-        extracted = "".join(chars)
-        if extracted:
-            print(f"found a secret: '{extracted}'")
+        # optionally extract secret msg
+        if extract_watermark:
+            y_dc = bands[0][0].flatten().astype(np.int16)
+            extracted = _extract_watermark(y_dc)
+            if extracted:
+                logger.info("watermark found: %r", extracted)
             
-        def get_steps(q):
-            q1 = max(1.0, (16.0 * depth_scale) - (q * 1.5))
-            q2 = max(1.0, (8.0 * depth_scale) - (q * 0.75))
-            return q1, q2
-
-        luma_q1, luma_q2 = get_steps(quality)
-        chroma_q1, chroma_q2 = get_steps(max(1, quality - 1))
+        luma_q1, luma_q2 = get_quantization_steps(quality, depth_scale)
+        chroma_q1, chroma_q2 = get_quantization_steps(max(1, quality - 1), depth_scale)
 
         if target_layer >= 1:
             l1_raw = chunks[1]
@@ -536,7 +529,7 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
             for i in range(1, 4):
                 for c in range(channels):
                     chunk = np.frombuffer(l1_raw[o : o+sz_mid], dtype=np.int16).astype(np.float32)
-                    q = luma_q2 if c in [0, 3] else chroma_q2 # Alpha (3) uses luma steps
+                    q = luma_q2 if c in [0, 3] else chroma_q2  # Alpha (3) uses luma steps
                     chunk *= q
                     bands[c].append(chunk.reshape(gh, gw, 4, 4))
                     o += sz_mid
@@ -559,6 +552,9 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
             for c in range(channels): 
                 for _ in range(3): bands[c].append(np.zeros((gh, gw, 8, 8), dtype=np.float32))
 
+    else:
+        raise ValueError(f"unknown WIMF codec mode {mode} — cannot decode")
+
     # finish up the reconstruction
     with ThreadPoolExecutor(max_workers=channels) as executor:
         futures = [executor.submit(reconstruct_channel, bands[c], mip_level) for c in range(channels)]
@@ -566,7 +562,8 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         y_rec, c1_rec, c2_rec = results[:3]
         if channels == 4: a_rec = results[3]
     
-    if mode_flag == 9:
+    # Bug fix #4: use `mode` (from the bitstream) not `mode_flag` (the caller param)
+    if mode == 9:
         if not disable_ycocg:
             if HAS_CPP:
                 stack_3ch = np.stack([y_rec, c1_rec, c2_rec], axis=-1).astype(np.float32)

@@ -1,10 +1,13 @@
 import sys
-import os
 import json
-import struct
+import logging
 import argparse
 
+from .core import parse_header
 from . import parity
+
+logger = logging.getLogger(__name__)
+
 
 def surgical_read(path):
     with open(path, 'rb') as f:
@@ -12,21 +15,14 @@ def surgical_read(path):
         
     # Auto-repair if needed
     repaired, was_protected, was_corrupt = parity.verify_and_repair(data)
-    
-    magic = repaired[:4]
-    if magic not in [b"WIMF", b"AWIF"]:
-        raise ValueError("Not a WIMF/AWIF file")
-    
-    offset = 4
-    w = struct.unpack('<I', repaired[offset:offset+4])[0]; offset += 4
-    h = struct.unpack('<I', repaired[offset:offset+4])[0]; offset += 4
-    flags = repaired[offset]; offset += 1
-    mlen = struct.unpack('<I', repaired[offset:offset+4])[0]; offset += 4
-    meta_bytes = repaired[offset:offset+mlen]
-    pixel_data = repaired[offset+mlen:]
-    
+
+    magic, w, h, flags, mlen = parse_header(repaired)
+    meta_bytes = repaired[17 : 17 + mlen]
+    pixel_data = repaired[17 + mlen:]
+
     meta = json.loads(meta_bytes.decode('utf-8'))
     return magic, w, h, flags, meta, pixel_data, was_protected
+
 
 def surgical_write(path, magic, w, h, flags, meta, pixel_data, protect=False):
     m_bytes = json.dumps(meta).encode('utf-8')
@@ -46,6 +42,7 @@ def surgical_write(path, magic, w, h, flags, meta, pixel_data, protect=False):
         
     with open(path, 'wb') as f:
         f.write(final_data)
+
 
 def main():
     parser = argparse.ArgumentParser(description="WIMF Metadata Surgery Tool")
@@ -82,8 +79,9 @@ def main():
             print(f"[WIMF-META] Successfully updated {args.file}")
             
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

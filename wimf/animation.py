@@ -1,6 +1,7 @@
 import numpy as np
 import lzma
 import struct
+import logging
 from .codec import encode_lossy, decode_lossy
 
 from .core import haar_level, ihaar_level, HAS_CPP
@@ -8,6 +9,9 @@ try:
     from . import wimf_cpp
 except ImportError:
     pass
+
+logger = logging.getLogger(__name__)
+
 
 def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_depth=8):
     out_payload = bytearray()
@@ -29,7 +33,7 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
             compressed = encode_lossy(frame, w, h, quality, preset, channels, bit_depth=bit_depth)
             # Add a flag to indicate keyframe: Use the audio length field
             out_payload.extend(struct.pack('<I', len(compressed)))
-            out_payload.extend(struct.pack('<I', 1)) # 1 = Keyframe
+            out_payload.extend(struct.pack('<I', 1))  # 1 = Keyframe
             out_payload.extend(compressed)
             prev_arr = np.frombuffer(frame, dtype=dtype).reshape(h, w, channels).astype(np.float32)
         else:
@@ -73,7 +77,7 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
             p_level = 6 if preset == "Extreme" else 1 
             compressed = lzma.compress(d_payload, preset=p_level)
             out_payload.extend(struct.pack('<I', len(compressed)))
-            out_payload.extend(struct.pack('<I', 0)) # 0 = Delta
+            out_payload.extend(struct.pack('<I', 0))  # 0 = Delta
             out_payload.extend(compressed)
             
             # Reconstruct for error tracking
@@ -88,6 +92,7 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
             
     return bytes(out_payload)
 
+
 def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
     offset = 0
     num_frames = struct.unpack('<I', data[offset:offset+4])[0]; offset += 4
@@ -99,11 +104,12 @@ def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
     dtype = np.uint8 if bit_depth == 8 else np.uint16
     limit = 2**bit_depth - 1
     
-    # Default quality in case first frame isn't a keyframe (shouldn't happen)
-    quality = 5
     depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
-    q_step = max(1.0, (20.0 * depth_scale) - (quality * 1.5))
-    
+    # Bug fix #7: q_step will be set from the first keyframe's quality byte before
+    # being used. Initialise to sentinel so a missing keyframe is obvious.
+    quality = None
+    q_step = None
+
     ph, pw = h % 2, w % 2
     th, tw = (h + ph) // 2, (w + pw) // 2
     sz_coeff = th * tw * channels * 2 
@@ -118,10 +124,15 @@ def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
             frames.append(decompressed)
             prev_arr = np.frombuffer(decompressed, dtype=dtype).reshape(h, w, channels).astype(np.float32)
             
+            # Bug fix #7: read quality *before* computing q_step so deltas use correct steps
             quality = frame_data[0] >> 4
-            depth_scale = 1.0 if bit_depth == 8 else (2**(bit_depth-8))
             q_step = max(1.0, (20.0 * depth_scale) - (quality * 1.5))
         else:
+            if q_step is None:
+                logger.warning("delta frame encountered before any keyframe — skipping")
+                frames.append(prev_arr.astype(dtype).tobytes() if prev_arr is not None else b'\x00' * (w * h * channels))
+                continue
+
             d_raw = lzma.decompress(frame_data)
             o = 0
             q_step_hf = q_step * 3.0

@@ -3,22 +3,56 @@ import json
 import struct
 import base64
 import io
-import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from PIL import Image
 
 from .io import loadImage, saveImage, stream_load
 from .codec import encode_lossy, decode_lossy, encode_lossless, decode_lossless
+from .core import parse_header, parse_header_and_meta
 from .meta_tool import surgical_read, surgical_write
 from . import parity
+
+logger = logging.getLogger(__name__)
+
+
+def _pixels_to_pil(pix, w, h, channels, metadata, bit_depth):
+    """Convert raw pixel bytes to a PIL Image, handling all channel/depth combos."""
+    # dumb 10bit to 8bit conversion for pil
+    if bit_depth == 10:
+        arr = np.frombuffer(pix, dtype=np.uint16).reshape((h, w, channels))
+        pix = (arr >> 2).astype(np.uint8).tobytes()
+
+    # standard modes for pil
+    if channels == 3:
+        mode, pil_pix = 'RGB', pix
+    elif channels == 4:
+        mode, pil_pix = 'RGBA', pix
+    elif channels == 5 and metadata.get('depth'):
+        arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, 5))
+        pil_pix = arr[..., :4].tobytes()
+        mode = 'RGBA'
+    else:
+        # high channel count fallback: use first 3 channels for a dummy pil image
+        try:
+            arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, channels))
+            pil_pix = arr[..., :3].tobytes()
+            mode = 'RGB'
+        except Exception:
+            # absolute fallback
+            pil_pix = b'\x00' * (w * h * 3)
+            mode = 'RGB'
+
+    return Image.frombytes(mode, (w, h), pil_pix)
+
 
 # basically a wrapper so developers don't have to look at my math
 class WIMFImage:
     def __init__(self, pil_image, metadata=None, raw_pixels=None):
         self.pil = pil_image
         self.metadata = metadata or {}
-        self.raw_pixels = raw_pixels # keep the full data
+        self.raw_pixels = raw_pixels  # keep the full data
         
     @property
     def width(self): return self.pil.width
@@ -57,6 +91,7 @@ class WIMFImage:
         arr = np.array(self.pil.convert('RGB'))
         return arr[:, :, ::-1]
 
+
 # use this to open files. it's lazy so it's fast.
 class WIMFDecoder:
     def __init__(self, source):
@@ -78,43 +113,41 @@ class WIMFDecoder:
     def from_base64(cls, b64_str):
         return cls(base64.b64decode(b64_str))
 
-    # just read the json stuff at the start
+    # just read the json stuff at the start using the shared parse_header helper
     def _parse_header(self):
         self._buffer.seek(0)
-        data = self._buffer.read(17) # Read enough for C++ parser
-        if len(data) < 17: raise ValueError("file too short")
-        
-        magic = data[:4]
-        if magic not in [b"WIMF", b"AWIF"]:
-            raise ValueError("not a wimf file lol")
-            
-        self.magic = magic
-        
+        raw = self._buffer.read()
+
         try:
             from . import wimf_cpp
-            w, h, flags, mlen = wimf_cpp.parse_header(np.frombuffer(data, dtype=np.uint8))
+            # C++ fast path — still returns the same values
+            data17 = np.frombuffer(raw[:17], dtype=np.uint8)
+            w, h, flags, mlen = wimf_cpp.parse_header(data17)
+            magic = raw[:4]
         except (ImportError, AttributeError):
-            w = int.from_bytes(data[4:8], 'little')
-            h = int.from_bytes(data[8:12], 'little')
-            flags = data[12]
-            mlen = int.from_bytes(data[13:17], 'little')
-            
+            magic, w, h, flags, mlen = parse_header(raw)
+
+        if magic not in (b"WIMF", b"AWIF"):
+            raise ValueError(f"not a wimf file (got {magic!r})")
+
+        self.magic = magic
         self.width = w
         self.height = h
         self.flags = flags
-        
-        self._buffer.seek(17)
-        self.metadata = json.loads(self._buffer.read(mlen).decode('utf-8'))
-        self._data_start = self._buffer.tell()
-        
+
+        meta_bytes = raw[17 : 17 + mlen]
+        self.metadata = json.loads(meta_bytes.decode('utf-8')) if mlen > 0 else {}
+        self._data_start = 17 + mlen
+
         self.channels = self.metadata.get('channels', 3)
         self.bit_depth = 10 if self.metadata.get('bit10') else 8
         self.is_animated = (magic == b"AWIF")
+        # Keep buffer positioned for subsequent reads
+        self._raw = raw
 
     # actually do the heavy lifting
     def decode(self, roi=None, target_layer=2, mip_level=0):
-        self._buffer.seek(self._data_start)
-        data = self._buffer.read()
+        data = self._raw[self._data_start:]
         
         if self.magic == b"AWIF":
             from .animation import decode_animated
@@ -130,47 +163,22 @@ class WIMFDecoder:
         w, h = self.width >> mip_level, self.height >> mip_level
         if roi:
             _, _, w, h = [v >> mip_level for v in roi]
-            
-        # dumb 10bit to 8bit conversion for pil
-        if self.bit_depth == 10:
-            arr = np.frombuffer(pix, dtype=np.uint16).reshape((h, w, self.channels))
-            pix = (arr >> 2).astype(np.uint8).tobytes()
-            
-        # standard modes for pil
-        if self.channels == 3: mode, pil_pix = 'RGB', pix
-        elif self.channels == 4: mode, pil_pix = 'RGBA', pix
-        elif self.channels == 5 and self.metadata.get('depth'):
-            arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, 5))
-            pil_pix = arr[..., :4].tobytes()
-            mode = 'RGBA'
-        else:
-            # high channel count fallback: use first 3 channels for a dummy pil image
-            try:
-                arr = np.frombuffer(pix, dtype=np.uint8).reshape((h, w, self.channels))
-                pil_pix = arr[..., :3].tobytes()
-                mode = 'RGB'
-            except Exception:
-                # absolute fallback
-                pil_pix = b'\x00' * (w * h * 3)
-                mode = 'RGB'
 
-        pil_img = Image.frombytes(mode, (w, h), pil_pix)
+        pil_img = _pixels_to_pil(pix, w, h, self.channels, self.metadata, self.bit_depth)
         return WIMFImage(pil_img, self.metadata, raw_pixels=pix)
 
     @property
     def num_states(self):
         if not self.is_animated: return 1
-        self._buffer.seek(self._data_start)
-        # First 4 bytes after metadata is num_frames
-        return int.from_bytes(self._buffer.read(4), 'little')
+        # First 4 bytes of data payload is num_frames
+        return int.from_bytes(self._raw[self._data_start : self._data_start + 4], 'little')
 
     # get one state from the undo history
     def decode_chrono_state(self, index=0, **kwargs):
         if not self.is_animated: return self.decode(**kwargs)
         
         if not hasattr(self, '_cached_frames'):
-            self._buffer.seek(self._data_start)
-            data = self._buffer.read()
+            data = self._raw[self._data_start:]
             from .animation import decode_animated
             self._cached_frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth, metadata=self.metadata)
         
@@ -178,29 +186,9 @@ class WIMFDecoder:
         if index >= len(frames): index = len(frames) - 1
         
         pix = frames[index]
-        if self.bit_depth == 10:
-            arr = np.frombuffer(pix, dtype=np.uint16).reshape((self.height, self.width, self.channels))
-            pix = (arr >> 2).astype(np.uint8).tobytes()
-            
-        # standard modes for pil
-        if self.channels == 3: mode, pil_pix = 'RGB', pix
-        elif self.channels == 4: mode, pil_pix = 'RGBA', pix
-        elif self.channels == 5 and self.metadata.get('depth'):
-            arr = np.frombuffer(pix, dtype=np.uint8).reshape((self.height, self.width, 5))
-            pil_pix = arr[..., :4].tobytes()
-            mode = 'RGBA'
-        else:
-            # high channel count fallback
-            try:
-                arr = np.frombuffer(pix, dtype=np.uint8).reshape((self.height, self.width, self.channels))
-                pil_pix = arr[..., :3].tobytes()
-                mode = 'RGB'
-            except Exception:
-                pil_pix = b'\x00' * (self.width * self.height * 3)
-                mode = 'RGB'
-
-        pil_img = Image.frombytes(mode, (self.width, self.height), pil_pix)
+        pil_img = _pixels_to_pil(pix, self.width, self.height, self.channels, self.metadata, self.bit_depth)
         return WIMFImage(pil_img, self.metadata, raw_pixels=pix)
+
 
 # use this to build a wimf file
 class WIMFEncoder:
@@ -330,7 +318,8 @@ class WIMFEncoder:
                 data = encode_lossy(pixels, w, h, quality=quality, preset=preset, 
                                   channels=channels, bit_depth=(10 if meta.get('bit10') else 8),
                                   metadata=meta)
-                flags = 10 if (w > 1024 or h > 1024) else 9
+                # Bug fix #12: derive flags from the codec's own mode byte, not from image dimensions
+                flags = data[0] & 0x0F
             magic = b"WIMF"
             
         m_bytes = json.dumps(meta).encode('utf-8')
@@ -342,7 +331,7 @@ class WIMFEncoder:
         
         final_payload = bio.getvalue()
         if self.tuning.get('anti_rot'):
-            print(f"adding anti-rot parity. takes more space but its safe.")
+            logger.debug("adding anti-rot parity protection")
             final_payload = parity.protect(final_payload)
             
         return final_payload
@@ -350,8 +339,10 @@ class WIMFEncoder:
     def to_base64(self, **kwargs):
         return base64.b64encode(self.encode(**kwargs)).decode('utf-8')
 
+
 def open_image(path):
     return WIMFDecoder(path).decode()
+
 
 # surgical edit. no re-encoding. nice.
 def edit_metadata(path):
