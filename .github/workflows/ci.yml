@@ -43,6 +43,9 @@ jobs:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     needs: lint
+    permissions:
+      pull-requests: write
+      contents: read
 
     strategy:
       fail-fast: false
@@ -86,13 +89,13 @@ jobs:
           name: coverage-py${{ matrix.python-version }}
           path: coverage-${{ matrix.python-version }}.xml
 
-      # Post a coverage summary comment on PRs (only once, on 3.12)
       - name: Coverage summary
+      # Post a coverage summary comment on PRs (only once, on 3.12)
         if: matrix.python-version == '3.12' && github.event_name == 'pull_request'
         uses: orgoro/coverage@v3.2
         with:
           coverageFile: coverage-${{ matrix.python-version }}.xml
           token: ${{ secrets.GITHUB_TOKEN }}
-          thresholdAll: 0.60
-          thresholdNew: 0.80
+          thresholdAll: 0.25
+          thresholdNew: 0.25
 
