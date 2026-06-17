@@ -2,7 +2,7 @@ import numpy as np
 import lzma
 import struct
 import logging
-from .core import paeth_predictor, haar_level, ihaar_level, HAS_CPP, get_quantization_steps
+from .core import haar_level, ihaar_level, HAS_CPP, get_quantization_steps
 try:
     from . import wimf_cpp
 except ImportError:
