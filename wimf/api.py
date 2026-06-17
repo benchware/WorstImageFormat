@@ -10,7 +10,7 @@ from PIL import Image
 
 from .io import loadImage, saveImage, stream_load
 from .codec import encode_lossy, decode_lossy, encode_lossless, decode_lossless
-from .core import parse_header, parse_header_and_meta
+from .core import parse_header
 from .meta_tool import surgical_read, surgical_write
 from . import parity
 
