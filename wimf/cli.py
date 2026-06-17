@@ -291,8 +291,8 @@ def main():
             for tmp in [tmp_jpg, tmp_webp]:
                 try:
                     os.remove(tmp)
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.debug("Failed to remove temporary benchmark file %s: %s", tmp, e)
         return
 
     if len(input_files) > 1:
