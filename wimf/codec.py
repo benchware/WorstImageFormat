@@ -563,33 +563,22 @@ def decode_lossy(data, w, h, channels, bit_depth=8, target_layer=2, mode_flag=9,
         if channels == 4: a_rec = results[3]
     
     # Bug fix #4: use `mode` (from the bitstream) not `mode_flag` (the caller param)
-    if mode == 9:
-        if not disable_ycocg:
-            if HAS_CPP:
-                stack_3ch = np.stack([y_rec, c1_rec, c2_rec], axis=-1).astype(np.float32)
-                wimf_cpp.ycocg_inverse(stack_3ch)
-                r, g, b = stack_3ch[..., 0], stack_3ch[..., 1], stack_3ch[..., 2]
-            else:
-                tmp = y_rec - np.floor(c2_rec / 2.0)
-                g = c2_rec + tmp
-                b = tmp - np.floor(c1_rec / 2.0)
-                r = b + c1_rec
-            processed_chans = [np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)]
-            # results contains all channels reconstructed in parallel
-            for i in range(3, channels):
-                processed_chans.append(np.clip(results[i], 0, limit))
+    if not disable_ycocg:
+        if HAS_CPP:
+            stack_3ch = np.stack([y_rec, c1_rec, c2_rec], axis=-1).astype(np.float32)
+            wimf_cpp.ycocg_inverse(stack_3ch)
+            r, g, b = stack_3ch[..., 0], stack_3ch[..., 1], stack_3ch[..., 2]
         else:
-            processed_chans = [np.clip(results[i], 0, limit) for i in range(channels)]
-    else:
-        # legacy ycbcr. idk if anyone still uses this.
-        y_rec += (c1_rec * 0.1) 
-        y_rec += (c2_rec * 0.1) 
-        y, cb, cr = y_rec + mid_point, c1_rec + mid_point, c2_rec + mid_point
-        cb_f, cr_f = cb - mid_point, cr - mid_point
-        r = y + 1.402 * cr_f
-        g = y - 0.344136 * cb_f - 0.714136 * cr_f
-        b = y + 1.772 * cb_f
+            tmp = y_rec - np.floor(c2_rec / 2.0)
+            g = c2_rec + tmp
+            b = tmp - np.floor(c1_rec / 2.0)
+            r = b + c1_rec
         processed_chans = [np.clip(r, 0, limit), np.clip(g, 0, limit), np.clip(b, 0, limit)]
+        # results contains all channels reconstructed in parallel
+        for i in range(3, channels):
+            processed_chans.append(np.clip(results[i], 0, limit))
+    else:
+        processed_chans = [np.clip(results[i], 0, limit) for i in range(channels)]
 
     final_stack = np.stack(processed_chans, axis=-1)
     dtype = np.uint8 if bit_depth == 8 else np.uint16
