@@ -30,8 +30,53 @@ wimf-cat = "wimf.cat:main"
 text = "GPL-3.0-or-later"
 
 [project.urls]
-"Homepage" = "https://github.com/benchware/wimf"
+"Homepage" = "https://github.com/benchware/WorstImageFormat"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["wimf*"]
+
+# ── pytest ─────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["wimf"]
+
+# ── ruff ───────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes (undefined names, unused imports, etc.)
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+]
+ignore = [
+    "E501",  # line-too-long – formatter handles this
+    "E701",  # multiple statements on one line (colon) – deliberate codebase style
+    "E702",  # multiple statements on one line (semicolon) – deliberate codebase style
+    "E741",  # ambiguous variable names (l, O, I) – used in codec math intentionally
+    "F841",  # local var assigned but never used – some intentional sentinel vars in codec
+    "B007",  # loop variable not used in loop body – intentional in some unpack loops
+    "UP007", # use X | Y for type unions – pre-3.10 compat needed
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use unused imports for fixtures and structure
+"wimf/test_core.py" = ["F401"]
+# viewer and cat have necessary bare excepts for UI/import resilience
+"wimf/viewer.py" = ["E722"]
+"wimf/cat.py" = ["E722"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["wimf"]
+
+# ── mypy ───────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+no_strict_optional = true
+warn_unused_ignores = false
