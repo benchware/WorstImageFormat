@@ -24,7 +24,7 @@ class WIMFViewer:
                 from ctypes import windll
 
                 windll.shcore.SetProcessDpiAwareness(1)
-            except:
+            except Exception:
                 pass
 
             # Quick initial load to get metadata and dimensions
