@@ -2,7 +2,6 @@ import os
 import struct
 
 import numpy as np
-import pytest
 from PIL import Image
 
 import wimf
