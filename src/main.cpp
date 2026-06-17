@@ -246,6 +246,16 @@ PYBIND11_MODULE(wimf_cpp, m) {
         for (ssize_t i = 0; i < (ssize_t)n; ++i) for (ssize_t j = 0; j < (ssize_t)c; ++j) haar_2d_raw((float*)buf.data(i,j,0,0), mLL.mutable_data(i,j,0,0), mHL.mutable_data(i,j,0,0), mLH.mutable_data(i,j,0,0), mHH.mutable_data(i,j,0,0), (int)h, (int)w);
         return py::make_tuple(LL, HL, LH, HH);
     });
+    m.def("ihaar_level", [](const py::array_t<float>& LL, const py::array_t<float>& HL, const py::array_t<float>& LH, const py::array_t<float>& HH){
+        auto bufLL = LL.unchecked<4>(), bufHL = HL.unchecked<4>(), bufLH = LH.unchecked<4>(), bufHH = HH.unchecked<4>();
+        ssize_t n = bufLL.shape(0), c = bufLL.shape(1), h = bufLL.shape(2), w = bufLL.shape(3);
+        auto b = py::array_t<float>({n, c, h*2, w*2});
+        auto mb = b.mutable_unchecked<4>();
+        for (ssize_t i = 0; i < (ssize_t)n; ++i)
+            for (ssize_t j = 0; j < (ssize_t)c; ++j)
+                ihaar_2d_raw((float*)bufLL.data(i,j,0,0), (float*)bufHL.data(i,j,0,0), (float*)bufLH.data(i,j,0,0), (float*)bufHH.data(i,j,0,0), mb.mutable_data(i,j,0,0), (int)h*2, (int)w*2);
+        return b;
+    });
     m.def("calculate_checksum", [](py::array_t<uint8_t> d){ return calculate_checksum_raw(d.data(0), d.size()); });
     m.def("block_xor", [](py::array_t<uint8_t> t, py::array_t<uint8_t> s){ block_xor_raw((uint8_t*)t.mutable_data(0), (const uint8_t*)s.data(0), t.size()); });
     m.def("calculate_frame_diff", [](py::array_t<uint8_t> p, py::array_t<uint8_t> c, py::array_t<float> d){ calculate_frame_diff_raw(p.data(0), c.data(0), (float*)d.mutable_data(0), p.size()); });

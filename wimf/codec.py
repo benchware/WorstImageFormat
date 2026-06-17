@@ -386,7 +386,6 @@ def decode_lossy(
     gh, gw = (h + 15) // 16, (w + 15) // 16
     bc = gh * gw
 
-    mid_point = 2 ** (bit_depth - 1)
     depth_scale = 1.0 if bit_depth == 8 else (2 ** (bit_depth - 8))
     limit = 2**bit_depth - 1
 
@@ -503,8 +502,6 @@ def decode_lossy(
             [f.result() for f in futures]
 
         y_rec, c1_rec, c2_rec = full_bands[:3]
-        if channels == 4:
-            a_rec = full_bands[3]
 
         # inverse ycocg math. it works, trust me.
         if not disable_ycocg:
@@ -610,8 +607,6 @@ def decode_lossy(
         futures = [executor.submit(reconstruct_channel, bands[c], mip_level) for c in range(channels)]
         results = [f.result() for f in futures]
         y_rec, c1_rec, c2_rec = results[:3]
-        if channels == 4:
-            a_rec = results[3]
 
     # Bug fix #4: use `mode` (from the bitstream) not `mode_flag` (the caller param)
     if not disable_ycocg:
