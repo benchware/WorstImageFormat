@@ -378,7 +378,8 @@ def decode_lossy(
     metadata=None,
     extract_watermark=False,
 ):
-    if HAS_CPP and bit_depth == 8 and not roi and mip_level == 0 and hasattr(wimf_cpp, "c_decode_lossy"):
+    mode = data[0] & 0x0F
+    if HAS_CPP and bit_depth == 8 and not roi and mip_level == 0 and mode == 9 and hasattr(wimf_cpp, "c_decode_lossy"):
         # Monolithic C++ path for standard full-image decodes
         return wimf_cpp.c_decode_lossy(data, w, h, channels, metadata or {}).tobytes()
 
@@ -390,7 +391,6 @@ def decode_lossy(
     limit = 2**bit_depth - 1
 
     quality = data[0] >> 4
-    mode = data[0] & 0x0F  # always use the in-stream mode, not the caller's mode_flag
 
     tuning = metadata.get("tuning", {}) if metadata else {}
     disable_ycocg = tuning.get("disable_ycocg", False)
