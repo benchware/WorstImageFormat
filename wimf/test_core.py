@@ -1,5 +1,4 @@
 import os
-import struct
 
 import numpy as np
 from PIL import Image
