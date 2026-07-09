@@ -10,7 +10,9 @@ from .core import HAS_CPP, haar_level, ihaar_level
 try:
     from . import wimf_cpp  # type: ignore[attr-defined]
 except ImportError:
-    pass
+    logging.getLogger(__name__).debug(
+        "Optional module '.wimf_cpp' could not be imported; using Python implementation."
+    )
 
 logger = logging.getLogger(__name__)
 
