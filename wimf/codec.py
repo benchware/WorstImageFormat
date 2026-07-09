@@ -8,8 +8,9 @@ from .core import HAS_CPP, get_quantization_steps, haar_level, ihaar_level
 
 try:
     from . import wimf_cpp  # type: ignore[attr-defined]
-except ImportError:
-    pass
+except ImportError as exc:
+    # Optional C++ acceleration module is unavailable; fall back to Python implementation.
+    logger.debug("wimf_cpp extension not available, using Python codec path: %s", exc)
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 
