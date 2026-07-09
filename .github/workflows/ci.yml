@@ -36,7 +36,7 @@ jobs:
         run: ruff format wimf/ --check
 
       - name: Mypy – type check
-        run: mypy wimf/ --ignore-missing-imports --no-strict-optional
+        run: mypy wimf/ --ignore-missing-imports --no-strict-optional --python-version 3.12
 
   # ─── 2. Tests + Coverage (multi-Python) ───────────────────────────────────
   test:
