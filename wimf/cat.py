@@ -14,7 +14,7 @@ def render_terminal(wimf_img, width=None):
     if width is None:
         try:
             width = os.get_terminal_size().columns
-        except:
+        except OSError:
             width = 80
 
     # Account for terminal character aspect ratio (~2:1)
