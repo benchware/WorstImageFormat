@@ -47,9 +47,9 @@ def save(path, image, **kwargs):
     raw = encoder.encode(**encode_args)
 
     try:
-        from . import wimf_cpp
+        from .wimf_cpp import c_save_file
 
-        wimf_cpp.c_save_file(path, raw)
+        c_save_file(path, raw)
     except (ImportError, AttributeError):
         with _builtins.open(path, "wb") as f:
             f.write(raw)
