@@ -12,7 +12,7 @@ import time
 import numpy as np
 from PIL import ExifTags, Image, ImageSequence
 
-from wimf.io import loadImage, saveImage
+import wimf.io
 
 logger = logging.getLogger(__name__)
 
