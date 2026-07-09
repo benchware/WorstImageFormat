@@ -177,7 +177,7 @@ def main():
 
     if os.path.exists(p):
         root = tk.Tk()
-        viewer = WIMFViewer(root, p)
+        WIMFViewer(root, p)
         root.mainloop()
     else:
         print(f"File not found: {p}")
