@@ -36,11 +36,11 @@ text = "GPL-3.0-or-later"
 where = ["."]
 include = ["wimf*"]
 
-# ── pytest ─────────────────────────────────────────────────────────────────────
+# ── pytest ────────────────────────────────────────────────────────────[...]
 [tool.pytest.ini_options]
 testpaths = ["wimf"]
 
-# ── ruff ───────────────────────────────────────────────────────────────────────
+# ── ruff ──────────────────────────────────────────────────────────────[...]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
@@ -74,9 +74,14 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["wimf"]
 
-# ── mypy ───────────────────────────────────────────────────────────────────────
+# ── mypy ──────────────────────────────────────────────────────────────[...]
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
 no_strict_optional = true
 warn_unused_ignores = false
+
+# ── cibuildwheel ──────────────────────────────────────────────────────[...]
+[tool.cibuildwheel]
+build = "cp310-*"
+skip = "*-win32 pp* *-i686 *-musllinux*"
