@@ -1,10 +1,10 @@
 import logging
 import lzma
+import multiprocessing
 import struct
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-
-logger = logging.getLogger(__name__)
 
 from .core import HAS_CPP, get_quantization_steps, haar_level, ihaar_level
 
@@ -12,9 +12,10 @@ try:
     from . import wimf_cpp  # type: ignore[attr-defined]
 except ImportError as exc:
     # Optional C++ acceleration module is unavailable; fall back to Python implementation.
+    logger = logging.getLogger(__name__)
     logger.debug("wimf_cpp extension not available, using Python codec path: %s", exc)
-import multiprocessing
-from concurrent.futures import ThreadPoolExecutor
+else:
+    logger = logging.getLogger(__name__)
 
 
 # just some math to compress one channel without losing pixels
