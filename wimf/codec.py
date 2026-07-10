@@ -4,6 +4,8 @@ import struct
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 from .core import HAS_CPP, get_quantization_steps, haar_level, ihaar_level
 
 try:
@@ -13,8 +15,6 @@ except ImportError as exc:
     logger.debug("wimf_cpp extension not available, using Python codec path: %s", exc)
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
-
-logger = logging.getLogger(__name__)
 
 
 # just some math to compress one channel without losing pixels
