@@ -12,8 +12,6 @@ import time
 import numpy as np
 from PIL import ExifTags, Image, ImageSequence
 
-import wimf.io
-
 logger = logging.getLogger(__name__)
 
 
