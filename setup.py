@@ -1,5 +1,6 @@
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
+from wheel.bdist_wheel import bdist_wheel
 import sys
 import os
 
@@ -24,6 +25,13 @@ class Pybind11BuildExt(build_ext):
                     ext.extra_compile_args.extend(['-mavx2', '-mfma'])
         super().build_extensions()
 
+class BdistWheelCommand(bdist_wheel):
+    def finalize_options(self):
+        super().finalize_options()
+        # Use manylinux platform tag instead of linux
+        if self.plat_name == 'linux_x86_64':
+            self.plat_name = 'manylinux_2_17_x86_64'
+
 ext_modules = [
     Extension(
         "wimf.wimf_cpp",
@@ -35,5 +43,5 @@ ext_modules = [
 setup(
     name="wimf",
     ext_modules=ext_modules,
-    cmdclass={"build_ext": Pybind11BuildExt},
+    cmdclass={"build_ext": Pybind11BuildExt, "bdist_wheel": BdistWheelCommand},
 )
