@@ -83,5 +83,7 @@ warn_unused_ignores = false
 
 # ── cibuildwheel ──────────────────────────────────────────────────────[...]
 [tool.cibuildwheel]
-build = "cp310-*"
-skip = "*-win32 pp* *-i686 *-musllinux*"
+build = "cp310-manylinux_x86_64 cp311-manylinux_x86_64 cp312-manylinux_x86_64 cp313-manylinux_x86_64 cp314-manylinux_x86_64"
+skip = "*-win32 pp* *-i686 *-musllinux* *-macosx*"
+before-build = "pip install pybind11"
+manylinux-x86_64-image = "manylinux_2_17"
