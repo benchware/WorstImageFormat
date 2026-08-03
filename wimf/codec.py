@@ -17,6 +17,12 @@ except ImportError as exc:
 else:
     logger = logging.getLogger(__name__)
 
+# The legacy whole-frame C++ lossy shortcut is not bit-exact with the Python
+# reference and currently causes severe AWIF keyframe distortion. Keep the
+# measured native kernels active, but route v1 keyframes through the reference
+# orchestration until parity is restored.
+USE_EXPERIMENTAL_NATIVE_V1_LOSSY = False
+
 
 # just some math to compress one channel without losing pixels
 def encode_lossless_channel(channel_2d):
@@ -135,7 +141,13 @@ def decode_lossless(data, w, h, channels):
 
 # the main event. lossy compression using magic wavelets.
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, metadata=None):
-    if HAS_CPP and bit_depth == 8 and (w % 16 == 0 and h % 16 == 0) and hasattr(wimf_cpp, "c_encode_lossy"):
+    if (
+        USE_EXPERIMENTAL_NATIVE_V1_LOSSY
+        and HAS_CPP
+        and bit_depth == 8
+        and (w % 16 == 0 and h % 16 == 0)
+        and hasattr(wimf_cpp, "c_encode_lossy")
+    ):
         # Monolithic C++ path for standard dimensions
         arr_full = np.frombuffer(pixels, dtype=np.uint8).reshape((h, w, channels)).astype(np.float32)
         return wimf_cpp.c_encode_lossy(arr_full.transpose(2, 0, 1), channels, quality, preset, metadata or {})
@@ -381,7 +393,15 @@ def decode_lossy(
     extract_watermark=False,
 ):
     mode = data[0] & 0x0F
-    if HAS_CPP and bit_depth == 8 and not roi and mip_level == 0 and mode == 9 and hasattr(wimf_cpp, "c_decode_lossy"):
+    if (
+        USE_EXPERIMENTAL_NATIVE_V1_LOSSY
+        and HAS_CPP
+        and bit_depth == 8
+        and not roi
+        and mip_level == 0
+        and mode == 9
+        and hasattr(wimf_cpp, "c_decode_lossy")
+    ):
         # Monolithic C++ path for standard full-image decodes
         return wimf_cpp.c_decode_lossy(data, w, h, channels, metadata or {}).tobytes()
 

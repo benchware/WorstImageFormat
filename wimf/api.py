@@ -91,7 +91,9 @@ class WIMFImage:
         h, w = self.height, self.width
         channels = self.metadata.get("channels", 3)
         # Depth is the last channel
-        arr = np.frombuffer(self.raw_pixels, dtype=np.uint8).reshape((h, w, channels))
+        bit_depth = self.metadata.get("bit_depth", 10 if self.metadata.get("bit10") else 8)
+        dtype = np.uint8 if bit_depth == 8 else np.uint16
+        arr = np.frombuffer(self.raw_pixels, dtype=dtype).reshape((h, w, channels))
         return arr[..., -1]
 
     def show(self):
@@ -317,7 +319,12 @@ class WIMFEncoder:
                     self.pil = Image.fromarray(image, "LA")
                     self.metadata = {"channels": 2}
                 elif chans == 5:
-                    self.pil = Image.fromarray(image[..., :4], "RGBA")
+                    preview = image[..., :4]
+                    if preview.dtype != np.uint8:
+                        maximum = max(1, int(preview.max(initial=0)))
+                        shift = 2 if maximum <= 1023 else 8
+                        preview = (preview >> shift).astype(np.uint8)
+                    self.pil = Image.fromarray(preview, "RGBA")
                     self.metadata = {"depth": True, "channels": 5}
                 else:
                     mode = "RGB" if chans == 3 else "RGBA"

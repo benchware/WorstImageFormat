@@ -15,7 +15,7 @@
 
 WIMF is an experimental, versioned image codec with a Python frontend and a portable C++17 backend. New still images use the WIM2 hybrid container: every 128×128 tile independently chooses Raw, Predictive, Palette, or CDF Wavelet coding and records its mode, entropy backend, bounds, size, offset, and checksum.
 
-WIMF 2.0 is available on [PyPI](https://pypi.org/project/wimf/). WIM2 still-image coding, ROI decoding, high bit depth, native kernels, optional anti-rot recovery, and indexed chrono history are implemented. Legacy WIMF/AWIF decoding remains available; animation and coefficient watermark creation still use v1.
+WIMF 2.1 is available on [PyPI](https://pypi.org/project/wimf/). WIM2 still-image coding, ROI decoding, high bit depth, native orchestration, optional anti-rot recovery, and indexed chrono history are implemented. AWIF animation remains a backward-compatible legacy container, now with preserved GIF frame timing and stricter validation.
 
 ## Highlights
 
@@ -50,6 +50,21 @@ python -m pip install -e .
 
 Source installations require a C++17 compiler and pybind11; the Python fallback remains usable when the native extension is unavailable.
 
+## Choose a configuration
+
+| Goal | Recommended settings | Notes |
+|---|---|---|
+| General photographs | `quality=7, preset="Balanced", codec="auto"` | Default; lets every tile choose its best family. |
+| Maximum compression search | `preset="Extreme", codec="auto"` | Evaluates every eligible tile mode and encodes more slowly. |
+| Fast preview or batch work | `preset="Fast", codec="auto"` | Evaluates one classified mode plus Raw fallback. |
+| Exact archival pixels | `lossless=True, codec="auto"` | Chooses the smallest exact candidate per tile. |
+| Force photographic coding | `codec="wavelet"` | CDF 9/7 lossy or reversible CDF 5/3 lossless. |
+| Flat graphics and icons | `codec="palette"` | Uses a local palette where eligible and Raw fallback otherwise. |
+| Text and sharp edges | `codec="predictive"` | Reversible spatial prediction in lossless mode. |
+| Diagnostic baseline | `codec="raw"` | Minimal codec logic; usually the largest output. |
+
+Quality ranges from 1 through 10. Every quality is continuously tested under `Fast`, `Balanced`, and `Extreme`; the preset changes search effort, while quality controls lossy quantization.
+
 ## Python API
 
 ```python
@@ -76,6 +91,19 @@ details = wimf.inspect(payload)
 
 `codec` accepts `auto`, `wavelet`, `predictive`, `palette`, or `raw`. `preset` accepts `Fast`, `Balanced`, or `Extreme`.
 
+### Complete save options
+
+| Option | Values | Default | Meaning |
+|---|---|---|---|
+| `quality` | `1`–`10` | `7` | Lossy quality and rate-distortion target. |
+| `lossless` | Boolean | `False` | Require exact pixel reconstruction. |
+| `preset` | `Fast`, `Balanced`, `Extreme` | `Balanced` | Number of candidate modes evaluated per tile. |
+| `codec` | `auto`, `wavelet`, `predictive`, `palette`, `raw` | `auto` | Automatic hybrid selection or forced family. |
+| `format_version` | `1`, `2` | `2` | WIM2 output or explicit legacy WIMF output. |
+| `threads` | positive integer or `None` | `None` | Conservative automatic count or explicit tile workers. |
+| `anti_rot` | Boolean | `False` | Append WIM2 protection capable of bounded recovery. |
+| `metadata` | dictionary | `{}` | Application metadata stored in the container. |
+
 ### ROI decoding
 
 ```python
@@ -99,6 +127,26 @@ print(decoder.was_protected, decoder.was_repaired)
 ```
 
 WIM2 extensions are appended after the base tile payload. Existing WIM2 files remain valid and older readers can still decode the primary image.
+
+### Metadata without recompression
+
+```python
+updated = wimf.rewrite_metadata(payload, {"author": "Bee", "license": "CC0"})
+```
+
+WIM2 tile payloads remain byte-for-byte identical. Tile offsets and checksums are recalculated, history is retained, and anti-rot protection is regenerated when present.
+
+### Base64 and data URLs
+
+```python
+text = wimf.to_base64(payload, wrap=76)
+assert wimf.from_base64(text) == payload
+
+url = wimf.to_data_url(payload)
+assert wimf.from_data_url(url) == payload
+```
+
+These helpers use strict parsing, bounded input sizes, and the `image/x-wimf` MIME type. Base64 is transport encoding, not image compression.
 
 ### Runtime diagnostics
 
@@ -150,6 +198,27 @@ WIMF Studio uses four focused panels: Encode & Compare, Inspect, Protection & Hi
 
 The Codec Lab never disables normal checksum validation. Its unsafe preview decodes only checksum-valid independent tiles and replaces rejected tiles with an obvious checkerboard. Base64 is treated as a transport representation, including `data:image/x-wimf;base64,...` URLs; it is not a new compression mode.
 
+## Tested feature matrix
+
+| Feature | Status | Continuous verification |
+|---|---|---|
+| WIM2 Raw, Predictive, Palette, and Wavelet | Implemented | Forced modes, automatic mixed modes, exact/lossy reconstruction |
+| Qualities and presets | Implemented | All qualities 1–10 × Fast/Balanced/Extreme |
+| RGB, RGBA, grayscale, LA, depth channel | Implemented | Odd dimensions, edge tiles, alpha, five-channel depth access |
+| 8-, 10-, and 16-bit pixels | Implemented | Exact high-bit-depth lossless round trips and native/reference parity |
+| ROI and independent tiles | Implemented | Cross-tile crops and checksum-isolated corruption |
+| Threading and cancellation | Implemented | Deterministic 1/2/4-thread output, progress contract, bounded cancellation |
+| Metadata rewrite | Implemented | Tile payload identity, history retention, anti-rot regeneration |
+| Anti-rot | Experimental | Two-shard repair, three-shard rejection, damaged parity, protected history |
+| Chrono history | Experimental | Unchanged/changed states, ordering, random state access, protected history |
+| Base64 and data URLs | Implemented | Strict alphabet, MIME validation, whitespace and safety bounds |
+| Corruption laboratory | Experimental | Header, metadata, index, payload, extension, and parity targeting |
+| AWIF animation | Legacy creation/decode | FPS, variable timing, loop count, resolutions, RGBA, keyframes, malformed data |
+| WIMF v1 and `ROT!` | Legacy decode/encode | Explicit v1 output, surgical metadata edit, protected round trip |
+| WIMF Studio and headless CLI | Implemented | Headless state tests, command help, installed-wheel smoke tests |
+
+The visual report separately exercises synthetic mixed content, a credited nature photograph, and a credited animal photograph. It publishes decoded outputs, amplified differences, exact configurations, tile-mode counts, timings, WIMF payloads, and JSON metrics as CI artifacts.
+
 ## Compatibility and status
 
 | Capability | WIM2 | Legacy decode |
@@ -159,15 +228,14 @@ The Codec Lab never disables normal checksum validation. Its unsafe preview deco
 | ROI and independent tiles | Implemented | Format-dependent |
 | Anti-rot | Two-shard WIM2 extension | `ROT!` supported |
 | Chrono history | Indexed WIM2 extension | AWIF states supported |
-| Animation creation | Planned | v1 only |
+| Animation creation | Legacy-only | AWIF encode/decode with preserved timing |
 | Wavelet watermark creation | Planned | v1 only |
 
-See the [WIM2 format overview](docs/wim2-format.md), [native embedding guide](docs/native-core.md), and
-[release checklist](docs/release-checklist.md) for implementation and publishing details.
+See the [WIM2 format overview](docs/wim2-format.md), [AWIF compatibility matrix](docs/awif-testing.md), [native embedding guide](docs/native-core.md), and [release checklist](docs/release-checklist.md) for implementation and publishing details.
 
 ## Verification and roadmap
 
-CI runs Python quality checks, native and fallback codec tests, standalone C++ tests on Windows/Linux/macOS, source-distribution validation, and an image-based codec report. The active roadmap is:
+CI separates Python quality, cross-platform API/feature tests, AWIF compatibility, standalone C++, sanitizers, packaging, visual evidence, and non-blocking performance measurements. Python-versus-C++ benchmarks cover both WIM2 still images and AWIF on Windows, Linux, and macOS. The active roadmap is:
 
 - Profile the completed native orchestration and optimize only measured allocation, transform, or entropy-coding hotspots.
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
