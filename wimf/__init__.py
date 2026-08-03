@@ -1,4 +1,5 @@
 import builtins as _builtins
+import os
 
 from .api import WIMFDecoder, WIMFEncoder, WIMFImage, open_image
 from .api import edit_metadata as edit_meta
@@ -50,7 +51,7 @@ def save(path, image, **kwargs):
     try:
         from .wimf_cpp import c_save_file
 
-        c_save_file(path, raw)
+        c_save_file(os.fspath(path), raw)
     except (ImportError, AttributeError):
         with _builtins.open(path, "wb") as f:
             f.write(raw)

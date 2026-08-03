@@ -6,13 +6,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace py = pybind11;
 
 // --- SIMD LAYER ---
 #if defined(__x86_64__) || defined(_M_X64)
     #include <immintrin.h>
-    #define WIMF_X86
+    #if defined(__AVX2__) || defined(_M_AVX2)
+        #define WIMF_X86
+    #endif
 #elif defined(__aarch64__) || defined(_M_ARM64) || defined(__ARM_NEON)
     #include <arm_neon.h>
     #define WIMF_ARM
@@ -121,7 +124,10 @@ py::bytes c_encode_lossy(py::array_t<float> input, int chans, int quality, std::
     };
     std::string s0 = comp(l0), s1 = comp(l1), s2 = comp(l2);
     std::string res = ""; res += (char)(quality << 4 | 9);
-    auto add = [&](const std::string& s) { uint32_t len = s.size(); res.append((char*)&len, 4); res.append(s); };
+    auto add = [&](const std::string& s) {
+        if (s.size() > std::numeric_limits<uint32_t>::max()) throw std::overflow_error("compressed layer is too large");
+        uint32_t len = static_cast<uint32_t>(s.size()); res.append((char*)&len, 4); res.append(s);
+    };
     add(s0); add(s1); add(s2); return py::bytes(res);
 }
 
@@ -192,13 +198,12 @@ extern "C" {
 }
 
 // --- ANIMATION & LOSSLESS ---
-extern "C" {
-    void calculate_frame_diff_raw(const uint8_t* prev, const uint8_t* curr, float* diff, size_t size) {
+void calculate_frame_diff_raw(const uint8_t* prev, const uint8_t* curr, float* diff, size_t size) {
         for (size_t i = 0; i < size; ++i) {
             diff[i] = (float)curr[i] - (float)prev[i];
         }
-    }
-    py::array_t<uint8_t> select_best_filters_raw(const int16_t* r0, const int16_t* r1, const int16_t* r2, const int16_t* r3, int h, int w) {
+}
+py::array_t<uint8_t> select_best_filters_raw(const int16_t* r0, const int16_t* r1, const int16_t* r2, const int16_t* r3, int h, int w) {
         auto best = py::array_t<uint8_t>(h); auto mB = best.mutable_unchecked<1>();
         for (int y = 0; y < h; ++y) {
             int64_t c[4] = {0,0,0,0};
@@ -212,7 +217,6 @@ extern "C" {
             mB(y) = b;
         }
         return best;
-    }
 }
 
 // --- FILE I/O ---
@@ -239,20 +243,20 @@ PYBIND11_MODULE(wimf_cpp, m) {
     m.def("ycocg_forward", [](py::array_t<int32_t> a){ auto b = a.mutable_unchecked<3>(); ycocg_forward_raw(b.mutable_data(0,0,0), b.shape(1), b.shape(0)); });
     m.def("ycocg_inverse", [](const py::buffer& b){ py::buffer_info i = b.request(); ycocg_inverse_raw((float*)i.ptr, i.size/3); });
     m.def("haar_level", [](const py::array_t<float>& b){
-        auto buf = b.unchecked<4>(); ssize_t n = buf.shape(0), c = buf.shape(1), h = buf.shape(2), w = buf.shape(3);
+        auto buf = b.unchecked<4>(); py::ssize_t n = buf.shape(0), c = buf.shape(1), h = buf.shape(2), w = buf.shape(3);
         auto LL = py::array_t<float>({n, c, h/2, w/2}), HL = py::array_t<float>({n, c, h/2, w/2});
         auto LH = py::array_t<float>({n, c, h/2, w/2}), HH = py::array_t<float>({n, c, h/2, w/2});
         auto mLL = LL.mutable_unchecked<4>(), mHL = HL.mutable_unchecked<4>(), mLH = LH.mutable_unchecked<4>(), mHH = HH.mutable_unchecked<4>();
-        for (ssize_t i = 0; i < (ssize_t)n; ++i) for (ssize_t j = 0; j < (ssize_t)c; ++j) haar_2d_raw((float*)buf.data(i,j,0,0), mLL.mutable_data(i,j,0,0), mHL.mutable_data(i,j,0,0), mLH.mutable_data(i,j,0,0), mHH.mutable_data(i,j,0,0), (int)h, (int)w);
+        for (py::ssize_t i = 0; i < n; ++i) for (py::ssize_t j = 0; j < c; ++j) haar_2d_raw((float*)buf.data(i,j,0,0), mLL.mutable_data(i,j,0,0), mHL.mutable_data(i,j,0,0), mLH.mutable_data(i,j,0,0), mHH.mutable_data(i,j,0,0), (int)h, (int)w);
         return py::make_tuple(LL, HL, LH, HH);
     });
     m.def("ihaar_level", [](const py::array_t<float>& LL, const py::array_t<float>& HL, const py::array_t<float>& LH, const py::array_t<float>& HH){
         auto bufLL = LL.unchecked<4>(), bufHL = HL.unchecked<4>(), bufLH = LH.unchecked<4>(), bufHH = HH.unchecked<4>();
-        ssize_t n = bufLL.shape(0), c = bufLL.shape(1), h = bufLL.shape(2), w = bufLL.shape(3);
+        py::ssize_t n = bufLL.shape(0), c = bufLL.shape(1), h = bufLL.shape(2), w = bufLL.shape(3);
         auto b = py::array_t<float>({n, c, h*2, w*2});
         auto mb = b.mutable_unchecked<4>();
-        for (ssize_t i = 0; i < (ssize_t)n; ++i)
-            for (ssize_t j = 0; j < (ssize_t)c; ++j)
+        for (py::ssize_t i = 0; i < n; ++i)
+            for (py::ssize_t j = 0; j < c; ++j)
                 ihaar_2d_raw((float*)bufLL.data(i,j,0,0), (float*)bufHL.data(i,j,0,0), (float*)bufLH.data(i,j,0,0), (float*)bufHH.data(i,j,0,0), mb.mutable_data(i,j,0,0), (int)h, (int)w);
         return b;
     });
@@ -270,8 +274,8 @@ PYBIND11_MODULE(wimf_cpp, m) {
     m.def("paeth_filter", [](const py::array_t<int16_t>& arr, const py::array_t<int16_t>& left, const py::array_t<int16_t>& above, const py::array_t<int16_t>& above_left, py::array_t<int16_t>& out){
         auto rArr = arr.unchecked<2>(), rL = left.unchecked<2>(), rA = above.unchecked<2>(), rAL = above_left.unchecked<2>();
         auto mOut = out.mutable_unchecked<2>();
-        for (ssize_t y = 0; y < rArr.shape(0); ++y)
-            for (ssize_t x = 0; x < rArr.shape(1); ++x) {
+        for (py::ssize_t y = 0; y < rArr.shape(0); ++y)
+            for (py::ssize_t x = 0; x < rArr.shape(1); ++x) {
                 int32_t a = rL(y,x), b = rA(y,x), c = rAL(y,x);
                 int32_t p = a + b - c, pa = std::abs(p - a), pb = std::abs(p - b), pc = std::abs(p - c);
                 int32_t pr = (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);

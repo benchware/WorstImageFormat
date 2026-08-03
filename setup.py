@@ -1,4 +1,3 @@
-import platform
 import sys
 
 from setuptools import Extension, setup
@@ -9,17 +8,12 @@ class Pybind11BuildExt(build_ext):
     def build_extensions(self):
         import pybind11
 
-        is_x86 = platform.machine().lower() in {"amd64", "x86_64"}
         for ext in self.extensions:
             ext.include_dirs.append(pybind11.get_include())
             if sys.platform == "win32":
                 ext.extra_compile_args.extend(["/O2", "/std:c++17"])
-                if ext.name == "wimf.wimf_cpp" and is_x86:
-                    ext.extra_compile_args.append("/arch:AVX2")
             else:
-                ext.extra_compile_args.extend(["-O3", "-std=c++17"])
-                if ext.name == "wimf.wimf_cpp" and is_x86:
-                    ext.extra_compile_args.extend(["-mavx2", "-mfma"])
+                ext.extra_compile_args.extend(["-O3", "-std=c++17", "-Wno-misleading-indentation"])
         super().build_extensions()
 
 

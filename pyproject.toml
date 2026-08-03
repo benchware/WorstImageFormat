@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "pybind11>=2.10", "wheel"]
+requires = ["setuptools>=77.0", "pybind11>=2.10", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,10 +10,10 @@ authors = [
 ]
 description = "Worst IMage Format - A high-performance wavelet-based image codec"
 readme = "README.md"
+license = "GPL-3.0-or-later"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
 ]
 dependencies = [
     "numpy",
@@ -26,9 +26,6 @@ wimf-convert = "wimf.cli:main"
 wimf-view = "wimf.viewer:main"
 wimf-meta = "wimf.meta_tool:main"
 wimf-cat = "wimf.cat:main"
-
-[project.license]
-text = "GPL-3.0-or-later"
 
 [project.urls]
 "Homepage" = "https://github.com/benchware/WorstImageFormat"
