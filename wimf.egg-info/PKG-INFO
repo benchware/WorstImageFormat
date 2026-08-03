@@ -5,8 +5,24 @@ Summary: Worst IMage Format - A high-performance wavelet-based image codec
 Author-email: BenchWare <ivanm12453@gmail.com>
 License-Expression: GPL-3.0-or-later
 Project-URL: Homepage, https://github.com/benchware/WorstImageFormat
+Project-URL: Documentation, https://github.com/benchware/WorstImageFormat/tree/main/docs
+Project-URL: Issues, https://github.com/benchware/WorstImageFormat/issues
+Project-URL: Changelog, https://github.com/benchware/WorstImageFormat/blob/main/CHANGELOG.md
+Project-URL: Source, https://github.com/benchware/WorstImageFormat
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: MacOS
+Classifier: Operating System :: Microsoft :: Windows
+Classifier: Operating System :: POSIX :: Linux
 Classifier: Programming Language :: Python :: 3
-Requires-Python: >=3.8
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Programming Language :: C++
+Classifier: Topic :: Multimedia :: Graphics
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: numpy

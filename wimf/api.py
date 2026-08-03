@@ -34,7 +34,11 @@ def _pixels_to_pil(pix, w, h, channels, metadata, bit_depth):
         pix = (arr >> shift).astype(np.uint8).tobytes()
 
     # standard modes for pil
-    if channels == 3:
+    if channels == 1:
+        mode, pil_pix = "L", pix
+    elif channels == 2:
+        mode, pil_pix = "LA", pix
+    elif channels == 3:
         mode, pil_pix = "RGB", pix
     elif channels == 4:
         mode, pil_pix = "RGBA", pix
@@ -266,12 +270,20 @@ class WIMFEncoder:
             h, w = image.shape[:2]
             if h == 0 or w == 0:
                 raise ValueError("image dimensions must be > 0")
+            if image.ndim == 2:
+                image = image[..., np.newaxis]
             self.raw_data = image
             chans = image.shape[-1]
 
             # Pillow only supports a few modes, so we fallback for N-channel
             try:
-                if chans == 5:
+                if chans == 1:
+                    self.pil = Image.fromarray(image[..., 0], "L")
+                    self.metadata = {"channels": 1}
+                elif chans == 2:
+                    self.pil = Image.fromarray(image, "LA")
+                    self.metadata = {"channels": 2}
+                elif chans == 5:
                     self.pil = Image.fromarray(image[..., :4], "RGBA")
                     self.metadata = {"depth": True, "channels": 5}
                 else:
@@ -352,7 +364,12 @@ class WIMFEncoder:
             w, h = self.pil.size
             channels = len(self.pil.getbands())
 
-        target_mode = "RGBA" if has_alpha else "RGB"
+        if channels == 1 and all(state.mode == "L" for state in self.states):
+            target_mode = "L"
+        elif channels == 2 and all(state.mode == "LA" for state in self.states):
+            target_mode = "LA"
+        else:
+            target_mode = "RGBA" if has_alpha else "RGB"
         meta["channels"] = channels
 
         pixel_states = []
@@ -363,7 +380,7 @@ class WIMFEncoder:
                 actual_channels = self.raw_data.shape[-1]
             else:
                 img = s.convert(target_mode)
-                actual_channels = 4 if has_alpha else 3
+                actual_channels = len(img.getbands())
                 if meta.get("bit10"):
                     pixel_states.append((np.array(img).astype(np.uint16) * 4).tobytes())
                 else:

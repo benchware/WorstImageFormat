@@ -1,0 +1,53 @@
+name: Publish release candidate to TestPyPI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build TestPyPI distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build and test representative native wheel
+        uses: pypa/cibuildwheel@v4.1.1
+        with:
+          output-dir: dist
+        env:
+          CIBW_BUILD: cp312-*
+          CIBW_ARCHS: x86_64
+      - run: python -m pip install build twine
+      - run: python -m build --sdist --outdir dist
+      - run: python -m twine check dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: testpypi-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/wimf
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: testpypi-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

@@ -109,7 +109,8 @@ The result reports whether native kernels are active, architecture, SIMD path, h
 | Animation creation | Planned | v1 only |
 | Wavelet watermark creation | Planned | v1 only |
 
-See [WIM2 format overview](docs/wim2-format.md) and [native embedding guide](docs/native-core.md) for implementation details.
+See the [WIM2 format overview](docs/wim2-format.md), [native embedding guide](docs/native-core.md), and
+[release checklist](docs/release-checklist.md) for implementation and publishing details.
 
 ## Verification and roadmap
 

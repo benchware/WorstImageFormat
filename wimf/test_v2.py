@@ -14,6 +14,22 @@ def test_v2_lossless_rgb_odd_dimensions(tmp_path):
     assert np.array_equal(wimf.open(path).to_numpy(), arr)
 
 
+def test_v2_lossless_grayscale_and_la():
+    gray = np.random.default_rng(17).integers(0, 256, (37, 53), dtype=np.uint8)
+    gray_payload = wimf.WIMFEncoder(gray).encode(lossless=True)
+    gray_image = wimf.WIMFDecoder(gray_payload).decode()
+    assert gray_image.mode == "L"
+    assert np.array_equal(gray_image.to_numpy()[..., 0], gray)
+
+    la = np.empty((31, 47, 2), dtype=np.uint8)
+    la[..., 0] = gray[:31, :47]
+    la[..., 1] = np.arange(47, dtype=np.uint8)
+    la_payload = wimf.WIMFEncoder(la).encode(lossless=True)
+    la_image = wimf.WIMFDecoder(la_payload).decode()
+    assert la_image.mode == "LA"
+    assert np.array_equal(la_image.to_numpy(), la)
+
+
 def test_v2_palette_and_mixed_modes():
     arr = np.zeros((128, 256, 3), dtype=np.uint8)
     arr[:, :128, 0] = 255

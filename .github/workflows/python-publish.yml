@@ -8,40 +8,222 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Validate package version and release tag
+        id: package
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          version = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          if os.environ["EVENT_NAME"] == "release":
+              expected = f"v{version}"
+              if os.environ["RELEASE_TAG"] != expected:
+                  raise SystemExit(f"release tag {os.environ['RELEASE_TAG']!r} must equal {expected!r}")
+              if os.environ["RELEASE_PRERELEASE"].lower() == "true":
+                  raise SystemExit("prereleases must use a dedicated publishing workflow")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+          print(f"Building WIMF {version}")
+          PY
+
   wheels:
-    name: Wheels on ${{ matrix.os }}
+    name: Wheels / ${{ matrix.label }}
+    needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            label: Linux x86-64
+            artifact: linux-x86_64
+          - os: windows-latest
+            arch: AMD64
+            label: Windows x86-64
+            artifact: windows-amd64
+          - os: macos-15-intel
+            arch: x86_64
+            label: macOS Intel
+            artifact: macos-x86_64
+          - os: macos-latest
+            arch: arm64
+            label: macOS Apple Silicon
+            artifact: macos-arm64
     steps:
       - uses: actions/checkout@v6
-      - uses: pypa/cibuildwheel@v3
-      - uses: actions/upload-artifact@v7
         with:
-          name: wheels-${{ matrix.os }}
+          persist-credentials: false
+      - name: Build and test installed wheels
+        uses: pypa/cibuildwheel@v4.1.1
+        with:
+          output-dir: wheelhouse
+        env:
+          CIBW_ARCHS: ${{ matrix.arch }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.artifact }}
           path: wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 14
 
   sdist:
     name: Source distribution
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade build
+          cache: pip
+      - run: python -m pip install --upgrade build twine
       - run: python -m build --sdist
+      - run: python -m twine check dist/*
+      - name: Verify sdist contents
+        run: |
+          python - <<'PY'
+          import tarfile
+          from pathlib import Path
+
+          archive = next(Path("dist").glob("*.tar.gz"))
+          with tarfile.open(archive) as source:
+              names = {"/".join(name.split("/")[1:]) for name in source.getnames()}
+          required = {
+              "README.md", "CHANGELOG.md", "src/v2_core.cpp", "src/v2_core.hpp",
+              "docs/wim2-format.md", "docs/native-core.md", "docs/release-checklist.md",
+              "tests/wheel_smoke.py",
+          }
+          missing = required - names
+          if missing:
+              raise SystemExit(f"sdist is missing: {sorted(missing)}")
+          PY
+      - name: Install and test the sdist
+        run: |
+          python -m venv sdist-venv
+          sdist-venv/bin/python -m pip install --upgrade pip
+          sdist-venv/bin/python -m pip install dist/*.tar.gz
+          sdist-venv/bin/python tests/wheel_smoke.py
       - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  distributions:
+    name: Validate release distributions
+    needs: [preflight, wheels, sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v5
+        with:
+          name: sdist
+          path: dist
+      - run: python -m pip install packaging twine
+      - name: Validate files and generate manifest
+        env:
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          from packaging.utils import parse_wheel_filename
+
+          root = Path("dist")
+          files = sorted(path for path in root.iterdir() if path.is_file())
+          if len({path.name for path in files}) != len(files):
+              raise SystemExit("duplicate distribution filenames")
+          sdists = [path for path in files if path.name.endswith(".tar.gz")]
+          wheels = [path for path in files if path.suffix == ".whl"]
+          if len(sdists) != 1 or len(wheels) != 20:
+              raise SystemExit(f"expected one sdist and 20 wheels, found {len(sdists)} and {len(wheels)}")
+
+          expected_pythons = {f"cp3{minor}" for minor in range(10, 15)}
+          platforms = {"linux-x86_64": 0, "windows-amd64": 0, "macos-x86_64": 0, "macos-arm64": 0}
+          seen = set()
+          rows = []
+          for wheel in wheels:
+              name, version, _, tags = parse_wheel_filename(wheel.name)
+              if name != "wimf" or str(version) != os.environ["EXPECTED_VERSION"]:
+                  raise SystemExit(f"unexpected wheel identity: {wheel.name}")
+              tag = next(iter(tags))
+              python = tag.interpreter
+              if python not in expected_pythons:
+                  raise SystemExit(f"unexpected Python tag in {wheel.name}")
+              platform = tag.platform
+              if "x86_64" in platform and ("manylinux" in platform or "linux" in platform):
+                  family = "linux-x86_64"
+              elif platform == "win_amd64":
+                  family = "windows-amd64"
+              elif "macosx" in platform and "x86_64" in platform:
+                  family = "macos-x86_64"
+              elif "macosx" in platform and "arm64" in platform:
+                  family = "macos-arm64"
+              else:
+                  raise SystemExit(f"unexpected platform tag in {wheel.name}: {platform}")
+              key = (python, family)
+              if key in seen:
+                  raise SystemExit(f"duplicate wheel target {key}")
+              seen.add(key)
+              platforms[family] += 1
+          if set(seen) != {(python, family) for python in expected_pythons for family in platforms}:
+              raise SystemExit("wheel matrix is incomplete")
+
+          for path in files:
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              rows.append(f"| `{path.name}` | {path.stat().st_size:,} | `{digest}` |")
+          manifest = "## WIMF release distributions\n\n| File | Bytes | SHA-256 |\n|---|---:|---|\n" + "\n".join(rows) + "\n"
+          Path("distribution-manifest.md").write_text(manifest, encoding="utf-8")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(manifest)
+          PY
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: distribution-manifest
+          path: distribution-manifest.md
+          retention-days: 90
 
   publish:
-    if: github.event_name == 'release'
-    needs: [wheels, sdist]
+    name: Publish to PyPI
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: [preflight, distributions]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -49,13 +231,49 @@ jobs:
       name: pypi
       url: https://pypi.org/p/wimf
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Reject an already-published version
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          if curl --silent --fail "https://pypi.org/pypi/wimf/$VERSION/json" > /dev/null; then
+            echo "wimf $VERSION already exists on PyPI; bump the version instead of overwriting it"
+            exit 1
+          fi
+      - uses: actions/download-artifact@v5
         with:
           pattern: wheels-*
           path: dist
           merge-multiple: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: sdist
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify-pypi:
+    name: Verify PyPI / ${{ matrix.label }}
+    if: github.event_name == 'release' && !github.event.release.prerelease
+    needs: [preflight, publish]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux x86-64
+          - os: windows-latest
+            label: Windows x86-64
+          - os: macos-15-intel
+            label: macOS Intel
+          - os: macos-latest
+            label: macOS Apple Silicon
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install published wheel
+        run: python tests/install_published.py "${{ needs.preflight.outputs.version }}"
+      - run: python tests/wheel_smoke.py

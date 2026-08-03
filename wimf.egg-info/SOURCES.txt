@@ -1,3 +1,4 @@
+CHANGELOG.md
 LICENSE
 MANIFEST.in
 README.md
@@ -5,12 +6,16 @@ pyproject.toml
 setup.py
 benchmarks/bench_v2.py
 docs/native-core.md
+docs/release-checklist.md
 docs/wim2-format.md
 src/main.cpp
 src/v2_bindings.cpp
 src/v2_core.cpp
 src/v2_core.hpp
 tests/generate_ci_report.py
+tests/install_published.py
+tests/wheel_smoke.py
+tests/cpp/fuzz_v2_parser.cpp
 tests/cpp/test_v2_core.cpp
 wimf/__init__.py
 wimf/animation.py

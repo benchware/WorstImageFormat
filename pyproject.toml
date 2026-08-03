@@ -11,9 +11,21 @@ authors = [
 description = "Worst IMage Format - A high-performance wavelet-based image codec"
 readme = "README.md"
 license = "GPL-3.0-or-later"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: C++",
+    "Topic :: Multimedia :: Graphics",
 ]
 dependencies = [
     "numpy",
@@ -29,6 +41,10 @@ wimf-cat = "wimf.cat:main"
 
 [project.urls]
 "Homepage" = "https://github.com/benchware/WorstImageFormat"
+"Documentation" = "https://github.com/benchware/WorstImageFormat/tree/main/docs"
+"Issues" = "https://github.com/benchware/WorstImageFormat/issues"
+"Changelog" = "https://github.com/benchware/WorstImageFormat/blob/main/CHANGELOG.md"
+"Source" = "https://github.com/benchware/WorstImageFormat"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -83,6 +99,5 @@ warn_unused_ignores = false
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 skip = "*-win32 pp* *-i686 *-musllinux*"
-before-build = "python -m pip install pybind11"
-test-command = "python -c \"import numpy as np, wimf; a=np.zeros((17,19,3),dtype=np.uint8); d=wimf.WIMFEncoder(a).encode(lossless=True); assert np.array_equal(wimf.WIMFDecoder(d).decode().to_numpy(),a); assert wimf.runtime_info()['native']\""
+test-command = "python {project}/tests/wheel_smoke.py"
 manylinux-x86_64-image = "manylinux_2_17"
