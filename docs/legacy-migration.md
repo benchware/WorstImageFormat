@@ -3,6 +3,10 @@
 WIMF 2.2 is the warning release. WIMF 3.0 removes legacy authoring while keeping
 WIMF v1, AWIF, and `ROT!` decoding available.
 
+The `.wif` extension was only a filename alias, not a separate container. WIMF
+2.2 still reads it but warns when it is used for new output. Use the canonical
+`.wimf` extension for new WIM2 files.
+
 ## WIMF v1 or `ROT!` still image to WIM2
 
 ```python

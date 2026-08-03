@@ -101,6 +101,10 @@ def saveImage(
     codec="auto",
     threads=None,
 ):
+    if str(filename).lower().endswith(".wif"):
+        from .deprecation import warn_legacy
+
+        warn_legacy("the .wif filename alias", "use the .wimf extension for WIM2 output instead")
     if metadata is None:
         metadata = {}
     is_animated = isinstance(pixels, list)

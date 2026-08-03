@@ -242,6 +242,8 @@ def main():
     parser.add_argument("--extract-secret", action="store_true")
 
     args = parser.parse_args()
+    if os.path.splitext(args.output)[1].lower() == ".wif":
+        warn_legacy("the .wif filename alias", "use the .wimf extension for WIM2 output instead")
     if args.mip or args.depth or args.depth_map:
         warn_legacy("legacy mip/depth command-line flags", "use WIM2 depth-channel APIs instead")
 

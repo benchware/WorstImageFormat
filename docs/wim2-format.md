@@ -30,4 +30,4 @@ Extension counts, individual sizes, history state counts, offsets, and aggregate
 
 ## Compatibility
 
-The decoder recognizes WIM2, WIMF v1, AWIF, and the legacy `ROT!` wrapper. WIMF 2.2 deprecates all legacy authoring; WIMF 3.0 removes those writers while retaining read-only compatibility. New output uses WIM2 chunks for chrono history and anti-rot protection.
+The decoder recognizes WIM2, WIMF v1, AWIF, the `.wif` filename alias, and the legacy `ROT!` wrapper. WIMF 2.2 deprecates all legacy authoring and `.wif` output; WIMF 3.0 removes those writers while retaining read-only compatibility. New output uses the `.wimf` extension and WIM2 chunks for chrono history and anti-rot protection.

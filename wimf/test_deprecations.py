@@ -16,3 +16,11 @@ def test_invalid_native_facing_options_are_consistent():
     for options in ({"threads": 0}, {"preset": "Turbo"}, {"quality": 0}, {"codec": "bogus"}):
         with pytest.raises(ValueError):
             wimf.encode(image, **options)
+
+
+def test_wif_filename_alias_warns_but_writes_wim2(tmp_path):
+    output = tmp_path / "legacy-name.wif"
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+    with pytest.warns(FutureWarning, match=r"\.wif filename alias"):
+        wimf.save(output, image, lossless=True)
+    assert output.read_bytes().startswith(b"WIM2")

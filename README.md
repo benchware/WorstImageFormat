@@ -17,7 +17,7 @@ WIMF is an experimental, versioned image codec with a Python frontend and a port
 
 WIMF 2.2 makes **WIM2 the only recommended authoring format**. It provides hybrid tile coding, ROI decoding, high bit depth, native orchestration, anti-rot recovery, and indexed chrono history. Existing WIMF v1, AWIF, and `ROT!` files remain readable through isolated compatibility paths.
 
-> **Legacy timeline:** WIMF 2.2 warns when legacy writers or specialist tools are used. WIMF 3.0 removes those writers and the `wimf-convert`/`wimf-meta` entry points, while retaining read-only WIMF v1, AWIF, and `ROT!` decoding. Migrate new output to WIM2 now.
+> **Legacy timeline:** WIMF 2.2 warns when legacy writers, the old `.wif` filename alias, or specialist tools are used. WIMF 3.0 removes those writers and the `wimf-convert`/`wimf-meta` entry points, while retaining read-only WIMF v1, AWIF, `ROT!`, and `.wif` input compatibility. Use `.wimf` for new WIM2 files.
 
 WIMF compression is not encryption. Pixels and metadata can be recovered by anyone who can read the file; never store passwords, tokens, or other secrets in metadata.
 
@@ -218,7 +218,7 @@ The Codec Lab never disables normal checksum validation. Its unsafe preview deco
 | Base64 and data URLs | Implemented | Strict alphabet, MIME validation, whitespace and safety bounds |
 | Corruption laboratory | Experimental | Header, metadata, index, payload, extension, and parity targeting |
 | AWIF animation | Legacy decode compatibility | Committed fixtures and malformed-input safety |
-| WIMF v1 and `ROT!` | Legacy decode/encode | Explicit v1 output, surgical metadata edit, protected round trip |
+| WIMF v1, `.wif`, and `ROT!` | Deprecated authoring; legacy decoding | Warning coverage, migration, and protected decode |
 | WIMF Studio and headless CLI | Implemented | Headless state tests, command help, installed-wheel smoke tests |
 
 The visual report separately exercises synthetic mixed content, a credited nature photograph, and a credited animal photograph. It publishes decoded outputs, amplified differences, exact configurations, tile-mode counts, timings, WIMF payloads, and JSON metrics as CI artifacts.
@@ -239,7 +239,7 @@ See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](do
 
 ## Verification and roadmap
 
-CI separates Python quality, cross-platform API/feature tests, AWIF compatibility, standalone C++, sanitizers, packaging, visual evidence, and non-blocking performance measurements. Python-versus-C++ benchmarks cover both WIM2 still images and AWIF on Windows, Linux, and macOS. The active roadmap is:
+CI separates Python quality, cross-platform API/feature tests, legacy decode compatibility, standalone C++, sanitizers, packaging, visual evidence, and non-blocking performance measurements. Python-versus-C++ benchmarks cover current WIM2 still images on Windows, Linux, and macOS. The active roadmap is:
 
 - Profile the completed native orchestration and optimize only measured allocation, transform, or entropy-coding hotspots.
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
