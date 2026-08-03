@@ -1,8 +1,13 @@
 """Render actual WIMF Studio states under CI's virtual X display."""
 
 import argparse
+import sys
 import tkinter as tk
 from pathlib import Path
+
+# Running this file directly makes ``tests/`` Python's import root. Add the
+# repository root so the in-tree package can be imported in CI.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 from PIL import ImageGrab

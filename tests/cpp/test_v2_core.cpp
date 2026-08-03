@@ -1,6 +1,7 @@
 #include "v2_core.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
