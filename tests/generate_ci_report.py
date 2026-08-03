@@ -1,4 +1,4 @@
-"""Generate human-readable codec evidence for GitHub Actions."""
+"""Generate human-readable, multi-fixture codec evidence for GitHub Actions."""
 
 import argparse
 import json
@@ -9,17 +9,27 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageEnhance
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageOps
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import wimf  # noqa: E402
 from wimf.hybrid import MODE_NAMES, parse_v2  # noqa: E402
 
+THREADS = 4
+CONFIGURATIONS = [
+    ("lossless_auto", "Lossless Auto", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "auto"}),
+    ("lossy_auto_q5", "Lossy Auto Q5", {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "auto"}),
+    ("predictive", "Predictive", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "predictive"}),
+    ("palette", "Palette", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "palette"}),
+    ("wavelet_q5", "Wavelet Q5", {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "wavelet"}),
+    ("raw", "Raw", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "raw"}),
+]
 
-def encode_decode(image, *, lossless, quality=7, codec="auto"):
+
+def encode_decode(image, options):
     start = time.perf_counter()
-    payload = wimf.WIMFEncoder(image).encode(lossless=lossless, quality=quality, codec=codec, threads=4)
+    payload = wimf.WIMFEncoder(image).encode(**options, threads=THREADS)
     encode_ms = (time.perf_counter() - start) * 1000
     start = time.perf_counter()
     decoded = wimf.WIMFDecoder(payload).decode().pil
@@ -40,19 +50,22 @@ def metrics(source, decoded, payload, encode_ms, decode_ms):
     error = a - b
     mse = float(np.mean(error**2))
     psnr = None if mse == 0 else 10 * math.log10(255**2 / mse)
+    raw_bytes = source.width * source.height * len(source.getbands())
     return {
         "bytes": len(payload),
-        "ratio": source.width * source.height * len(source.getbands()) / len(payload),
+        "ratio": raw_bytes / len(payload),
         "mse": mse,
         "max_error": int(np.abs(error).max()),
         "psnr_db": psnr,
         "encode_ms": encode_ms,
         "decode_ms": decode_ms,
+        "encode_mpx_s": source.width * source.height / max(encode_ms, 0.001) / 1000,
+        "decode_mpx_s": source.width * source.height / max(decode_ms, 0.001) / 1000,
         "tile_modes": tile_modes(payload),
     }
 
 
-def build_fixture(logo):
+def build_synthetic_fixture(logo):
     width, height = 512, 256
     y, x = np.mgrid[:height, :width]
     canvas = np.empty((height, width, 4), dtype=np.uint8)
@@ -71,93 +84,153 @@ def build_fixture(logo):
     return fixture
 
 
+def photo_fixture(path):
+    with Image.open(path) as image:
+        return ImageOps.fit(image.convert("RGB"), (512, 320), Image.Resampling.LANCZOS)
+
+
 def build_comparison(panels):
-    source = panels[0][1]
-    columns = 4
+    panel_width, panel_height = panels[0][1].size
+    columns = 2
     rows = math.ceil(len(panels) / columns)
-    label_height = 30
-    comparison = Image.new("RGB", (source.width * columns, (source.height + label_height) * rows), "#0d1117")
+    label_height = 36
+    comparison = Image.new("RGB", (panel_width * columns, (panel_height + label_height) * rows), "#0d1117")
     draw = ImageDraw.Draw(comparison)
     for index, (label, panel) in enumerate(panels):
-        x = index % columns * source.width
-        y = index // columns * (source.height + label_height)
+        x = index % columns * panel_width
+        y = index // columns * (panel_height + label_height)
         comparison.paste(panel.convert("RGB"), (x, y + label_height))
-        draw.text((x + 10, y + 8), label, fill="white")
+        draw.text((x + 10, y + 10), label, fill="white")
     return comparison
+
+
+def options_text(options):
+    return ", ".join(
+        [
+            f"codec={options['codec']}",
+            f"lossless={str(options['lossless']).lower()}",
+            f"quality={options['quality']}",
+            f"preset={options['preset']}",
+            f"threads={THREADS}",
+            "tile=128x128",
+            "format=WIM2",
+        ]
+    )
+
+
+def report_fixture(slug, title, source, credit, output, preview_dir):
+    fixture_dir = output / slug
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    source.save(fixture_dir / "source.png")
+    results, decoded_images = {}, {}
+    for key, label, options in CONFIGURATIONS:
+        payload, decoded, encode_ms, decode_ms = encode_decode(source, options)
+        results[key] = {
+            "label": label,
+            "configuration": options_text(options),
+            "options": {**options, "threads": THREADS, "tile_size": 128, "format_version": 2},
+            **metrics(source, decoded, payload, encode_ms, decode_ms),
+        }
+        decoded_images[key] = decoded
+        decoded.save(fixture_dir / f"decoded-{key.replace('_', '-')}.png")
+        (fixture_dir / f"{slug}-{key.replace('_', '-')}.wimf").write_bytes(payload)
+
+    if results["lossless_auto"]["max_error"] != 0:
+        raise AssertionError(f"{slug} failed its lossless roundtrip")
+    if slug == "synthetic-mixed" and not {"palette", "predictive"} <= set(results["lossless_auto"]["tile_modes"]):
+        raise AssertionError("synthetic fixture did not exercise mixed Palette/Predictive auto selection")
+
+    difference = ImageEnhance.Contrast(ImageChops.difference(source, decoded_images["wavelet_q5"])).enhance(8)
+    difference.save(fixture_dir / "wavelet-difference-8x.png")
+    comparison = build_comparison(
+        [("Source", source)]
+        + [(label, decoded_images[key]) for key, label, _ in CONFIGURATIONS]
+        + [("Wavelet difference (8x)", difference)]
+    )
+    comparison.save(fixture_dir / "comparison.png")
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    comparison.save(preview_dir / f"{slug}.png", optimize=True)
+    (fixture_dir / "metrics.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return {"title": title, "credit": credit, "dimensions": list(source.size), "modes": results}
+
+
+def fixture_summary(slug, fixture, repository, sha):
+    rows = []
+    for result in fixture["modes"].values():
+        psnr = "∞" if result["psnr_db"] is None else f"{result['psnr_db']:.2f} dB"
+        modes = ", ".join(f"{name}: {count}" for name, count in result["tile_modes"].items())
+        rows.append(
+            f"| {result['label']} | `{result['configuration']}` | {result['bytes']:,} B | {result['ratio']:.2f}× | "
+            f"{result['mse']:.2f} | {result['max_error']} | {psnr} | {modes} | "
+            f"{result['encode_ms']:.1f} ms ({result['encode_mpx_s']:.1f} MP/s) | "
+            f"{result['decode_ms']:.1f} ms ({result['decode_mpx_s']:.1f} MP/s) |"
+        )
+    credit = fixture["credit"]
+    return f"""### {fixture["title"]} ({fixture["dimensions"][0]}×{fixture["dimensions"][1]})
+
+{credit}
+
+![{fixture["title"]} codec comparison](https://raw.githubusercontent.com/{repository}/{sha}/.github/assets/report-previews/{slug}.png)
+
+| Configuration | Exact settings | Size | Ratio | MSE | Max error | PSNR | Selected tiles | Encode | Decode |
+|---|---|---:|---:|---:|---:|---:|---|---:|---:|
+{chr(10).join(rows)}
+"""
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--input", type=Path, required=True, help="WIMF logo used by the synthetic fixture")
+    parser.add_argument("--fixtures", type=Path, default=Path(".github/assets/fixtures"))
+    parser.add_argument("--preview-dir", type=Path, default=Path(".github/assets/report-previews"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
-    source = build_fixture(Image.open(args.input).convert("RGBA"))
-    configurations = [
-        ("lossless_auto", "Lossless auto", {"lossless": True, "codec": "auto"}),
-        ("lossy_auto_q5", "Auto Q5", {"lossless": False, "quality": 5, "codec": "auto"}),
-        ("predictive", "Predictive", {"lossless": True, "codec": "predictive"}),
-        ("palette", "Palette", {"lossless": True, "codec": "palette"}),
-        ("wavelet_q5", "Wavelet Q5", {"lossless": False, "quality": 5, "codec": "wavelet"}),
-        ("raw", "Raw", {"lossless": True, "codec": "raw"}),
+    fixtures = [
+        (
+            "synthetic-mixed",
+            "Synthetic mixed-content stress test",
+            build_synthetic_fixture(Image.open(args.input).convert("RGBA")),
+            "Generated by the WIMF project; designed to exercise gradients, transparency, palettes, noise, and text.",
+        ),
+        (
+            "glacier-lake",
+            "Nature photograph — Lake McDonald, Glacier National Park",
+            photo_fixture(args.fixtures / "glacier-lake.jpg"),
+            "Credit: [NPS Natural Resources / National Park Service (public domain)](https://commons.wikimedia.org/wiki/File:National_Park_Service_(48754075203).jpg).",
+        ),
+        (
+            "blue-fox",
+            "Animal photograph — blue fox on St. Paul Island",
+            photo_fixture(args.fixtures / "blue-fox.jpg"),
+            "Credit: [Ryan Mong / U.S. Fish & Wildlife Service (public domain)](https://commons.wikimedia.org/wiki/File:Blue_fox_on_St_Paul_Island_by_Ryan_Mong_USFWS.jpg).",
+        ),
     ]
-    results = {}
-    decoded_images = {}
-    payloads = {}
-    for key, label, options in configurations:
-        payload, decoded, encode_ms, decode_ms = encode_decode(source, **options)
-        results[key] = {"label": label, **metrics(source, decoded, payload, encode_ms, decode_ms)}
-        decoded_images[key] = decoded
-        payloads[key] = payload
-
-    if results["lossless_auto"]["max_error"] != 0:
-        raise AssertionError("visual fixture failed its lossless roundtrip")
-    if not {"palette", "predictive"} <= set(results["lossless_auto"]["tile_modes"]):
-        raise AssertionError("visual fixture did not exercise mixed Palette/Predictive auto selection")
-
-    source.save(args.output / "source.png")
-    for key, image in decoded_images.items():
-        filename = key.replace("_", "-")
-        image.save(args.output / f"decoded-{filename}.png")
-        (args.output / f"fixture-{filename}.wimf").write_bytes(payloads[key])
-    difference = ImageEnhance.Contrast(ImageChops.difference(source, decoded_images["wavelet_q5"])).enhance(8)
-    difference.save(args.output / "difference-8x.png")
-    build_comparison(
-        [
-            ("Source", source),
-            ("Lossless Auto", decoded_images["lossless_auto"]),
-            ("Auto Q5", decoded_images["lossy_auto_q5"]),
-            ("Predictive", decoded_images["predictive"]),
-            ("Palette", decoded_images["palette"]),
-            ("Wavelet Q5", decoded_images["wavelet_q5"]),
-            ("Raw", decoded_images["raw"]),
-            ("Wavelet difference (8x)", difference),
-        ]
-    ).save(args.output / "comparison.png")
-
-    report = {"runtime": wimf.runtime_info(), "modes": results}
+    report = {
+        "runtime": wimf.runtime_info(),
+        "fixtures": {
+            slug: report_fixture(slug, title, source, credit, args.output, args.preview_dir)
+            for slug, title, source, credit in fixtures
+        },
+    }
     (args.output / "metrics.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    table_rows = []
-    for result in results.values():
-        psnr = "∞" if result["psnr_db"] is None else f"{result['psnr_db']:.2f} dB"
-        modes = ", ".join(f"{name}: {count}" for name, count in result["tile_modes"].items())
-        table_rows.append(
-            f"| {result['label']} | {result['bytes']:,} B | {result['ratio']:.2f}× | "
-            f"{result['mse']:.2f} | {result['max_error']} | {psnr} | {modes} | "
-            f"{result['encode_ms']:.1f} ms | {result['decode_ms']:.1f} ms |"
-        )
+
+    repository = os.environ.get("GITHUB_REPOSITORY", "benchware/WorstImageFormat")
+    sha = os.environ.get("GITHUB_SHA", "main")
+    sections = [fixture_summary(slug, fixture, repository, sha) for slug, fixture in report["fixtures"].items()]
     summary = f"""## WIMF visual codec report
 
-![Source and WIMF codec family comparison](https://raw.githubusercontent.com/{os.environ.get("GITHUB_REPOSITORY", "benchware/WorstImageFormat")}/{os.environ.get("GITHUB_SHA", "main")}/.github/assets/codec-preview.png)
+Each fixture is reported separately so photographic behavior cannot hide behind synthetic averages. Every row records the exact public encoder configuration used for that run. Full-resolution decoded images, differences, WIMF payloads, and JSON data are available in the artifact.
 
-| Configuration | Size | Ratio | MSE | Max error | PSNR | Selected tiles | Encode | Decode |
-|---|---:|---:|---:|---:|---:|---|---:|---:|
-{chr(10).join(table_rows)}
+{"".join(sections)}
+### Runtime
 
-`auto` evaluates tile content and can mix Raw, Predictive, Palette, and Wavelet in one image.
+```json
+{json.dumps(report["runtime"], indent=2)}
+```
 
-Backend: `{report["runtime"]}`
+`auto` evaluates each tile independently and may mix Raw, Predictive, Palette, and Wavelet in one image. Timings are diagnostic CI measurements, not release benchmarks.
 """
     (args.output / "summary.md").write_text(summary, encoding="utf-8")
 

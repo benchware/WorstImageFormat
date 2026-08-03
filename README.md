@@ -138,6 +138,7 @@ wimf diagnose damaged.wimf --unsafe-preview damaged-preview.png
 Run `wimf <command> --help` for focused options. Metadata uses repeatable `--metadata KEY=VALUE` arguments. The original specialized commands remain available:
 
 - `wimf-convert` provides legacy conversion, animation, depth-map, and watermark flags.
+- AWIF animation preserves GIF frame durations, average FPS, and loop count; legacy files without timing metadata use the historical 30 FPS default. See the [AWIF compatibility and CI matrix](docs/awif-testing.md).
 - `wimf-studio` opens the encoder, comparison viewer, tile inspector, protection/history tools, and codec lab.
 - `wimf-view` is a compatibility alias that opens WIMF Studio.
 - `wimf-cat` renders supported images in compatible terminals.

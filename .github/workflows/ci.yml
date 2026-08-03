@@ -62,6 +62,33 @@ jobs:
           path: test-results.xml
           retention-days: 14
 
+  awif-test:
+    name: AWIF / ${{ matrix.os }} / Python 3.12
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install pytest pybind11 numpy pillow zstandard setuptools wheel
+      - run: python setup.py build_ext --inplace
+      - name: Verify native acceleration
+        run: python -c "import wimf.wimf_cpp; assert wimf.runtime_info()['native']"
+      - name: Run AWIF timing, geometry, quality, and compatibility matrix
+        run: python -m pytest wimf/test_awif.py -v --junitxml=awif-results.xml
+      - name: Upload AWIF test results
+        if: ${{ always() && hashFiles('awif-results.xml') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: awif-results-${{ matrix.os }}
+          path: awif-results.xml
+          retention-days: 14
+
   native-core:
     name: Standalone C++ / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -174,4 +201,35 @@ jobs:
         with:
           name: benchmark-baseline
           path: benchmark.txt
+          retention-days: 30
+
+  awif-benchmark:
+    name: AWIF Python vs C++ / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install pybind11 numpy pillow zstandard setuptools wheel
+      - run: python setup.py build_ext --inplace
+      - name: Benchmark 320x180, 30-frame AWIF
+        shell: bash
+        run: |
+          python benchmarks/bench_awif.py --width 320 --height 180 --frames 30 --quality 5 --preset Balanced --json > awif-benchmark.json
+          cat awif-benchmark.json
+          echo "## AWIF Python vs C++ — ${{ runner.os }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat awif-benchmark.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: awif-benchmark-${{ matrix.os }}
+          path: awif-benchmark.json
           retention-days: 30

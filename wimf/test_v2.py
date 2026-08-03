@@ -1,10 +1,25 @@
 import numpy as np
+import pytest
 from PIL import Image
 
 import wimf
 from wimf import hybrid
 from wimf.extensions import parse_extensions
 from wimf.hybrid import decode_v2, encode_v2, parse_v2
+
+
+@pytest.mark.parametrize("quality", range(1, 11))
+@pytest.mark.parametrize("preset", ["Fast", "Balanced", "Extreme"])
+def test_all_lossy_quality_and_preset_combinations(quality, preset):
+    """Every documented WIM2 lossy quality/preset combination must encode and decode."""
+    y, x = np.indices((24, 40))
+    image = np.stack(((x * 7 + y) & 255, (x + y * 9) & 255, (x * 3 + y * 5) & 255), axis=2).astype(np.uint8)
+    payload = encode_v2(
+        image.tobytes(), 40, 24, 3, quality=quality, preset=preset, lossless=False, codec="auto", threads=1
+    )
+    decoded, info = decode_v2(payload)
+    assert len(decoded) == image.size
+    assert info["width"] == 40 and info["height"] == 24
 
 
 def test_v2_lossless_rgb_odd_dimensions(tmp_path):

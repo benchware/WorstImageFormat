@@ -72,8 +72,17 @@ def convert(
             if out_ext == ".gif":
                 if isinstance(pixels, list):
                     frames = [Image.frombytes(img_mode, (w, h), f) for f in pixels]
+                    durations = loaded_meta.get("frame_durations_ms")
+                    if not isinstance(durations, list) or len(durations) != len(frames):
+                        fps = float(loaded_meta.get("fps", 30.0))
+                        durations = [max(1, round(1000 / fps))] * len(frames)
                     frames[0].save(
-                        output_path, save_all=True, append_images=frames[1:], optimize=False, duration=33, loop=0
+                        output_path,
+                        save_all=True,
+                        append_images=frames[1:],
+                        optimize=False,
+                        duration=durations,
+                        loop=int(loaded_meta.get("loop", 0)),
                     )
                 else:
                     img = Image.frombytes(img_mode, (w, h), pixels)
@@ -128,7 +137,9 @@ def convert(
                 channels = 4 if has_alpha else 3
 
                 frames = []
+                frame_durations = []
                 for frame in ImageSequence.Iterator(img):
+                    frame_durations.append(max(1, int(frame.info.get("duration", img.info.get("duration", 33)))))
                     f_data = frame.convert(target_mode)
                     if is_10bit:
                         f_arr = np.array(f_data).astype(np.uint16) * 4
@@ -139,6 +150,9 @@ def convert(
                 pixels = frames
                 meta["is_animated"] = True
                 meta["channels"] = channels
+                meta["frame_durations_ms"] = frame_durations
+                meta["fps"] = 1000 * len(frame_durations) / sum(frame_durations)
+                meta["loop"] = int(img.info.get("loop", 0))
             else:
                 # normal still image
                 has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)

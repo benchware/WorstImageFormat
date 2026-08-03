@@ -233,6 +233,39 @@ class WIMFDecoder:
         # First 4 bytes of data payload is num_frames
         return int.from_bytes(self._raw[self._data_start : self._data_start + 4], "little")
 
+    @property
+    def frame_durations_ms(self):
+        """Playback duration for every AWIF frame; legacy files default to 30 FPS."""
+        if not self.is_animated:
+            return []
+        count = self.num_states
+        durations = self.metadata.get("frame_durations_ms")
+        if isinstance(durations, list) and len(durations) == count:
+            try:
+                values = [max(1, int(value)) for value in durations]
+            except (TypeError, ValueError):
+                values = []
+            if values:
+                return values
+        fps = self.metadata.get("fps", 30.0)
+        try:
+            fps = float(fps)
+        except (TypeError, ValueError):
+            fps = 30.0
+        fps = fps if 0 < fps <= 1000 else 30.0
+        return [max(1, round(1000 / fps))] * count
+
+    @property
+    def fps(self):
+        """Average AWIF playback rate, including variable-duration animations."""
+        durations = self.frame_durations_ms
+        return 1000 * len(durations) / sum(durations) if durations else 0.0
+
+    @property
+    def duration_ms(self):
+        """Total AWIF playback duration in milliseconds."""
+        return sum(self.frame_durations_ms)
+
     # get one state from the undo history
     def decode_chrono_state(self, index=0, **kwargs):
         if self.magic == V2_MAGIC and self._history_states is not None:

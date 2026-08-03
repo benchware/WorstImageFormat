@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 dist/
 build/
+codec-report*/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
