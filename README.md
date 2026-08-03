@@ -59,7 +59,7 @@ import wimf
 image = Image.open("photo.png")
 
 # Balanced per-tile selection is the default.
-wimf.save("photo.wimf", image, quality=7, codec="auto", threads=None)
+output = wimf.save("photo.wimf", image, quality=7)
 
 # Exact reconstruction and explicit legacy output.
 wimf.save("exact.wimf", image, lossless=True)
@@ -67,6 +67,11 @@ wimf.save("legacy.wimf", image, lossless=True, format_version=1)
 
 decoded = wimf.open("photo.wimf")
 decoded.pil.save("decoded.png")
+
+# Memory-only applications can use bytes directly.
+payload = wimf.encode(image, lossless=True, metadata={"author": "Bee"})
+decoded = wimf.decode(payload)
+details = wimf.inspect(payload)
 ```
 
 `codec` accepts `auto`, `wavelet`, `predictive`, `palette`, or `raw`. `preset` accepts `Fast`, `Balanced`, or `Extreme`.
@@ -115,10 +120,34 @@ Use `--lossless`, force a tile mode with `--codec`, or zoom using `--center-x`, 
 
 ## Command-line tools
 
-- `wimf-convert` converts images and exposes quality, codec, metadata, and benchmark options.
-- `wimf-view` opens the desktop viewer.
+The unified command covers the normal workflow:
+
+```bash
+wimf encode photo.png photo.wimf --quality 7
+wimf encode artwork.png artwork.wimf --lossless
+wimf decode photo.wimf photo.png
+wimf decode huge.wimf crop.png --roi 100 200 640 480
+wimf info photo.wimf
+wimf runtime
+wimf view photo.wimf
+wimf base64 encode photo.wimf photo.txt --data-url
+wimf corrupt photo.wimf damaged.wimf --seed 42 --area payload
+wimf diagnose damaged.wimf --unsafe-preview damaged-preview.png
+```
+
+Run `wimf <command> --help` for focused options. Metadata uses repeatable `--metadata KEY=VALUE` arguments. The original specialized commands remain available:
+
+- `wimf-convert` provides legacy conversion, animation, depth-map, and watermark flags.
+- `wimf-studio` opens the encoder, comparison viewer, tile inspector, protection/history tools, and codec lab.
+- `wimf-view` is a compatibility alias that opens WIMF Studio.
 - `wimf-cat` renders supported images in compatible terminals.
 - `wimf-meta` inspects and edits legacy metadata.
+
+### WIMF Studio and corruption experiments
+
+WIMF Studio uses four focused panels: Encode & Compare, Inspect, Protection & History, and Codec Lab. Long-running encoding runs outside the Tk event loop and native tile progress can be cancelled between tiles.
+
+The Codec Lab never disables normal checksum validation. Its unsafe preview decodes only checksum-valid independent tiles and replaces rejected tiles with an obvious checkerboard. Base64 is treated as a transport representation, including `data:image/x-wimf;base64,...` URLs; it is not a new compression mode.
 
 ## Compatibility and status
 
@@ -139,10 +168,10 @@ See the [WIM2 format overview](docs/wim2-format.md), [native embedding guide](do
 
 CI runs Python quality checks, native and fallback codec tests, standalone C++ tests on Windows/Linux/macOS, source-distribution validation, and an image-based codec report. The active roadmap is:
 
-- Profile and move remaining candidate orchestration into the native core.
+- Profile the completed native orchestration and optimize only measured allocation, transform, or entropy-coding hotspots.
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
 - Expand measured AVX2 and NEON optimization only where profiling justifies it.
-- Design browser/WASM portability without changing the WIM2 bitstream.
+- Validate the memory-only synchronous core with Emscripten on the future web branch without changing the WIM2 bitstream.
 - Migrate animation and watermark creation only after the still-image path meets throughput targets.
 
 Target performance is at least 10 MP/s Balanced encoding and 50 MP/s decoding on reference hardware; benchmark results are hardware-dependent and are not claimed until measured.
@@ -150,3 +179,7 @@ Target performance is at least 10 MP/s Balanced encoding and 50 MP/s decoding on
 ## License
 
 WIMF is licensed under GPL-3.0-or-later.
+
+## Reporting bugs
+
+WIMF is experimental. If something breaks, please [open a GitHub issue](https://github.com/benchware/WorstImageFormat/issues) with your operating system, Python version, `wimf runtime --json` output, and a minimal sample file when possible. WIMF Studio's **Help → Report a Bug** command copies the relevant runtime diagnostics and opens the issue page.

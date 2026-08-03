@@ -116,7 +116,12 @@ jobs:
           with tarfile.open(archive) as source:
               names = {"/".join(name.split("/")[1:]) for name in source.getnames()}
           required = {
-              "README.md", "CHANGELOG.md", "src/v2_core.cpp", "src/v2_core.hpp",
+              "README.md", "CHANGELOG.md", "src/v2_core.cpp", "src/v2_core.hpp", "src/zstd_vendor.cpp",
+              "third_party/zstd/zstd.c", "third_party/zstd/zstd.h",
+              "third_party/zstd/zstd_errors.h", "third_party/zstd/LICENSE",
+              "wimf/commands.py", "wimf/__main__.py",
+              "wimf/studio.py", "wimf/studio_cli.py", "wimf/studio_model.py",
+              "wimf/diagnostics.py", "wimf/transport.py",
               "docs/wim2-format.md", "docs/native-core.md", "docs/release-checklist.md",
               "tests/wheel_smoke.py",
           }

@@ -400,6 +400,7 @@ def encode_v2(
     metadata=None,
     tile_size=TILE_SIZE,
     threads=None,
+    operation_token=None,
 ):
     if codec not in NAME_MODES and codec != "auto":
         raise ValueError(f"unknown codec {codec!r}")
@@ -415,9 +416,32 @@ def encode_v2(
     meta.update({"channels": channels, "bit_depth": bit_depth, "format_version": 2})
     meta_bytes = json.dumps(meta, separators=(",", ":")).encode()
     flags = 1 if lossless else 0
+    if native is not None and hasattr(native, "encode_image"):
+        try:
+            encoded, _stats = native.encode_image(
+                pixels,
+                width,
+                height,
+                channels,
+                bit_depth,
+                quality,
+                lossless,
+                preset,
+                codec,
+                tile_size,
+                0 if threads is None else int(threads),
+                meta_bytes,
+                False,
+                operation_token,
+            )
+            return bytes(encoded)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
     coordinates = [(x, y) for y in range(0, height, tile_size) for x in range(0, width, tile_size)]
 
     def encode_tile(position):
+        if operation_token is not None and operation_token.cancelled:
+            raise ValueError("operation cancelled")
         x, y = position
         tile = image[y : y + tile_size, x : x + tile_size]
         candidates = []
@@ -539,7 +563,13 @@ def parse_v2(data):
     }
 
 
-def decode_v2(data, roi=None, target_layer=2):
+def decode_v2(data, roi=None, target_layer=2, operation_token=None):
+    if native is not None and hasattr(native, "decode_image"):
+        try:
+            decoded = native.decode_image(bytes(data), roi, target_layer, 0, False, operation_token)
+            return bytes(decoded["pixels"]), parse_v2(data)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
     info = parse_v2(data)
     dtype = np.uint8 if info["bit_depth"] == 8 else np.dtype("<u2")
     if roi is None:
@@ -550,6 +580,8 @@ def decode_v2(data, roi=None, target_layer=2):
             raise ValueError("ROI is outside image")
     out = np.zeros((rh, rw, info["channels"]), dtype=dtype)
     for entry in info["entries"]:
+        if operation_token is not None and operation_token.cancelled:
+            raise ValueError("operation cancelled")
         x, y, tw, th, mode, entropy, _, _, offset, size, raw_size, crc = entry
         if x >= rx + rw or y >= ry + rh or x + tw <= rx or y + th <= ry:
             continue

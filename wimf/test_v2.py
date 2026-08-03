@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 
 import wimf
+from wimf import hybrid
 from wimf.extensions import parse_extensions
 from wimf.hybrid import decode_v2, encode_v2, parse_v2
 
@@ -84,6 +85,71 @@ def test_runtime_info_contract():
     assert details["architecture"]
     assert details["simd"]
     assert details["hardware_threads"] >= 1
+    assert isinstance(details["native_orchestration"], bool)
+    assert details["execution_policies"]
+    if details["native"]:
+        assert details["native_orchestration"] is True
+        assert {"synchronous", "threaded"} <= set(details["execution_policies"])
+
+
+def test_friendly_memory_api_and_inspection(tmp_path):
+    arr = np.random.default_rng(27).integers(0, 256, (31, 37, 4), dtype=np.uint8)
+    payload = wimf.encode(arr, lossless=True, metadata={"purpose": "api-test"})
+    decoded = wimf.decode(payload)
+    assert np.array_equal(decoded.to_numpy(), arr)
+    details = wimf.inspect(payload)
+    assert details["format"] == "WIM2"
+    assert details["width"] == 37 and details["height"] == 31
+    assert details["metadata"]["purpose"] == "api-test"
+    assert sum(details["tile_modes"].values()) == 1
+
+    output = tmp_path / "friendly.wimf"
+    assert wimf.save(output, arr, lossless=True) == str(output)
+    assert wimf.is_wimf(output)
+
+
+def test_native_high_depth_and_forced_mode_roundtrips():
+    try:
+        from wimf import wimf_v2_cpp  # noqa: F401
+    except ImportError:
+        return
+    rng = np.random.default_rng(24)
+    for bit_depth, maximum in ((10, 1023), (16, 65535)):
+        random_image = rng.integers(0, maximum + 1, (35, 39, 3), dtype=np.uint16)
+        for codec in ("raw", "predictive", "wavelet"):
+            payload = encode_v2(
+                random_image.astype("<u2").tobytes(),
+                39,
+                35,
+                3,
+                bit_depth=bit_depth,
+                lossless=True,
+                codec=codec,
+            )
+            decoded, _ = decode_v2(payload)
+            assert np.array_equal(np.frombuffer(decoded, "<u2").reshape(random_image.shape), random_image)
+
+        palette = np.zeros((35, 39, 3), dtype="<u2")
+        palette[:, ::2] = maximum
+        payload = encode_v2(palette.tobytes(), 39, 35, 3, bit_depth=bit_depth, lossless=True, codec="palette")
+        decoded, _ = decode_v2(payload)
+        assert np.array_equal(np.frombuffer(decoded, "<u2").reshape(palette.shape), palette)
+
+
+def test_native_and_reference_mode_parity(monkeypatch):
+    if hybrid.native is None or not hasattr(hybrid.native, "encode_image"):
+        return
+    arr = np.random.default_rng(25).integers(0, 256, (67, 71, 3), dtype=np.uint8)
+    native_payload = encode_v2(arr.tobytes(), 71, 67, 3, lossless=True, codec="predictive", threads=1)
+    monkeypatch.setattr(hybrid, "native", None)
+    reference_payload = encode_v2(arr.tobytes(), 71, 67, 3, lossless=True, codec="predictive", threads=1)
+    native_decoded, _ = decode_v2(native_payload)
+    reference_decoded, _ = decode_v2(reference_payload)
+    assert native_decoded == reference_decoded == arr.tobytes()
+    assert [entry[4] for entry in parse_v2(native_payload)["entries"]] == [
+        entry[4] for entry in parse_v2(reference_payload)["entries"]
+    ]
+    assert len(native_payload) <= len(reference_payload) * 1.01
 
 
 def test_native_predictive_parity_when_available():
@@ -95,6 +161,29 @@ def test_native_predictive_parity_when_available():
     packed = wimf_v2_cpp.encode_predictive(arr, 131, 65, 4, 1)
     decoded = wimf_v2_cpp.decode_predictive(packed, 131, 65, 4, 1)
     assert np.array_equal(np.frombuffer(decoded, np.uint8).reshape(arr.shape), arr)
+
+
+def test_native_complete_entrypoint_accepts_contiguous_numpy():
+    try:
+        from wimf import wimf_v2_cpp
+    except ImportError:
+        return
+    arr = np.random.default_rng(26).integers(0, 1024, (23, 29, 3), dtype=np.uint16)
+    payload, stats = wimf_v2_cpp.encode_image(
+        arr,
+        29,
+        23,
+        3,
+        10,
+        7,
+        True,
+        "Balanced",
+        "predictive",
+        128,
+    )
+    result = wimf_v2_cpp.decode_image(payload)
+    assert np.array_equal(np.frombuffer(result["pixels"], "<u2").reshape(arr.shape), arr)
+    assert stats["effective_threads"] >= 1
 
 
 def test_v2_chrono_history_is_indexed_and_exact():

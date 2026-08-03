@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wimf"
-version = "2.0.0"
+version = "2.1.0"
 authors = [
   { name="BenchWare", email="ivanm12453@gmail.com" },
 ]
@@ -34,8 +34,10 @@ dependencies = [
 ]
 
 [project.scripts]
+wimf = "wimf.commands:main"
+wimf-studio = "wimf.studio_cli:main"
 wimf-convert = "wimf.cli:main"
-wimf-view = "wimf.viewer:main"
+wimf-view = "wimf.studio_cli:main"
 wimf-meta = "wimf.meta_tool:main"
 wimf-cat = "wimf.cat:main"
 
@@ -81,6 +83,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests can use unused imports for fixtures and structure
 "wimf/test_core.py" = ["F401"]
+"wimf/test_studio.py" = ["F401"]
 # viewer and cat have necessary bare excepts for UI/import resilience
 "wimf/viewer.py" = ["E722"]
 "wimf/cat.py" = ["E722"]

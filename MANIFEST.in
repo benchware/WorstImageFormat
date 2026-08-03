@@ -3,6 +3,10 @@ include src/*.hpp
 include README.md
 include CHANGELOG.md
 include LICENSE
+include third_party/zstd/LICENSE
+include third_party/zstd/zstd.c
+include third_party/zstd/zstd.h
+include third_party/zstd/zstd_errors.h
 include benchmarks/*.py
 include examples/*.py
 recursive-include docs *.md

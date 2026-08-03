@@ -53,7 +53,7 @@ jobs:
       - run: python setup.py build_ext --inplace
       - name: Verify native extensions
         run: python -c "import wimf.wimf_cpp, wimf.wimf_v2_cpp; assert wimf.runtime_info()['native']"
-      - run: python -m pytest wimf/test_core.py wimf/test_v2.py -v --junitxml=test-results.xml
+      - run: python -m pytest wimf/test_core.py wimf/test_v2.py wimf/test_studio.py -v --junitxml=test-results.xml
       - name: Upload test results
         if: ${{ always() && hashFiles('test-results.xml') != '' }}
         uses: actions/upload-artifact@v7
@@ -77,13 +77,24 @@ jobs:
       - name: Build and test with MSVC
         if: runner.os == 'Windows'
         run: |
-          cl /nologo /std:c++17 /EHsc /O2 /Isrc tests/cpp/test_v2_core.cpp src/v2_core.cpp /Fe:v2_core_tests.exe
+          cl /nologo /O2 /c /Ithird_party/zstd third_party/zstd/zstd.c /Fo:zstd.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd.obj /Fe:v2_core_tests.exe
           .\v2_core_tests.exe
       - name: Build and test with the system C++ compiler
         if: runner.os != 'Windows'
         run: |
-          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc tests/cpp/test_v2_core.cpp src/v2_core.cpp -o v2_core_tests
+          cc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd.o -pthread -o v2_core_tests
           ./v2_core_tests
+      - name: Compile synchronous core with Emscripten when available
+        if: runner.os == 'Linux'
+        run: |
+          if command -v em++ >/dev/null 2>&1; then
+            em++ -std=c++17 -O2 -Ithird_party/zstd -c src/v2_core.cpp -o v2_core_wasm.o
+            emcc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd_wasm.o
+          else
+            echo "Emscripten is not installed on this runner; portable compile check skipped."
+          fi
 
   visual-report:
     name: Visual codec report
@@ -96,6 +107,13 @@ jobs:
       - run: python -m pip install pytest pybind11 numpy pillow zstandard setuptools wheel
       - run: python setup.py build_ext --inplace
       - run: python tests/generate_ci_report.py --input .github/assets/dark.png --output codec-report
+      - name: Render WIMF Studio states
+        run: |
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+          xvfb-run -a python tests/generate_studio_screenshots.py codec-report/studio
       - name: Upload visual evidence
         id: visual-artifact
         uses: actions/upload-artifact@v7
@@ -127,10 +145,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build parser mutation test with ASan and UBSan
-        run: >-
-          c++ -std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined
-          -Wall -Wextra -Wno-misleading-indentation -Isrc
-          tests/cpp/fuzz_v2_parser.cpp src/v2_core.cpp -o fuzz_v2_parser
+        run: |
+          cc -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd.o
+          c++ -std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined \
+            -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd \
+            tests/cpp/fuzz_v2_parser.cpp src/v2_core.cpp zstd.o -pthread -o fuzz_v2_parser
       - run: ./fuzz_v2_parser
 
   benchmark:

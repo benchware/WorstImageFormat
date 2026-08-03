@@ -25,7 +25,8 @@ ext_modules = [
     ),
     Extension(
         "wimf.wimf_v2_cpp",
-        ["src/v2_core.cpp", "src/v2_bindings.cpp"],
+        ["src/v2_core.cpp", "src/v2_bindings.cpp", "src/zstd_vendor.cpp"],
+        include_dirs=["third_party/zstd"],
         language="c++",
     ),
 ]

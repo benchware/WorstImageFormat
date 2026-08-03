@@ -190,13 +190,13 @@ class WIMFDecoder:
         self._raw = raw
 
     # actually do the heavy lifting
-    def decode(self, roi=None, target_layer=2, mip_level=0):
+    def decode(self, roi=None, target_layer=2, mip_level=0, operation_token=None):
         data = self._raw[self._data_start :]
 
         if self.magic == V2_MAGIC:
             if mip_level:
                 raise ValueError("WIMF v2 mip decoding is not implemented")
-            pix, _ = decode_v2(self._raw, roi=roi, target_layer=target_layer)
+            pix, _ = decode_v2(self._raw, roi=roi, target_layer=target_layer, operation_token=operation_token)
         elif self.magic == b"AWIF":
             from .animation import decode_animated
 
@@ -348,7 +348,8 @@ class WIMFEncoder:
         return self
 
     # do the encoding
-    def encode(self, quality=7, preset="Balanced", lossless=False, format_version=2, codec="auto", threads=None):
+    def encode(self, quality=7, preset="Balanced", lossless=False, format_version=2, codec="auto", threads=None,
+               operation_token=None):
         meta = self.metadata.copy()
         meta["tuning"] = self.tuning
 
@@ -408,6 +409,7 @@ class WIMFEncoder:
                     codec=codec,
                     metadata=meta,
                     threads=threads,
+                    operation_token=operation_token,
                 )
                 for pixels in pixel_states
             ]

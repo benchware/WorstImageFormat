@@ -30,6 +30,9 @@ def main():
     runtime = wimf.runtime_info()
     assert runtime["native"] is True or allow_python
     assert runtime["codec_version"] and runtime["zstandard_version"]
+    if not allow_python:
+        assert runtime["native_orchestration"] is True
+        assert {"synchronous", "threaded"} <= set(runtime["execution_policies"])
 
     rng = np.random.default_rng(20260803)
     rgb = rng.integers(0, 256, (37, 41, 3), dtype=np.uint8)
@@ -53,6 +56,11 @@ def main():
     raw_payload, decoded = roundtrip(rgb, lossless=True, codec="raw")
     assert np.array_equal(decoded, rgb)
     assert MODE_NAMES[parse_v2(raw_payload)["entries"][0][4]] == "raw"
+    assert wimf.from_data_url(wimf.to_data_url(raw_payload)) == raw_payload
+    comparison = wimf.compare(rgb, decoded)
+    assert comparison["maximum_error"] == 0
+    rewritten = wimf.rewrite_metadata(raw_payload, {"wheel": True})
+    assert wimf.inspect(rewritten)["metadata"]["wheel"] is True
 
     wavelet_payload, decoded = roundtrip(rgb, lossless=False, quality=5, codec="wavelet")
     assert decoded.shape == rgb.shape and wavelet_payload.startswith(b"WIM2")
@@ -71,7 +79,11 @@ def main():
 
     distribution = importlib.metadata.distribution("wimf")
     scripts = {entry.name for entry in distribution.entry_points if entry.group == "console_scripts"}
-    assert {"wimf-convert", "wimf-view", "wimf-meta", "wimf-cat"} <= scripts
+    assert {"wimf", "wimf-studio", "wimf-convert", "wimf-view", "wimf-meta", "wimf-cat"} <= scripts
+    subprocess.run([sys.executable, "-m", "wimf", "--help"], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "wimf", "runtime", "--json"], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "wimf.studio_cli", "--help"], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "wimf", "base64", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf.cli", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf.meta_tool", "--help"], check=True, capture_output=True)
 

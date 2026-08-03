@@ -6,10 +6,15 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include <atomic>
+#include <exception>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+
+#include "zstd.h"
 
 namespace wimf::v2 {
 namespace {
@@ -103,7 +108,11 @@ RuntimeInfo runtime_info() {
 #else
     const char* arch="unknown"; const char* simd="scalar";
 #endif
+#if defined(__EMSCRIPTEN__)
+    return {arch,simd,1};
+#else
     return {arch,simd,std::max(1u,std::thread::hardware_concurrency())};
+#endif
 }
 
 TileMode classify_tile(const ImageView& v) {
@@ -191,6 +200,486 @@ std::vector<uint8_t> write_container(const ContainerInfo& container){
     const uint64_t header_size=kHeaderSize+container.metadata.size()+container.tiles.size()*kEntrySize;uint64_t total=header_size;for(const auto& tile:container.tiles){if(tile.payload.size()>std::numeric_limits<uint32_t>::max())throw std::overflow_error("tile payload too large");total+=tile.payload.size();}if(total>std::numeric_limits<size_t>::max())throw std::overflow_error("container too large");
     std::vector<uint8_t> out;out.reserve(static_cast<size_t>(total));out.insert(out.end(),{'W','I','M','2',2,container.flags,container.bit_depth,container.channels});put32(out,container.width);put32(out,container.height);put16(out,container.tile_size);put32(out,static_cast<uint32_t>(container.metadata.size()));put32(out,static_cast<uint32_t>(container.tiles.size()));out.insert(out.end(),container.metadata.begin(),container.metadata.end());
     uint64_t offset=header_size;for(const auto& tile:container.tiles){put16(out,tile.x);put16(out,tile.y);put16(out,tile.width);put16(out,tile.height);out.push_back(tile.mode);out.push_back(tile.entropy);out.push_back(tile.layers);out.push_back(0);put64(out,offset);put32(out,static_cast<uint32_t>(tile.payload.size()));put32(out,tile.raw_size);put32(out,crc32(tile.payload.data(),tile.payload.size()));offset+=tile.payload.size();}for(const auto& tile:container.tiles)out.insert(out.end(),tile.payload.begin(),tile.payload.end());return out;
+}
+
+namespace {
+
+constexpr uint8_t kEntropyNone = 0, kEntropyZstd = 1;
+
+class OperationCancelled final : public std::runtime_error {
+public:
+    OperationCancelled() : std::runtime_error("operation cancelled") {}
+};
+
+void check_cancelled(const OperationControl* control) {
+    if (control && control->is_cancelled && control->is_cancelled(control->context)) throw OperationCancelled();
+}
+
+void report_progress(const OperationControl* control, const char* stage, uint64_t completed, uint64_t total) noexcept {
+    if (control && control->on_progress) control->on_progress(control->context, stage, completed, total);
+}
+
+unsigned effective_threads(unsigned requested, ExecutionPolicy policy, size_t jobs) {
+#if defined(__EMSCRIPTEN__)
+    (void)requested;
+    (void)policy;
+    (void)jobs;
+    return 1;
+#else
+    if (policy == ExecutionPolicy::Synchronous || jobs < 2) return 1;
+    const unsigned available = std::max(1u, std::thread::hardware_concurrency());
+    const unsigned wanted = requested ? requested : std::min(available, 8u);
+    return std::max(1u, std::min<unsigned>(wanted, static_cast<unsigned>(jobs)));
+#endif
+}
+
+template <class Function>
+void parallel_for(size_t count, unsigned workers, Function function) {
+    if (workers <= 1) {
+        for (size_t i = 0; i < count; ++i) function(i);
+        return;
+    }
+#if !defined(__EMSCRIPTEN__)
+    std::atomic<size_t> next{0};
+    std::mutex error_mutex;
+    std::exception_ptr error;
+    std::vector<std::thread> pool;
+    pool.reserve(workers);
+    for (unsigned worker = 0; worker < workers; ++worker) {
+        pool.emplace_back([&] {
+            try {
+                while (true) {
+                    const size_t i = next.fetch_add(1);
+                    if (i >= count) break;
+                    function(i);
+                }
+            } catch (...) {
+                std::lock_guard<std::mutex> lock(error_mutex);
+                if (!error) error = std::current_exception();
+                next.store(count);
+            }
+        });
+    }
+    for (auto& thread : pool) thread.join();
+    if (error) std::rethrow_exception(error);
+#else
+    for (size_t i = 0; i < count; ++i) function(i);
+#endif
+}
+
+std::vector<uint8_t> compress_zstd(const std::vector<uint8_t>& input, SearchPreset preset) {
+    const int level = preset == SearchPreset::Fast ? 1 : (preset == SearchPreset::Extreme ? 15 : 6);
+    std::vector<uint8_t> output(ZSTD_compressBound(input.size()));
+    const size_t size = ZSTD_compress(output.data(), output.size(), input.data(), input.size(), level);
+    if (ZSTD_isError(size)) throw std::runtime_error(ZSTD_getErrorName(size));
+    output.resize(size);
+    return output;
+}
+
+std::vector<uint8_t> decompress_zstd(const uint8_t* input, size_t size, size_t expected) {
+    std::vector<uint8_t> output(expected);
+    const size_t actual = ZSTD_decompress(output.data(), output.size(), input, size);
+    if (ZSTD_isError(actual) || actual != expected) throw std::runtime_error("invalid zstd tile payload");
+    return output;
+}
+
+void append_float(std::vector<uint8_t>& output, float value) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    put32(output, bits);
+}
+
+float read_float(const uint8_t* input) {
+    const uint32_t bits = read32(input);
+    float value = 0;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+void append_varint(std::vector<uint8_t>& output, uint64_t value) {
+    while (value >= 0x80) {
+        output.push_back(static_cast<uint8_t>(value) | 0x80);
+        value >>= 7;
+    }
+    output.push_back(static_cast<uint8_t>(value));
+}
+
+uint64_t read_varint(const uint8_t* data, size_t size, size_t& position) {
+    uint64_t value = 0;
+    for (unsigned shift = 0; shift < 70; shift += 7) {
+        if (position >= size) throw std::runtime_error("truncated coefficient varint");
+        const uint8_t byte = data[position++];
+        value |= static_cast<uint64_t>(byte & 0x7f) << shift;
+        if (byte < 0x80) return value;
+    }
+    throw std::runtime_error("oversized coefficient varint");
+}
+
+std::vector<uint8_t> pack_coefficients(const std::vector<int64_t>& coefficients) {
+    std::vector<uint8_t> output;
+    size_t run = 0;
+    for (const int64_t value : coefficients) {
+        if (value == 0) {
+            ++run;
+            continue;
+        }
+        output.push_back(0);
+        append_varint(output, run);
+        run = 0;
+        const uint64_t zigzag = (static_cast<uint64_t>(value) << 1) ^ static_cast<uint64_t>(value >> 63);
+        append_varint(output, zigzag);
+    }
+    if (run) {
+        output.push_back(0);
+        append_varint(output, run);
+    }
+    return output;
+}
+
+std::vector<int64_t> unpack_coefficients(const uint8_t* data, size_t size, size_t count) {
+    std::vector<int64_t> output(count);
+    size_t position = 0, index = 0;
+    while (index < count) {
+        if (position >= size || data[position++] != 0) throw std::runtime_error("invalid coefficient marker");
+        const uint64_t run = read_varint(data, size, position);
+        if (run > count - index) throw std::runtime_error("coefficient zero run exceeds tile");
+        index += static_cast<size_t>(run);
+        if (index == count) break;
+        const uint64_t zigzag = read_varint(data, size, position);
+        output[index++] = static_cast<int64_t>((zigzag >> 1) ^ (0 - (zigzag & 1)));
+    }
+    if (position != size) throw std::runtime_error("trailing coefficient data");
+    return output;
+}
+
+uint32_t next_power_of_two(uint32_t value) {
+    uint32_t output = 1;
+    while (output < std::max(2u, value)) output <<= 1;
+    return output;
+}
+
+uint32_t symmetric_index(uint32_t index, uint32_t length) {
+    if (length == 1) return 0;
+    const uint32_t period = length * 2;
+    const uint32_t folded = index % period;
+    return folded < length ? folded : period - folded - 1;
+}
+
+std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality, bool lossless,
+                                         std::vector<uint8_t>* reconstructed) {
+    const uint32_t padded_height = next_power_of_two(tile.height), padded_width = next_power_of_two(tile.width);
+    unsigned levels = 0;
+    for (uint32_t value = std::min(padded_width, padded_height); value > 1 && levels < 3; value >>= 1) ++levels;
+    const float quantizer = lossless ? 1.0f : std::max(1.0f, static_cast<float>((11 - quality) * 1.5));
+    std::vector<uint8_t> output;
+    put16(output, static_cast<uint16_t>(padded_height));
+    put16(output, static_cast<uint16_t>(padded_width));
+    output.push_back(static_cast<uint8_t>(levels));
+    output.push_back(lossless ? 1 : 0);
+    append_float(output, quantizer);
+    if (reconstructed) reconstructed->assign(static_cast<size_t>(tile.width) * tile.height * tile.channels * tile.bytes_per_sample, 0);
+
+    for (uint8_t channel = 0; channel < tile.channels; ++channel) {
+        std::vector<uint8_t> plane(static_cast<size_t>(padded_width) * padded_height * tile.bytes_per_sample);
+        for (uint32_t y = 0; y < padded_height; ++y) for (uint32_t x = 0; x < padded_width; ++x) {
+            const uint32_t value = sample(tile, symmetric_index(x, tile.width), symmetric_index(y, tile.height), channel);
+            const size_t position = (static_cast<size_t>(y) * padded_width + x) * tile.bytes_per_sample;
+            plane[position] = static_cast<uint8_t>(value);
+            if (tile.bytes_per_sample == 2) plane[position + 1] = static_cast<uint8_t>(value >> 8);
+        }
+        const auto coefficients = wavelet_forward(plane.data(), padded_width, padded_height,
+                                                  tile.bytes_per_sample, lossless, levels, quantizer);
+        const auto packed = pack_coefficients(coefficients);
+        put32(output, static_cast<uint32_t>(packed.size()));
+        output.insert(output.end(), packed.begin(), packed.end());
+        if (reconstructed) {
+            const auto decoded = wavelet_inverse(coefficients.data(), coefficients.size(), padded_width,
+                                                 padded_height, tile.bytes_per_sample, lossless, levels, quantizer);
+            for (uint32_t y = 0; y < tile.height; ++y) for (uint32_t x = 0; x < tile.width; ++x) {
+                const size_t source = (static_cast<size_t>(y) * padded_width + x) * tile.bytes_per_sample;
+                const size_t target = (static_cast<size_t>(y) * tile.width * tile.channels + x * tile.channels + channel) * tile.bytes_per_sample;
+                std::memcpy(reconstructed->data() + target, decoded.data() + source, tile.bytes_per_sample);
+            }
+        }
+    }
+    return output;
+}
+
+std::vector<uint8_t> decode_wavelet_tile(const uint8_t* data, size_t size, uint32_t width,
+                                         uint32_t height, uint8_t channels, uint8_t bytes_per_sample) {
+    if (size < 10) throw std::runtime_error("truncated wavelet tile");
+    const uint32_t padded_height = read16(data), padded_width = read16(data + 2);
+    const uint8_t levels = data[4], reversible = data[5];
+    const float quantizer = read_float(data + 6);
+    if (padded_width > 256 || padded_height > 256 || padded_width < width || padded_height < height ||
+        levels > 8 || reversible > 1 || !std::isfinite(quantizer) || quantizer <= 0)
+        throw std::runtime_error("invalid wavelet dimensions");
+    size_t position = 10;
+    std::vector<uint8_t> output(static_cast<size_t>(width) * height * channels * bytes_per_sample);
+    for (uint8_t channel = 0; channel < channels; ++channel) {
+        if (position + 4 > size) throw std::runtime_error("truncated wavelet channel");
+        const uint32_t packed_size = read32(data + position);
+        position += 4;
+        if (packed_size > size - position) throw std::runtime_error("truncated wavelet coefficients");
+        const auto coefficients = unpack_coefficients(data + position, packed_size,
+                                                      static_cast<size_t>(padded_width) * padded_height);
+        position += packed_size;
+        const auto plane = wavelet_inverse(coefficients.data(), coefficients.size(), padded_width,
+                                           padded_height, bytes_per_sample, reversible != 0, levels, quantizer);
+        for (uint32_t y = 0; y < height; ++y) for (uint32_t x = 0; x < width; ++x) {
+            const size_t source = (static_cast<size_t>(y) * padded_width + x) * bytes_per_sample;
+            const size_t target = (static_cast<size_t>(y) * width * channels + x * channels + channel) * bytes_per_sample;
+            std::memcpy(output.data() + target, plane.data() + source, bytes_per_sample);
+        }
+    }
+    if (position != size) throw std::runtime_error("trailing wavelet tile data");
+    return output;
+}
+
+std::vector<uint8_t> copy_tile(const ImageView& image, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    const size_t row_bytes = static_cast<size_t>(width) * image.channels * image.bytes_per_sample;
+    std::vector<uint8_t> output(row_bytes * height);
+    for (uint32_t row = 0; row < height; ++row)
+        std::memcpy(output.data() + static_cast<size_t>(row) * row_bytes,
+                    image.data + static_cast<size_t>(y + row) * image.row_stride +
+                        static_cast<size_t>(x) * image.channels * image.bytes_per_sample,
+                    row_bytes);
+    return output;
+}
+
+std::vector<TileMode> candidate_modes(const ImageView& tile, const EncodeOptions& options) {
+    if (options.codec != CodecMode::Auto) {
+        TileMode forced = TileMode::Raw;
+        if (options.codec == CodecMode::Predictive) forced = TileMode::Predictive;
+        else if (options.codec == CodecMode::Palette) forced = TileMode::Palette;
+        else if (options.codec == CodecMode::Wavelet) forced = TileMode::Wavelet;
+        return forced == TileMode::Raw ? std::vector<TileMode>{TileMode::Raw}
+                                       : std::vector<TileMode>{forced, TileMode::Raw};
+    }
+    const TileMode ranked = classify_tile(tile);
+    if (options.preset == SearchPreset::Fast) return {ranked, TileMode::Raw};
+    if (options.preset == SearchPreset::Extreme)
+        return {TileMode::Palette, TileMode::Predictive, TileMode::Wavelet, TileMode::Raw};
+    if (ranked == TileMode::Palette) return {TileMode::Palette, TileMode::Predictive, TileMode::Raw};
+    if (ranked == TileMode::Predictive) return {TileMode::Predictive, TileMode::Wavelet, TileMode::Raw};
+    return {TileMode::Wavelet, TileMode::Predictive, TileMode::Raw};
+}
+
+void count_mode(CodecStats& stats, uint8_t mode) {
+    if (mode == static_cast<uint8_t>(TileMode::Raw)) ++stats.raw_tiles;
+    else if (mode == static_cast<uint8_t>(TileMode::Predictive)) ++stats.predictive_tiles;
+    else if (mode == static_cast<uint8_t>(TileMode::Palette)) ++stats.palette_tiles;
+    else if (mode == static_cast<uint8_t>(TileMode::Wavelet)) ++stats.wavelet_tiles;
+}
+
+Status failure(ErrorCode code, const std::exception& error) { return {code, error.what()}; }
+
+}  // namespace
+
+Status encode_image(const ImageView& image, const EncodeOptions& options,
+                    std::vector<uint8_t>& encoded, CodecStats* stats) noexcept {
+    try {
+        validate(image);
+        if ((options.bit_depth != 8 && options.bit_depth != 10 && options.bit_depth != 16) ||
+            (options.bit_depth == 8 ? 1 : 2) != image.bytes_per_sample || options.quality < 1 || options.quality > 10 ||
+            options.tile_size < 16 || options.tile_size > 256 || image.width > 65535 || image.height > 65535 ||
+            options.metadata.size() > 16u * 1024u * 1024u)
+            throw std::invalid_argument("invalid encode options");
+        const uint32_t columns = (image.width + options.tile_size - 1) / options.tile_size;
+        const uint32_t rows = (image.height + options.tile_size - 1) / options.tile_size;
+        const size_t count = static_cast<size_t>(columns) * rows;
+        check_cancelled(options.control);
+        report_progress(options.control, "encode", 0, count);
+        ContainerInfo container{};
+        container.flags = options.lossless ? 1 : 0;
+        container.bit_depth = options.bit_depth;
+        container.channels = image.channels;
+        container.width = image.width;
+        container.height = image.height;
+        container.tile_size = options.tile_size;
+        container.metadata = options.metadata;
+        container.tiles.resize(count);
+        const unsigned workers = effective_threads(options.threads, options.execution, count);
+        std::atomic<uint64_t> completed{0};
+        parallel_for(count, workers, [&](size_t index) {
+            check_cancelled(options.control);
+            const uint32_t x = static_cast<uint32_t>(index % columns) * options.tile_size;
+            const uint32_t y = static_cast<uint32_t>(index / columns) * options.tile_size;
+            const uint32_t width = std::min<uint32_t>(options.tile_size, image.width - x);
+            const uint32_t height = std::min<uint32_t>(options.tile_size, image.height - y);
+            auto pixels = copy_tile(image, x, y, width, height);
+            const ImageView tile{pixels.data(), width, height, image.channels, image.bytes_per_sample,
+                                 static_cast<size_t>(width) * image.channels * image.bytes_per_sample};
+            double best_score = std::numeric_limits<double>::infinity();
+            size_t best_size = std::numeric_limits<size_t>::max();
+            TileMode best_mode = TileMode::Raw;
+            std::vector<uint8_t> best_raw, best_payload;
+            for (const TileMode mode : candidate_modes(tile, options)) {
+                std::vector<uint8_t> raw, reconstructed;
+                if (mode == TileMode::Raw) raw = pixels;
+                else if (mode == TileMode::Predictive) raw = encode_predictive(tile);
+                else if (mode == TileMode::Palette) {
+                    raw = encode_palette(tile);
+                    if (raw.empty()) continue;
+                } else raw = encode_wavelet_tile(tile, options.quality, options.lossless,
+                                                  options.lossless ? nullptr : &reconstructed);
+                auto payload = mode == TileMode::Raw ? raw : compress_zstd(raw, options.preset);
+                double distortion = 0;
+                if (!options.lossless && mode == TileMode::Wavelet) {
+                    for (size_t i = 0; i < pixels.size(); i += image.bytes_per_sample) {
+                        const uint32_t a = image.bytes_per_sample == 1 ? pixels[i] : pixels[i] | static_cast<uint32_t>(pixels[i + 1]) << 8;
+                        const uint32_t b = image.bytes_per_sample == 1 ? reconstructed[i] : reconstructed[i] | static_cast<uint32_t>(reconstructed[i + 1]) << 8;
+                        const double delta = static_cast<double>(a) - b;
+                        distortion += delta * delta;
+                    }
+                    distortion /= pixels.size() / image.bytes_per_sample;
+                }
+                const double score = options.lossless ? static_cast<double>(payload.size())
+                    : payload.size() + distortion * (static_cast<double>(width) * height * image.channels) /
+                      std::max(1, options.quality * 64);
+                if (score < best_score || (score == best_score && payload.size() < best_size) ||
+                    (score == best_score && payload.size() == best_size && static_cast<uint8_t>(mode) < static_cast<uint8_t>(best_mode))) {
+                    best_score = score; best_size = payload.size(); best_mode = mode;
+                    best_raw = std::move(raw); best_payload = std::move(payload);
+                }
+            }
+            TileRecord record{};
+            record.x = static_cast<uint16_t>(x); record.y = static_cast<uint16_t>(y);
+            record.width = static_cast<uint16_t>(width); record.height = static_cast<uint16_t>(height);
+            record.mode = static_cast<uint8_t>(best_mode);
+            record.entropy = best_mode == TileMode::Raw ? kEntropyNone : kEntropyZstd;
+            record.layers = 1; record.raw_size = static_cast<uint32_t>(best_raw.size());
+            record.payload = std::move(best_payload);
+            container.tiles[index] = std::move(record);
+            report_progress(options.control, "encode", completed.fetch_add(1) + 1, count);
+        });
+        check_cancelled(options.control);
+        report_progress(options.control, "container", count, count);
+        encoded = write_container(container);
+        if (stats) {
+            *stats = {};
+            stats->effective_threads = workers;
+            for (const auto& tile : container.tiles) count_mode(*stats, tile.mode);
+        }
+        return {};
+    } catch (const OperationCancelled& error) { return failure(ErrorCode::Cancelled, error); }
+      catch (const std::invalid_argument& error) { return failure(ErrorCode::InvalidArgument, error); }
+      catch (const std::bad_alloc& error) { return failure(ErrorCode::ResourceLimit, error); }
+      catch (const std::exception& error) { return failure(ErrorCode::Internal, error); }
+}
+
+Status decode_image(const uint8_t* data, size_t size, const DecodeOptions& options,
+                    DecodeResult& decoded) noexcept {
+    try {
+        const ContainerInfo container = parse_container(data, size);
+        check_cancelled(options.control);
+        const uint8_t bytes_per_sample = container.bit_depth == 8 ? 1 : 2;
+        const uint32_t rx = options.use_roi ? options.roi_x : 0, ry = options.use_roi ? options.roi_y : 0;
+        const uint32_t rw = options.use_roi ? options.roi_width : container.width;
+        const uint32_t rh = options.use_roi ? options.roi_height : container.height;
+        if (!rw || !rh || rx > container.width || ry > container.height || rw > container.width - rx || rh > container.height - ry)
+            throw std::invalid_argument("ROI is outside image");
+        const uint64_t output_size = static_cast<uint64_t>(rw) * rh * container.channels * bytes_per_sample;
+        if (!options.max_output_bytes || output_size > options.max_output_bytes ||
+            output_size > std::numeric_limits<size_t>::max())
+            throw std::bad_alloc();
+        decoded = {};
+        decoded.width = rw; decoded.height = rh; decoded.channels = container.channels;
+        decoded.bit_depth = container.bit_depth; decoded.metadata = container.metadata;
+        decoded.pixels.assign(static_cast<size_t>(output_size), 0);
+        std::vector<size_t> selected;
+        for (size_t i = 0; i < container.tiles.size(); ++i) {
+            const auto& tile = container.tiles[i];
+            if (tile.x < rx + rw && tile.y < ry + rh && static_cast<uint32_t>(tile.x) + tile.width > rx &&
+                static_cast<uint32_t>(tile.y) + tile.height > ry) selected.push_back(i);
+        }
+        const unsigned workers = effective_threads(options.threads, options.execution, selected.size());
+        std::atomic<uint64_t> completed{0};
+        report_progress(options.control, "decode", 0, selected.size());
+        parallel_for(selected.size(), workers, [&](size_t selected_index) {
+            check_cancelled(options.control);
+            const auto& tile = container.tiles[selected[selected_index]];
+            const uint8_t* packed = data + tile.offset;
+            if (crc32(packed, tile.size) != tile.checksum) throw std::runtime_error("WIMF v2 tile checksum mismatch");
+            std::vector<uint8_t> raw = tile.entropy == kEntropyNone
+                ? std::vector<uint8_t>(packed, packed + tile.size)
+                : decompress_zstd(packed, tile.size, tile.raw_size);
+            std::vector<uint8_t> pixels;
+            if (tile.mode == static_cast<uint8_t>(TileMode::Raw)) {
+                const size_t expected = static_cast<size_t>(tile.width) * tile.height * container.channels * bytes_per_sample;
+                if (raw.size() != expected) throw std::runtime_error("invalid raw tile length");
+                pixels = std::move(raw);
+            } else if (tile.mode == static_cast<uint8_t>(TileMode::Predictive))
+                pixels = decode_predictive(raw.data(), raw.size(), tile.width, tile.height, container.channels, bytes_per_sample);
+            else if (tile.mode == static_cast<uint8_t>(TileMode::Palette))
+                pixels = decode_palette(raw.data(), raw.size(), tile.width, tile.height, container.channels, bytes_per_sample);
+            else pixels = decode_wavelet_tile(raw.data(), raw.size(), tile.width, tile.height, container.channels, bytes_per_sample);
+            const uint32_t x0 = std::max<uint32_t>(rx, tile.x), y0 = std::max<uint32_t>(ry, tile.y);
+            const uint32_t x1 = std::min<uint32_t>(rx + rw, tile.x + tile.width), y1 = std::min<uint32_t>(ry + rh, tile.y + tile.height);
+            const size_t pixel_bytes = static_cast<size_t>(container.channels) * bytes_per_sample;
+            for (uint32_t y = y0; y < y1; ++y) {
+                const size_t source = (static_cast<size_t>(y - tile.y) * tile.width + (x0 - tile.x)) * pixel_bytes;
+                const size_t target = (static_cast<size_t>(y - ry) * rw + (x0 - rx)) * pixel_bytes;
+                std::memcpy(decoded.pixels.data() + target, pixels.data() + source, static_cast<size_t>(x1 - x0) * pixel_bytes);
+            }
+            report_progress(options.control, "decode", completed.fetch_add(1) + 1, selected.size());
+        });
+        decoded.stats.effective_threads = workers;
+        for (const size_t index : selected) count_mode(decoded.stats, container.tiles[index].mode);
+        return {};
+    } catch (const OperationCancelled& error) { return failure(ErrorCode::Cancelled, error); }
+      catch (const std::invalid_argument& error) { return failure(ErrorCode::InvalidArgument, error); }
+      catch (const std::bad_alloc& error) { return failure(ErrorCode::ResourceLimit, error); }
+      catch (const std::exception& error) { return failure(ErrorCode::CorruptData, error); }
+}
+
+Status compare_images(const ImageView& first, const ImageView& second, uint8_t bit_depth,
+                      CompareResult& compared) noexcept {
+    try {
+        validate(first); validate(second);
+        if (first.width != second.width || first.height != second.height || first.channels != second.channels ||
+            first.bytes_per_sample != second.bytes_per_sample ||
+            (bit_depth != 8 && bit_depth != 10 && bit_depth != 16) || (bit_depth == 8 ? 1 : 2) != first.bytes_per_sample)
+            throw std::invalid_argument("images are not comparable");
+        const uint64_t sample_count = static_cast<uint64_t>(first.width) * first.height * first.channels;
+        if (sample_count > std::numeric_limits<size_t>::max() / first.bytes_per_sample) throw std::bad_alloc();
+        compared = {};
+        compared.difference.resize(static_cast<size_t>(sample_count) * first.bytes_per_sample);
+        long double squared = 0;
+        for (uint32_t y = 0; y < first.height; ++y) for (uint32_t x = 0; x < first.width; ++x)
+            for (uint8_t channel = 0; channel < first.channels; ++channel) {
+                const uint32_t a = sample(first, x, y, channel), b = sample(second, x, y, channel);
+                const uint32_t delta = a > b ? a - b : b - a;
+                compared.maximum_error = std::max(compared.maximum_error, delta);
+                squared += static_cast<long double>(delta) * delta;
+                const size_t index = (static_cast<size_t>(y) * first.width * first.channels +
+                                      static_cast<size_t>(x) * first.channels + channel) * first.bytes_per_sample;
+                compared.difference[index] = static_cast<uint8_t>(delta);
+                if (first.bytes_per_sample == 2) compared.difference[index + 1] = static_cast<uint8_t>(delta >> 8);
+            }
+        compared.mse = static_cast<double>(squared / sample_count);
+        const double peak = static_cast<double>((uint32_t{1} << bit_depth) - 1);
+        compared.psnr = compared.mse == 0 ? std::numeric_limits<double>::infinity()
+                                          : 10.0 * std::log10(peak * peak / compared.mse);
+        return {};
+    } catch (const std::invalid_argument& error) { return failure(ErrorCode::InvalidArgument, error); }
+      catch (const std::bad_alloc& error) { return failure(ErrorCode::ResourceLimit, error); }
+      catch (const std::exception& error) { return failure(ErrorCode::Internal, error); }
+}
+
+Status rewrite_metadata(const uint8_t* data, size_t size, const std::string& metadata,
+                        std::vector<uint8_t>& rewritten) noexcept {
+    try {
+        if (metadata.size() > 16u * 1024u * 1024u) throw std::invalid_argument("metadata is too large");
+        ContainerInfo container = parse_container(data, size);
+        container.metadata = metadata;
+        for (auto& tile : container.tiles)
+            tile.payload.assign(data + tile.offset, data + tile.offset + tile.size);
+        rewritten = write_container(container);
+        return {};
+    } catch (const std::invalid_argument& error) { return failure(ErrorCode::InvalidArgument, error); }
+      catch (const std::bad_alloc& error) { return failure(ErrorCode::ResourceLimit, error); }
+      catch (const std::exception& error) { return failure(ErrorCode::CorruptData, error); }
 }
 
 }  // namespace wimf::v2
