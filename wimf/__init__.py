@@ -240,6 +240,10 @@ def encode(image, **kwargs):
 
 def save(path, image, **kwargs):
     """Encode an image and write it to ``path``. Returns the output path."""
+    if os.path.splitext(os.fspath(path))[1].lower() == ".wif":
+        from .deprecation import warn_legacy
+
+        warn_legacy("the .wif filename alias", "use the .wimf extension for WIM2 output instead")
     raw = encode(image, **kwargs)
 
     try:
