@@ -100,4 +100,4 @@ warn_unused_ignores = false
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 skip = "*-musllinux*"
 test-command = "python {project}/tests/wheel_smoke.py"
-manylinux-x86_64-image = "manylinux2014"
+manylinux-x86_64-image = "manylinux_2_28"
