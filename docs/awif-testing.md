@@ -9,6 +9,8 @@ AWIF is WIMF's legacy animation container. Animation creation remains legacy-onl
 - `loop` preserves the GIF loop count.
 - Old AWIF files without timing metadata play at the historical 30 FPS default (33 ms per frame).
 - FPS changes playback duration, not compressed frame bytes. Quality and preset control compression independently.
+- Encoding validates frame count, geometry, channels, bit depth, quality, preset, and exact frame-buffer sizes.
+- Decoding bounds frame counts and payload sizes, validates every frame header and type, rejects truncation/trailing bytes, and limits LZMA delta expansion to the exact expected size.
 
 ## Continuous-integration coverage
 
@@ -16,6 +18,6 @@ The AWIF correctness job tests 1, 12, 24, 30, and 60 FPS; variable frame duratio
 
 The still-image suite likewise runs every quality from 1 through 10 under all three presets. Separate forced-mode tests cover Raw, Predictive, Palette, and Wavelet, while the visual report uses representative configurations on synthetic, nature, and animal fixtures so its summary remains readable.
 
-The AWIF benchmark is separate from correctness tests. It reports Python versus C++-accelerated encode/decode throughput and size on Linux, Windows, and macOS. Measurements are uploaded as artifacts and written to the job summary; they are diagnostic and do not make packaging fixes fail.
+The cross-platform codec benchmark is separate from correctness tests. It reports Python versus C++ encode/decode throughput and size for both WIM2 still images and C++-accelerated AWIF on Linux, Windows, and macOS. Measurements are uploaded as artifacts and written to the job summary; they are diagnostic and do not make packaging fixes fail.
 
 Still-image visual comparisons, standalone C++ tests, sanitizers, packaging, and cross-platform Python tests remain separate jobs so each failure identifies one subsystem.

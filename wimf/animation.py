@@ -14,8 +14,20 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+MAX_ANIMATION_FRAMES = 100_000
+MAX_ANIMATION_PAYLOAD = 2 * 1024 * 1024 * 1024
+
 
 def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_depth=8):
+    if not frames or len(frames) > MAX_ANIMATION_FRAMES:
+        raise ValueError("AWIF requires between 1 and 100000 frames")
+    if w <= 0 or h <= 0 or channels not in (1, 2, 3, 4) or bit_depth not in (8, 10, 16):
+        raise ValueError("invalid AWIF image properties")
+    if not 1 <= quality <= 10 or preset not in ("Fast", "Balanced", "Extreme"):
+        raise ValueError("invalid AWIF quality or preset")
+    expected_frame_size = w * h * channels * (1 if bit_depth == 8 else 2)
+    if any(len(frame) != expected_frame_size for frame in frames):
+        raise ValueError("AWIF frame size does not match its image properties")
     out_payload = bytearray()
     out_payload.extend(struct.pack("<I", len(frames)))
     out_payload.extend(struct.pack("<I", 0))
@@ -96,11 +108,21 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
 
 
 def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
+    if len(data) < 8:
+        raise ValueError("truncated AWIF animation header")
+    if len(data) > MAX_ANIMATION_PAYLOAD:
+        raise ValueError("AWIF animation payload exceeds safety limit")
+    if w <= 0 or h <= 0 or channels not in (1, 2, 3, 4) or bit_depth not in (8, 10, 16):
+        raise ValueError("invalid AWIF image properties")
     offset = 0
     num_frames = struct.unpack("<I", data[offset : offset + 4])[0]
     offset += 4
+    if not 1 <= num_frames <= MAX_ANIMATION_FRAMES:
+        raise ValueError("invalid AWIF frame count")
     audio_len = struct.unpack("<I", data[offset : offset + 4])[0]
     offset += 4
+    if audio_len > len(data) - offset:
+        raise ValueError("truncated AWIF audio payload")
     offset += audio_len
 
     frames = []
@@ -119,10 +141,16 @@ def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
     sz_coeff = th * tw * channels * 2
 
     for i in range(num_frames):
+        if offset + 8 > len(data):
+            raise ValueError(f"truncated AWIF frame header at frame {i}")
         frame_len = struct.unpack("<I", data[offset : offset + 4])[0]
         offset += 4
         is_keyframe = struct.unpack("<I", data[offset : offset + 4])[0]
         offset += 4
+        if is_keyframe not in (0, 1):
+            raise ValueError(f"invalid AWIF frame type at frame {i}")
+        if frame_len > len(data) - offset:
+            raise ValueError(f"truncated AWIF frame payload at frame {i}")
         frame_data = data[offset : offset + frame_len]
         offset += frame_len
 
@@ -142,7 +170,14 @@ def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
                 )
                 continue
 
-            d_raw = lzma.decompress(frame_data)
+            expected_delta_size = sz_coeff * 4
+            decompressor = lzma.LZMADecompressor()
+            try:
+                d_raw = decompressor.decompress(frame_data, max_length=expected_delta_size + 1)
+            except lzma.LZMAError as exc:
+                raise ValueError(f"invalid AWIF delta stream at frame {i}") from exc
+            if len(d_raw) != expected_delta_size or not decompressor.eof:
+                raise ValueError(f"invalid AWIF delta expansion at frame {i}")
             o = 0
             q_step_hf = q_step * 3.0
 
@@ -171,5 +206,8 @@ def decode_animated(data, w, h, channels, bit_depth=8, metadata=None):
             curr_arr = np.clip(prev_arr + d_rec, 0, limit).astype(dtype)
             frames.append(curr_arr.tobytes())
             prev_arr = curr_arr.astype(np.float32)
+
+    if offset != len(data):
+        raise ValueError("unexpected trailing data in AWIF animation payload")
 
     return frames

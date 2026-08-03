@@ -96,6 +96,39 @@ def test_legacy_awif_defaults_to_30_fps():
     assert decoder.frame_durations_ms == [33, 33]
 
 
+@pytest.mark.parametrize(
+    "payload,match",
+    [
+        (b"", "header"),
+        (struct.pack("<II", 0, 0), "frame count"),
+        (struct.pack("<II", 100_001, 0), "frame count"),
+        (struct.pack("<II", 1, 99), "audio"),
+        (struct.pack("<IIII", 1, 0, 0, 7), "frame type"),
+    ],
+)
+def test_awif_rejects_malformed_animation_payloads(payload, match):
+    with pytest.raises(ValueError, match=match):
+        decode_animated(payload, 16, 16, 3)
+
+
+def test_awif_rejects_truncation_and_trailing_bytes():
+    frames = moving_frames(16, 12, 2)
+    encoded = encode_animated([frame.tobytes() for frame in frames], 16, 12, 3)
+    with pytest.raises(ValueError, match="truncated"):
+        decode_animated(encoded[:-1], 16, 12, 3)
+    with pytest.raises(ValueError, match="trailing"):
+        decode_animated(encoded + b"junk", 16, 12, 3)
+
+
+def test_awif_encoder_rejects_invalid_inputs():
+    with pytest.raises(ValueError, match="between"):
+        encode_animated([], 16, 16, 3)
+    with pytest.raises(ValueError, match="frame size"):
+        encode_animated([b"short"], 16, 16, 3)
+    with pytest.raises(ValueError, match="quality"):
+        encode_animated([bytes(16 * 16 * 3)], 16, 16, 3, quality=0)
+
+
 def test_awif_gif_timing_roundtrip(tmp_path):
     source = tmp_path / "timed.gif"
     output = tmp_path / "timed.awif"

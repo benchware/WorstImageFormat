@@ -179,32 +179,8 @@ jobs:
             tests/cpp/fuzz_v2_parser.cpp src/v2_core.cpp zstd.o -pthread -o fuzz_v2_parser
       - run: ./fuzz_v2_parser
 
-  benchmark:
-    name: Native codec benchmark
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - run: python -m pip install pybind11 numpy pillow zstandard setuptools wheel
-      - run: python setup.py build_ext --inplace
-      - name: Measure 512px Balanced throughput
-        run: |
-          python benchmarks/bench_v2.py --size 512 --threads 4 > benchmark.txt
-          cat benchmark.txt
-          echo "## WIMF benchmark baseline" >> "$GITHUB_STEP_SUMMARY"
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cat benchmark.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: benchmark-baseline
-          path: benchmark.txt
-          retention-days: 30
-
-  awif-benchmark:
-    name: AWIF Python vs C++ / ${{ matrix.os }}
+  codec-benchmark:
+    name: Python vs C++ codecs / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     strategy:
@@ -219,17 +195,17 @@ jobs:
           cache: pip
       - run: python -m pip install pybind11 numpy pillow zstandard setuptools wheel
       - run: python setup.py build_ext --inplace
-      - name: Benchmark 320x180, 30-frame AWIF
+      - name: Benchmark WIM2 stills and AWIF animation
         shell: bash
         run: |
-          python benchmarks/bench_awif.py --width 320 --height 180 --frames 30 --quality 5 --preset Balanced --json > awif-benchmark.json
-          cat awif-benchmark.json
-          echo "## AWIF Python vs C++ — ${{ runner.os }}" >> "$GITHUB_STEP_SUMMARY"
+          python benchmarks/bench_codecs.py --still-size 512 --animation-width 320 --animation-height 180 --animation-frames 30 > codec-benchmark.json
+          cat codec-benchmark.json
+          echo "## Python vs C++ codec benchmark — ${{ runner.os }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat awif-benchmark.json >> "$GITHUB_STEP_SUMMARY"
+          cat codec-benchmark.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
-          name: awif-benchmark-${{ matrix.os }}
-          path: awif-benchmark.json
+          name: codec-benchmark-${{ matrix.os }}
+          path: codec-benchmark.json
           retention-days: 30
