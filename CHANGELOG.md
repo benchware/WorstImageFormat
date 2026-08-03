@@ -2,7 +2,16 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
-## 2.1.0 — Unreleased
+## 2.2.0 — Unreleased
+
+- Made WIM2 the sole recommended authoring format.
+- Deprecated WIMF v1, AWIF/v1 chrono, `ROT!`, watermark, legacy mip/depth,
+  `wimf-convert`, and `wimf-meta` authoring surfaces ahead of WIMF 3.0.
+- Retained read-only compatibility and added a committed AWIF-era decode fixture.
+- Limited CodeQL to first-party production code and documented bundled Zstandard 1.5.7 provenance.
+- Unified public native/Python option validation and removed AWIF from performance benchmarks.
+
+## 2.1.0 — 2026-08-03
 
 ### Added
 

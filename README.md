@@ -15,7 +15,11 @@
 
 WIMF is an experimental, versioned image codec with a Python frontend and a portable C++17 backend. New still images use the WIM2 hybrid container: every 128×128 tile independently chooses Raw, Predictive, Palette, or CDF Wavelet coding and records its mode, entropy backend, bounds, size, offset, and checksum.
 
-WIMF 2.1 is available on [PyPI](https://pypi.org/project/wimf/). WIM2 still-image coding, ROI decoding, high bit depth, native orchestration, optional anti-rot recovery, and indexed chrono history are implemented. AWIF animation remains a backward-compatible legacy container, now with preserved GIF frame timing and stricter validation.
+WIMF 2.2 makes **WIM2 the only recommended authoring format**. It provides hybrid tile coding, ROI decoding, high bit depth, native orchestration, anti-rot recovery, and indexed chrono history. Existing WIMF v1, AWIF, and `ROT!` files remain readable through isolated compatibility paths.
+
+> **Legacy timeline:** WIMF 2.2 warns when legacy writers or specialist tools are used. WIMF 3.0 removes those writers and the `wimf-convert`/`wimf-meta` entry points, while retaining read-only WIMF v1, AWIF, and `ROT!` decoding. Migrate new output to WIM2 now.
+
+WIMF compression is not encryption. Pixels and metadata can be recovered by anyone who can read the file; never store passwords, tokens, or other secrets in metadata.
 
 ## Highlights
 
@@ -185,8 +189,8 @@ wimf diagnose damaged.wimf --unsafe-preview damaged-preview.png
 
 Run `wimf <command> --help` for focused options. Metadata uses repeatable `--metadata KEY=VALUE` arguments. The original specialized commands remain available:
 
-- `wimf-convert` provides legacy conversion, animation, depth-map, and watermark flags.
-- AWIF animation preserves GIF frame durations, average FPS, and loop count; legacy files without timing metadata use the historical 30 FPS default. See the [AWIF compatibility and CI matrix](docs/awif-testing.md).
+- `wimf-convert` and `wimf-meta` are deprecated compatibility tools in 2.2. Use the unified `wimf` CLI or WIMF Studio.
+- AWIF authoring is deprecated. Existing animations remain readable, including historical timing metadata.
 - `wimf-studio` opens the encoder, comparison viewer, tile inspector, protection/history tools, and codec lab.
 - `wimf-view` is a compatibility alias that opens WIMF Studio.
 - `wimf-cat` renders supported images in compatible terminals.
@@ -213,7 +217,7 @@ The Codec Lab never disables normal checksum validation. Its unsafe preview deco
 | Chrono history | Experimental | Unchanged/changed states, ordering, random state access, protected history |
 | Base64 and data URLs | Implemented | Strict alphabet, MIME validation, whitespace and safety bounds |
 | Corruption laboratory | Experimental | Header, metadata, index, payload, extension, and parity targeting |
-| AWIF animation | Legacy creation/decode | FPS, variable timing, loop count, resolutions, RGBA, keyframes, malformed data |
+| AWIF animation | Legacy decode compatibility | Committed fixtures and malformed-input safety |
 | WIMF v1 and `ROT!` | Legacy decode/encode | Explicit v1 output, surgical metadata edit, protected round trip |
 | WIMF Studio and headless CLI | Implemented | Headless state tests, command help, installed-wheel smoke tests |
 
@@ -231,7 +235,7 @@ The visual report separately exercises synthetic mixed content, a credited natur
 | Animation creation | Legacy-only | AWIF encode/decode with preserved timing |
 | Wavelet watermark creation | Planned | v1 only |
 
-See the [WIM2 format overview](docs/wim2-format.md), [AWIF compatibility matrix](docs/awif-testing.md), [native embedding guide](docs/native-core.md), and [release checklist](docs/release-checklist.md) for implementation and publishing details.
+See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](docs/legacy-migration.md), [native embedding guide](docs/native-core.md), and [release checklist](docs/release-checklist.md).
 
 ## Verification and roadmap
 

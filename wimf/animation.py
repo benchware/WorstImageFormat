@@ -4,8 +4,9 @@ import struct
 
 import numpy as np
 
+from . import core
 from .codec import decode_lossy, encode_lossy
-from .core import HAS_CPP, haar_level, ihaar_level
+from .core import haar_level, ihaar_level
 
 try:
     from . import wimf_cpp  # type: ignore[attr-defined]
@@ -19,6 +20,9 @@ MAX_ANIMATION_PAYLOAD = 2 * 1024 * 1024 * 1024
 
 
 def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_depth=8):
+    from .deprecation import warn_legacy
+
+    warn_legacy("AWIF and v1 chrono authoring", "use WIM2 chrono history instead")
     if not frames or len(frames) > MAX_ANIMATION_FRAMES:
         raise ValueError("AWIF requires between 1 and 100000 frames")
     if w <= 0 or h <= 0 or channels not in (1, 2, 3, 4) or bit_depth not in (8, 10, 16):
@@ -51,7 +55,7 @@ def encode_animated(frames, w, h, channels, quality=5, preset="Balanced", bit_de
             out_payload.extend(compressed)
             prev_arr = np.frombuffer(frame, dtype=dtype).reshape(h, w, channels).astype(np.float32)
         else:
-            if HAS_CPP and bit_depth == 8:
+            if core.HAS_CPP and bit_depth == 8:
                 # Optimized C++ frame diff
                 curr_arr_u8 = np.frombuffer(frame, dtype=np.uint8)
                 prev_arr_u8 = prev_arr.astype(np.uint8).reshape(-1)

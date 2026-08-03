@@ -1,5 +1,13 @@
 # Release checklist
 
+## WIMF 2.2 legacy and security gate
+
+- Confirm every deprecated writer emits a `FutureWarning` naming WIMF 3.0 and a WIM2 migration path.
+- Confirm committed WIMF v1, AWIF, and `ROT!` fixtures still decode.
+- Confirm CodeQL has no unresolved critical/high findings in first-party production code.
+- Review the pinned Zstandard version, source URL, license, digest, and known CVEs.
+- Keep malformed-input and sanitizer jobs blocking; performance reports remain advisory.
+
 ## Before creating the release
 
 - Update the version in `pyproject.toml` and add the dated changelog entry.

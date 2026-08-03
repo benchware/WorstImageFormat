@@ -443,6 +443,12 @@ class WIMFEncoder:
         if format_version not in (1, 2):
             raise ValueError("format_version must be 1 or 2")
 
+        if format_version == 1:
+            from .deprecation import warn_legacy
+
+            legacy_feature = "legacy ROT! authoring" if self.tuning.get("anti_rot") else "WIMF v1 authoring"
+            warn_legacy(legacy_feature)
+
         if format_version == 2:
             encoded_states = [
                 encode_v2(

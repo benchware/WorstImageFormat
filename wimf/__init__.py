@@ -5,7 +5,7 @@ from .api import WIMFDecoder, WIMFEncoder, WIMFImage
 from .api import edit_metadata as edit_meta
 from .io import loadImage, saveImage, stream_load
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __all__ = [
     "WIMFImage",
     "WIMFDecoder",
@@ -281,7 +281,7 @@ def runtime_info():
             "simd": "python",
             "hardware_threads": os.cpu_count() or 1,
             "effective_threads": min(os.cpu_count() or 1, 8),
-            "codec_version": "2.1-python",
+            "codec_version": "2.2-python",
             "zstandard_version": zstd_version,
             "native_orchestration": False,
             "execution_policies": ("python-threaded",),

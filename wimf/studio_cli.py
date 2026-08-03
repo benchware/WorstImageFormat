@@ -11,7 +11,8 @@ def main(argv=None):
         from .studio import launch
     except ImportError as error:
         parser.error(f"WIMF Studio requires Tkinter: {error}")
-    launch(args.path)
+        return 2
+    return launch(args.path)
 
 
 if __name__ == "__main__":

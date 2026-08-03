@@ -62,13 +62,9 @@ jobs:
           path: test-results.xml
           retention-days: 14
 
-  awif-test:
-    name: AWIF / ${{ matrix.os }} / Python 3.12
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  legacy-decode:
+    name: Legacy decode compatibility
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -77,16 +73,14 @@ jobs:
           cache: pip
       - run: python -m pip install pytest pybind11 numpy pillow zstandard setuptools wheel
       - run: python setup.py build_ext --inplace
-      - name: Verify native acceleration
-        run: python -c "import wimf.wimf_cpp; assert wimf.runtime_info()['native']"
-      - name: Run AWIF timing, geometry, quality, and compatibility matrix
-        run: python -m pytest wimf/test_awif.py -v --junitxml=awif-results.xml
-      - name: Upload AWIF test results
-        if: ${{ always() && hashFiles('awif-results.xml') != '' }}
+      - name: Run legacy compatibility and warning tests
+        run: python -m pytest wimf/test_awif.py wimf/test_deprecations.py -v --junitxml=legacy-results.xml
+      - name: Upload legacy test results
+        if: ${{ always() && hashFiles('legacy-results.xml') != '' }}
         uses: actions/upload-artifact@v7
         with:
-          name: awif-results-${{ matrix.os }}
-          path: awif-results.xml
+          name: legacy-results
+          path: legacy-results.xml
           retention-days: 14
 
   native-core:
@@ -180,7 +174,7 @@ jobs:
       - run: ./fuzz_v2_parser
 
   codec-benchmark:
-    name: Python vs C++ codecs / ${{ matrix.os }}
+    name: Python vs C++ WIM2 / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     continue-on-error: true
     strategy:
@@ -195,10 +189,10 @@ jobs:
           cache: pip
       - run: python -m pip install pybind11 numpy pillow zstandard setuptools wheel
       - run: python setup.py build_ext --inplace
-      - name: Benchmark WIM2 stills and AWIF animation
+      - name: Benchmark WIM2 still images
         shell: bash
         run: |
-          python benchmarks/bench_codecs.py --still-size 512 --animation-width 320 --animation-height 180 --animation-frames 30 > codec-benchmark.json
+          python benchmarks/bench_codecs.py --still-size 512 > codec-benchmark.json
           cat codec-benchmark.json
           echo "## Python vs C++ codec benchmark — ${{ runner.os }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"

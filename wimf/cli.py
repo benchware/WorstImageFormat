@@ -204,6 +204,9 @@ def convert(
 
 
 def main():
+    from .deprecation import warn_legacy
+
+    warn_legacy("wimf-convert", "use the unified 'wimf' command or WIMF Studio instead")
     parser = argparse.ArgumentParser(description="WIMF CLI Tool")
 
     parser.add_argument("-i", "--input", nargs="+", required=True, help="source file")
@@ -239,6 +242,8 @@ def main():
     parser.add_argument("--extract-secret", action="store_true")
 
     args = parser.parse_args()
+    if args.mip or args.depth or args.depth_map:
+        warn_legacy("legacy mip/depth command-line flags", "use WIM2 depth-channel APIs instead")
 
     comp_mode = 2
     if args.lossless:

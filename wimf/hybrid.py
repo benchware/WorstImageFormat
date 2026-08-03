@@ -402,6 +402,16 @@ def encode_v2(
     threads=None,
     operation_token=None,
 ):
+    if preset not in ("Fast", "Balanced", "Extreme"):
+        raise ValueError("preset must be Fast, Balanced, or Extreme")
+    if threads is not None and (isinstance(threads, bool) or not isinstance(threads, int) or threads < 1):
+        raise ValueError("threads must be None or a positive integer")
+    if not all(
+        isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in (width, height, channels)
+    ):
+        raise ValueError("width, height, and channels must be positive integers")
+    if channels > 16:
+        raise ValueError("channels must be between 1 and 16")
     if codec not in NAME_MODES and codec != "auto":
         raise ValueError(f"unknown codec {codec!r}")
     if not 1 <= quality <= 10:

@@ -19,6 +19,12 @@
 namespace wimf::v2 {
 namespace {
 
+size_t checked_mul(size_t left, size_t right) {
+    if (left != 0 && right > std::numeric_limits<size_t>::max() / left)
+        throw std::overflow_error("image size overflow");
+    return left * right;
+}
+
 uint32_t sample(const ImageView& v, uint32_t x, uint32_t y, uint8_t c) {
     const uint8_t* p = v.data + static_cast<size_t>(y) * v.row_stride +
                        (static_cast<size_t>(x) * v.channels + c) * v.bytes_per_sample;
@@ -120,7 +126,7 @@ TileMode classify_tile(const ImageView& v) {
     long double sum=0,sum2=0,edge=0,cross=0,first2=0,second2=0,alpha_edge=0;size_t n=0;
     const uint32_t step=std::max(1u,std::min(v.width,v.height)/64u);const double scale=v.bytes_per_sample==1?1.0:1.0/257.0;
     for(uint32_t y=0;y<v.height;y+=step)for(uint32_t x=0;x<v.width;x+=step){
-        std::string key(v.channels*v.bytes_per_sample,'\0');for(uint8_t c=0;c<v.channels;++c){const uint32_t s=sample(v,x,y,c);key[c*v.bytes_per_sample]=static_cast<char>(s);if(v.bytes_per_sample==2)key[c*2+1]=static_cast<char>(s>>8);}if(colors.size()<=256)colors.emplace(std::move(key),0);
+        std::string key(checked_mul(v.channels,v.bytes_per_sample),'\0');for(uint8_t c=0;c<v.channels;++c){const uint32_t s=sample(v,x,y,c);key[checked_mul(c,v.bytes_per_sample)]=static_cast<char>(s);if(v.bytes_per_sample==2)key[checked_mul(c,2)+1]=static_cast<char>(s>>8);}if(colors.size()<=256)colors.emplace(std::move(key),0);
         const double first=sample(v,x,y,0)*scale,second=sample(v,x,y,std::min<uint8_t>(1,v.channels-1))*scale,gray=(first+second+sample(v,x,y,std::min<uint8_t>(2,v.channels-1))*scale)/3.0;sum+=gray;sum2+=gray*gray;cross+=first*second;first2+=first*first;second2+=second*second;++n;
         if(x>=step){edge+=std::abs(gray-(sample(v,x-step,y,0)+sample(v,x-step,y,std::min<uint8_t>(1,v.channels-1))+sample(v,x-step,y,std::min<uint8_t>(2,v.channels-1)))*scale/3.0);if(v.channels==2||v.channels==4)alpha_edge+=std::abs(static_cast<int64_t>(sample(v,x,y,v.channels-1))-sample(v,x-step,y,v.channels-1))*scale;}
         if(y>=step)edge+=std::abs(gray-(sample(v,x,y-step,0)+sample(v,x,y-step,std::min<uint8_t>(1,v.channels-1))+sample(v,x,y-step,std::min<uint8_t>(2,v.channels-1)))*scale/3.0);

@@ -45,6 +45,9 @@ def surgical_write(path, magic, w, h, flags, meta, pixel_data, protect=False):
 
 
 def main():
+    from .deprecation import warn_legacy
+
+    warn_legacy("wimf-meta", "use 'wimf info' or WIMF Studio instead")
     parser = argparse.ArgumentParser(description="WIMF Metadata Surgery Tool")
     parser.add_argument("file", help="WIMF file to edit")
     parser.add_argument(

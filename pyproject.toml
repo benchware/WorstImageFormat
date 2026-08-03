@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wimf"
-version = "2.1.0"
+version = "2.2.0"
 authors = [
   { name="BenchWare", email="ivanm12453@gmail.com" },
 ]
-description = "Worst IMage Format - A high-performance wavelet-based image codec"
+description = "WIM2 hybrid image codec with a Python frontend and portable C++ core"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.10"

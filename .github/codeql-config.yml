@@ -1,0 +1,10 @@
+name: "WIMF first-party production code"
+paths:
+  - src
+  - wimf
+paths-ignore:
+  - third_party
+  - build
+  - dist
+  - tests
+  - "wimf/test_*.py"

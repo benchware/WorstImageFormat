@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from .core import HAS_CPP, get_quantization_steps, haar_level, ihaar_level
+from . import core
+from .core import get_quantization_steps, haar_level, ihaar_level
 
 try:
     from . import wimf_cpp  # type: ignore[attr-defined]
@@ -45,7 +46,7 @@ def encode_lossless_channel(channel_2d):
     res2 = arr - above
 
     # this paeth thing is confusing but it basically picks the best neighbor
-    if HAS_CPP:
+    if core.HAS_CPP:
         res3 = np.zeros_like(arr)
         wimf_cpp.paeth_filter(arr, left, above, above_left, res3)
     else:
@@ -55,7 +56,7 @@ def encode_lossless_channel(channel_2d):
         res3 = arr - pr
 
     # figure out which filter sucks the least for each row
-    if HAS_CPP:
+    if core.HAS_CPP:
         best_filters = wimf_cpp.select_best_filters(res0, res1, res2, res3)
     else:
 
@@ -141,9 +142,13 @@ def decode_lossless(data, w, h, channels):
 
 # the main event. lossy compression using magic wavelets.
 def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_depth=8, progressive=True, metadata=None):
+    if metadata and metadata.get("watermark_payload"):
+        from .deprecation import warn_legacy
+
+        warn_legacy("coefficient watermark authoring", "store ordinary WIM2 metadata instead")
     if (
         USE_EXPERIMENTAL_NATIVE_V1_LOSSY
-        and HAS_CPP
+        and core.HAS_CPP
         and bit_depth == 8
         and (w % 16 == 0 and h % 16 == 0)
         and hasattr(wimf_cpp, "c_encode_lossy")
@@ -161,7 +166,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
 
     if not disable_ycocg and channels >= 3:
         arr = arr_full[..., :3].astype(np.int32)
-        if HAS_CPP:
+        if core.HAS_CPP:
             wimf_cpp.ycocg_forward(arr)
             y, co, cg = arr[..., 0], arr[..., 1], arr[..., 2]
         else:
@@ -234,7 +239,7 @@ def encode_lossy(pixels, w, h, quality=5, preset="Balanced", channels=3, bit_dep
                 # process all channels for this tile
                 tile_bands_all = []
                 for c in range(channels):
-                    if HAS_CPP:
+                    if core.HAS_CPP:
                         # Optimized C++ tile extraction
                         src_view = padded_chans[c].reshape(gh, 16, gw, 16)
                         t_chan = np.zeros((tile_size, 16, tile_size, 16), dtype=np.float32)
@@ -395,7 +400,7 @@ def decode_lossy(
     mode = data[0] & 0x0F
     if (
         USE_EXPERIMENTAL_NATIVE_V1_LOSSY
-        and HAS_CPP
+        and core.HAS_CPP
         and bit_depth == 8
         and not roi
         and mip_level == 0
@@ -527,7 +532,7 @@ def decode_lossy(
 
         # inverse ycocg math. it works, trust me.
         if not disable_ycocg:
-            if HAS_CPP:
+            if core.HAS_CPP:
                 # Prepare a 3-channel stack for C++
                 stack_3ch = np.stack([y_rec, c1_rec, c2_rec], axis=-1).astype(np.float32)
                 wimf_cpp.ycocg_inverse(stack_3ch)
@@ -632,7 +637,7 @@ def decode_lossy(
 
     # Bug fix #4: use `mode` (from the bitstream) not `mode_flag` (the caller param)
     if not disable_ycocg:
-        if HAS_CPP:
+        if core.HAS_CPP:
             stack_3ch = np.stack([y_rec, c1_rec, c2_rec], axis=-1).astype(np.float32)
             wimf_cpp.ycocg_inverse(stack_3ch)
             r, g, b = stack_3ch[..., 0], stack_3ch[..., 1], stack_3ch[..., 2]
