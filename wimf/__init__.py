@@ -4,7 +4,7 @@ from .api import WIMFDecoder, WIMFEncoder, WIMFImage, open_image
 from .api import edit_metadata as edit_meta
 from .io import loadImage, saveImage, stream_load
 
-__version__ = "1.3.2"
+__version__ = "2.0.0"
 __all__ = [
     "WIMFImage",
     "WIMFDecoder",
@@ -16,6 +16,7 @@ __all__ = [
     "loadImage",
     "saveImage",
     "stream_load",
+    "runtime_info",
 ]
 
 
@@ -33,7 +34,7 @@ def save(path, image, **kwargs):
     """Convenience function to save any image-like object as WIMF."""
     encoder = WIMFEncoder(image)
     # Keys that control encoding behaviour (passed to encode())
-    encode_keys = {"quality", "preset", "lossless"}
+    encode_keys = {"quality", "preset", "lossless", "format_version", "codec", "threads"}
 
     if "anti_rot" in kwargs:
         encoder.set_anti_rot(kwargs["anti_rot"])
@@ -59,5 +60,24 @@ def is_wimf(source):
     """Fast check if a file or byte buffer is WIMF."""
     if isinstance(source, str):
         with _builtins.open(source, "rb") as f:
-            return f.read(4) in [b"WIMF", b"AWIF", b"ROT!"]
-    return source[:4] in [b"WIMF", b"AWIF", b"ROT!"]
+            return f.read(4) in [b"WIMF", b"WIM2", b"AWIF", b"ROT!"]
+    return source[:4] in [b"WIMF", b"WIM2", b"AWIF", b"ROT!"]
+
+
+def runtime_info():
+    """Return details about the active WIMF v2 processing backend."""
+    import os
+    import platform
+
+    try:
+        from .wimf_v2_cpp import runtime_info as native_info
+    except ImportError:
+        return {
+            "native": False,
+            "architecture": platform.machine().lower() or "unknown",
+            "simd": "python",
+            "hardware_threads": os.cpu_count() or 1,
+        }
+    details = dict(native_info())
+    details["native"] = True
+    return details

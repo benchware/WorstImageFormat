@@ -1,10 +1,10 @@
 Metadata-Version: 2.4
 Name: wimf
-Version: 1.3.2
+Version: 2.0.0
 Summary: Worst IMage Format - A high-performance wavelet-based image codec
 Author-email: BenchWare <ivanm12453@gmail.com>
 License: GPL-3.0-or-later
-Project-URL: Homepage, https://github.com/benchware/wimf
+Project-URL: Homepage, https://github.com/benchware/WorstImageFormat
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: GNU General Public License v3 (GPLv3)
 Requires-Python: >=3.8
@@ -12,6 +12,7 @@ Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: numpy
 Requires-Dist: pillow
+Requires-Dist: zstandard>=0.22
 Dynamic: license-file
 
 <p align="center">
@@ -63,8 +64,8 @@ WIMF is currently available as a source-only library. To install the developer s
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/benchware/wimf.git
-   cd wimf
+   git clone https://github.com/benchware/WorstImageFormat.git
+   cd WorstImageFormat
    ```
 
 2. Install dependencies:
@@ -93,14 +94,38 @@ img.pil.show()
 wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
 ```
 
-## TODO List
+## WIMF v2 Hybrid Codec
 
-- ~~Finish C++ porting~~ (Core engine complete)
-- Mainly use C++ (Porting remaining high-level logic)
-- Pure Python Parity (Fallback for all C++ functions)
+New still images use the `WIM2` container and independently compressed 128×128
+tiles. The encoder selects raw, palette, spatial-predictive, or CDF wavelet
+coding per tile; tile offsets and CRCs permit bounded region decoding and
+corruption detection. Zstandard is used for structured tile symbols.
+
+```python
+# Automatic per-tile selection (default)
+wimf.save("hybrid.wimf", image, quality=8, codec="auto")
+
+# Exact reconstruction, or explicit legacy output
+wimf.save("exact.wimf", image, lossless=True)
+wimf.save("legacy.wimf", image, lossless=True, format_version=1)
+```
+
+`codec` may be `auto`, `wavelet`, `predictive`, or `palette`. Existing WIMF v1
+files remain readable. Animation and anti-rot protected output currently remain
+on the v1 container.
+
+The performance-critical v2 kernels are implemented in portable C++17 with a
+thin pybind11 wrapper. Python automatically uses the native extension when a
+binary wheel is installed and retains a reference decoder as a fallback. Use
+`wimf.runtime_info()` to inspect the active backend and pass `threads=N` to
+`wimf.save()` to control tile-level parallelism.
+
+## TODO List
 - Web support
 - Test on ARM
-- GPU acceleration
+- Publish on PyPI
 
 ## License
-WIMF is licensed under the GPL 3.0.
+Worst IMage Format is licensed under the GNU General Public License (GPL) v3.0. You are free to use, modify, and distribute this software under the terms of the GPL v3.0.
+
+For more information, see GNU General Public License.

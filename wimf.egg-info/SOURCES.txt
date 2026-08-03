@@ -1,7 +1,12 @@
 LICENSE
+MANIFEST.in
 README.md
 pyproject.toml
+setup.py
 src/main.cpp
+src/v2_bindings.cpp
+src/v2_core.cpp
+src/v2_core.hpp
 wimf/__init__.py
 wimf/animation.py
 wimf/api.py
@@ -9,9 +14,12 @@ wimf/cat.py
 wimf/cli.py
 wimf/codec.py
 wimf/core.py
+wimf/hybrid.py
 wimf/io.py
 wimf/meta_tool.py
 wimf/parity.py
+wimf/test_core.py
+wimf/test_v2.py
 wimf/viewer.py
 wimf.egg-info/PKG-INFO
 wimf.egg-info/SOURCES.txt

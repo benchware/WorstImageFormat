@@ -1,0 +1,6 @@
+include src/*.cpp
+include src/*.hpp
+include README.md
+include LICENSE
+include benchmarks/*.py
+recursive-include tests *.cpp *.py

@@ -10,6 +10,8 @@ from PIL import Image
 from . import parity
 from .codec import decode_lossless, decode_lossy, encode_lossless, encode_lossy
 from .core import parse_header
+from .hybrid import MAGIC as V2_MAGIC
+from .hybrid import decode_v2, encode_v2, parse_v2
 from .meta_tool import surgical_read, surgical_write
 
 logger = logging.getLogger(__name__)
@@ -18,9 +20,10 @@ logger = logging.getLogger(__name__)
 def _pixels_to_pil(pix, w, h, channels, metadata, bit_depth):
     """Convert raw pixel bytes to a PIL Image, handling all channel/depth combos."""
     # dumb 10bit to 8bit conversion for pil
-    if bit_depth == 10:
+    if bit_depth in (10, 16):
         arr = np.frombuffer(pix, dtype=np.uint16).reshape((h, w, channels))
-        pix = (arr >> 2).astype(np.uint8).tobytes()
+        shift = 2 if bit_depth == 10 else 8
+        pix = (arr >> shift).astype(np.uint8).tobytes()
 
     # standard modes for pil
     if channels == 3:
@@ -86,7 +89,9 @@ class WIMFImage:
         if self.raw_pixels is not None:
             h, w = self.height, self.width
             chans = self.metadata.get("channels", 3)
-            return np.frombuffer(self.raw_pixels, dtype=np.uint8).reshape((h, w, chans))
+            depth = self.metadata.get("bit_depth", 10 if self.metadata.get("bit10") else 8)
+            dtype = np.uint8 if depth == 8 else np.uint16
+            return np.frombuffer(self.raw_pixels, dtype=dtype).reshape((h, w, chans))
         return np.array(self.pil)
 
     def to_opencv(self):
@@ -122,6 +127,19 @@ class WIMFDecoder:
         self._buffer.seek(0)
         raw = self._buffer.read()
 
+        if raw[:4] == V2_MAGIC:
+            info = parse_v2(raw)
+            self.magic = V2_MAGIC
+            self.width, self.height = info["width"], info["height"]
+            self.flags = info["flags"]
+            self.metadata = info["metadata"]
+            self.channels, self.bit_depth = info["channels"], info["bit_depth"]
+            self.metadata.update({"channels": self.channels, "bit_depth": self.bit_depth, "format_version": 2})
+            self.is_animated = False
+            self._data_start = 0
+            self._raw = raw
+            return
+
         try:
             from . import wimf_cpp
 
@@ -154,7 +172,11 @@ class WIMFDecoder:
     def decode(self, roi=None, target_layer=2, mip_level=0):
         data = self._raw[self._data_start :]
 
-        if self.magic == b"AWIF":
+        if self.magic == V2_MAGIC:
+            if mip_level:
+                raise ValueError("WIMF v2 mip decoding is not implemented")
+            pix, _ = decode_v2(self._raw, roi=roi, target_layer=target_layer)
+        elif self.magic == b"AWIF":
             from .animation import decode_animated
 
             frames = decode_animated(data, self.width, self.height, self.channels, bit_depth=self.bit_depth)
@@ -290,7 +312,7 @@ class WIMFEncoder:
         return self
 
     # do the encoding
-    def encode(self, quality=7, preset="Balanced", lossless=False):
+    def encode(self, quality=7, preset="Balanced", lossless=False, format_version=2, codec="auto", threads=None):
         meta = self.metadata.copy()
         meta["tuning"] = self.tuning
 
@@ -325,6 +347,26 @@ class WIMFEncoder:
 
         channels = actual_channels
         meta["channels"] = channels
+
+        bit_depth = meta.get("bit_depth", 10 if meta.get("bit10") else 8)
+
+        if format_version not in (1, 2):
+            raise ValueError("format_version must be 1 or 2")
+
+        if format_version == 2 and len(self.states) == 1 and not self.tuning.get("anti_rot"):
+            return encode_v2(
+                pixel_states[0],
+                w,
+                h,
+                channels,
+                bit_depth=bit_depth,
+                quality=quality,
+                lossless=lossless,
+                preset=preset,
+                codec=codec,
+                metadata=meta,
+                threads=threads,
+            )
 
         if len(self.states) > 1:
             # use the animation code for undo history

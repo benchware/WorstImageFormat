@@ -77,6 +77,32 @@ img.pil.show()
 wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
 ```
 
+## WIMF v2 Hybrid Codec
+
+New still images use the `WIM2` container and independently compressed 128×128
+tiles. The encoder selects raw, palette, spatial-predictive, or CDF wavelet
+coding per tile; tile offsets and CRCs permit bounded region decoding and
+corruption detection. Zstandard is used for structured tile symbols.
+
+```python
+# Automatic per-tile selection (default)
+wimf.save("hybrid.wimf", image, quality=8, codec="auto")
+
+# Exact reconstruction, or explicit legacy output
+wimf.save("exact.wimf", image, lossless=True)
+wimf.save("legacy.wimf", image, lossless=True, format_version=1)
+```
+
+`codec` may be `auto`, `wavelet`, `predictive`, or `palette`. Existing WIMF v1
+files remain readable. Animation and anti-rot protected output currently remain
+on the v1 container.
+
+The performance-critical v2 kernels are implemented in portable C++17 with a
+thin pybind11 wrapper. Python automatically uses the native extension when a
+binary wheel is installed and retains a reference decoder as a fallback. Use
+`wimf.runtime_info()` to inspect the active backend and pass `threads=N` to
+`wimf.save()` to control tile-level parallelism.
+
 ## TODO List
 - Web support
 - Test on ARM

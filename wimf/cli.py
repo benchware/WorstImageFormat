@@ -12,7 +12,7 @@ import time
 import numpy as np
 from PIL import ExifTags, Image, ImageSequence
 
-from .api import loadImage, saveImage
+from .io import loadImage, saveImage
 
 logger = logging.getLogger(__name__)
 
