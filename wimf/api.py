@@ -10,6 +10,14 @@ from PIL import Image
 from . import parity
 from .codec import decode_lossless, decode_lossy, encode_lossless, encode_lossy
 from .core import parse_header
+from .extensions import (
+    append_extensions,
+    decode_history,
+    encode_anti_rot,
+    encode_history,
+    parse_extensions,
+    repair_extensions,
+)
 from .hybrid import MAGIC as V2_MAGIC
 from .hybrid import decode_v2, encode_v2, parse_v2
 from .meta_tool import surgical_read, surgical_write
@@ -114,6 +122,12 @@ class WIMFDecoder:
 
         # try to fix the file if it's broken
         repaired, was_protected, was_corrupt = parity.verify_and_repair(data)
+        if repaired.startswith(V2_MAGIC):
+            repaired, v2_protected, v2_corrupt = repair_extensions(repaired)
+            was_protected = was_protected or v2_protected
+            was_corrupt = was_corrupt or v2_corrupt
+        self.was_protected = was_protected
+        self.was_repaired = was_corrupt
         self._buffer = io.BytesIO(repaired)
 
         self._parse_header()
@@ -138,6 +152,9 @@ class WIMFDecoder:
             self.is_animated = False
             self._data_start = 0
             self._raw = raw
+            self._extensions = parse_extensions(raw)
+            history = self._extensions.get(b"HIST")
+            self._history_states = decode_history(history["payload"]) if history else None
             return
 
         try:
@@ -205,6 +222,8 @@ class WIMFDecoder:
 
     @property
     def num_states(self):
+        if self.magic == V2_MAGIC and self._history_states is not None:
+            return len(self._history_states)
         if not self.is_animated:
             return 1
         # First 4 bytes of data payload is num_frames
@@ -212,6 +231,11 @@ class WIMFDecoder:
 
     # get one state from the undo history
     def decode_chrono_state(self, index=0, **kwargs):
+        if self.magic == V2_MAGIC and self._history_states is not None:
+            if index < 0:
+                index += len(self._history_states)
+            index = min(max(index, 0), len(self._history_states) - 1)
+            return WIMFDecoder(self._history_states[index]).decode(**kwargs)
         if not self.is_animated:
             return self.decode(**kwargs)
 
@@ -353,20 +377,31 @@ class WIMFEncoder:
         if format_version not in (1, 2):
             raise ValueError("format_version must be 1 or 2")
 
-        if format_version == 2 and len(self.states) == 1 and not self.tuning.get("anti_rot"):
-            return encode_v2(
-                pixel_states[0],
-                w,
-                h,
-                channels,
-                bit_depth=bit_depth,
-                quality=quality,
-                lossless=lossless,
-                preset=preset,
-                codec=codec,
-                metadata=meta,
-                threads=threads,
-            )
+        if format_version == 2:
+            encoded_states = [
+                encode_v2(
+                    pixels,
+                    w,
+                    h,
+                    channels,
+                    bit_depth=bit_depth,
+                    quality=quality,
+                    lossless=lossless,
+                    preset=preset,
+                    codec=codec,
+                    metadata=meta,
+                    threads=threads,
+                )
+                for pixels in pixel_states
+            ]
+            base = encoded_states[0]
+            chunks = []
+            if len(encoded_states) > 1:
+                chunks.append((b"HIST", encode_history(encoded_states), 0))
+            if self.tuning.get("anti_rot"):
+                protected_prefix = base + b"".join(chunk for _, chunk, _ in chunks)
+                chunks.append((b"AROT", encode_anti_rot(protected_prefix), 0))
+            return append_extensions(base, chunks) if chunks else base
 
         if len(self.states) > 1:
             # use the animation code for undo history

@@ -3,10 +3,15 @@ MANIFEST.in
 README.md
 pyproject.toml
 setup.py
+benchmarks/bench_v2.py
+docs/native-core.md
+docs/wim2-format.md
 src/main.cpp
 src/v2_bindings.cpp
 src/v2_core.cpp
 src/v2_core.hpp
+tests/generate_ci_report.py
+tests/cpp/test_v2_core.cpp
 wimf/__init__.py
 wimf/animation.py
 wimf/api.py
@@ -14,6 +19,7 @@ wimf/cat.py
 wimf/cli.py
 wimf/codec.py
 wimf/core.py
+wimf/extensions.py
 wimf/hybrid.py
 wimf/io.py
 wimf/meta_tool.py

@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
 import wimf
+from wimf.extensions import parse_extensions
 
 
 def test_lossless_roundtrip(tmp_path):
@@ -39,7 +42,7 @@ def test_metadata_persistence(tmp_path):
 
 
 def test_parity_protection(tmp_path):
-    """Verify anti_rot (parity) encoding creates valid ROT files."""
+    """Verify anti_rot encoding creates a protected WIM2 file."""
     arr = np.random.randint(0, 256, (16, 16, 3), dtype=np.uint8)
     img = Image.fromarray(arr)
     out = str(tmp_path / "test_parity.wimf")
@@ -47,7 +50,8 @@ def test_parity_protection(tmp_path):
 
     with open(out, "rb") as f:
         magic = f.read(4)
-    assert magic == b"ROT!"
+    assert magic == b"WIM2"
+    assert b"AROT" in parse_extensions(Path(out).read_bytes())
 
 
 def test_cpp_extension_loaded():

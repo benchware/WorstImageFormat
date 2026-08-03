@@ -78,6 +78,31 @@ void test_crc_and_rejection() {
     require(rejected, "malformed predictive stream was accepted");
 }
 
+void test_container_roundtrip() {
+    wimf::v2::ContainerInfo source{};
+    source.flags = 1;
+    source.bit_depth = 8;
+    source.channels = 3;
+    source.width = 17;
+    source.height = 19;
+    source.tile_size = 128;
+    source.metadata = "{\"format_version\":2}";
+    wimf::v2::TileRecord tile{};
+    tile.width = 17;
+    tile.height = 19;
+    tile.mode = 0;
+    tile.entropy = 0;
+    tile.layers = 1;
+    tile.raw_size = 17 * 19 * 3;
+    tile.payload.resize(tile.raw_size, 42);
+    source.tiles.push_back(tile);
+    const auto encoded = wimf::v2::write_container(source);
+    const auto decoded = wimf::v2::parse_container(encoded.data(), encoded.size());
+    require(decoded.width == source.width && decoded.height == source.height, "container dimensions changed");
+    require(decoded.tiles.size() == 1 && decoded.tiles[0].mode == 0, "container tile index changed");
+    require(decoded.tiles[0].checksum == wimf::v2::crc32(tile.payload.data(), tile.payload.size()), "container checksum changed");
+}
+
 }  // namespace
 
 int main() {
@@ -87,6 +112,7 @@ int main() {
         test_palette_roundtrip();
         test_reversible_wavelet();
         test_crc_and_rejection();
+        test_container_roundtrip();
         std::cout << "All native WIMF v2 tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

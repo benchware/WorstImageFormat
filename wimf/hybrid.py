@@ -449,6 +449,12 @@ def encode_v2(
     else:
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             tiles = list(executor.map(encode_tile, coordinates))
+    if native is not None and hasattr(native, "write_container"):
+        native_tiles = [
+            (x, y, tw, th, mode, entropy, layers, len(raw), packed)
+            for x, y, tw, th, mode, entropy, layers, raw, packed in tiles
+        ]
+        return native.write_container(flags, bit_depth, channels, width, height, tile_size, meta_bytes, native_tiles)
     header_size = HEADER.size + len(meta_bytes) + len(tiles) * ENTRY.size
     entries = bytearray()
     payload = bytearray()
@@ -468,6 +474,17 @@ def encode_v2(
 
 
 def parse_v2(data):
+    if native is not None and hasattr(native, "inspect_container"):
+        try:
+            inspected = native.inspect_container(data)
+        except (RuntimeError, ValueError) as exc:
+            raise ValueError(str(exc)) from exc
+        try:
+            metadata_bytes = bytes(inspected["metadata"])
+            inspected["metadata"] = json.loads(metadata_bytes.decode()) if metadata_bytes else {}
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("invalid WIMF v2 metadata") from exc
+        return inspected
     if len(data) < HEADER.size:
         raise ValueError("file too short for WIMF v2 header")
     magic, version, flags, depth, channels, width, height, tile_size, mlen, count = HEADER.unpack_from(data)

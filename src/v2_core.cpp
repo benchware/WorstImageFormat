@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace wimf::v2 {
 namespace {
@@ -106,19 +107,17 @@ RuntimeInfo runtime_info() {
 }
 
 TileMode classify_tile(const ImageView& v) {
-    validate(v); std::unordered_map<std::string,uint8_t> colors; colors.reserve(257);
-    long double sum=0,sum2=0,edge=0; size_t n=0;
-    const uint32_t step=std::max(1u,std::min(v.width,v.height)/64u);
+    validate(v);std::unordered_map<std::string,uint8_t> colors;colors.reserve(257);
+    long double sum=0,sum2=0,edge=0,cross=0,first2=0,second2=0,alpha_edge=0;size_t n=0;
+    const uint32_t step=std::max(1u,std::min(v.width,v.height)/64u);const double scale=v.bytes_per_sample==1?1.0:1.0/257.0;
     for(uint32_t y=0;y<v.height;y+=step)for(uint32_t x=0;x<v.width;x+=step){
-        std::string key; key.resize(v.channels*v.bytes_per_sample);
-        for(uint8_t c=0;c<v.channels;++c){const uint32_t s=sample(v,x,y,c); key[c*v.bytes_per_sample]=static_cast<char>(s); if(v.bytes_per_sample==2)key[c*2+1]=static_cast<char>(s>>8);}
-        if(colors.size()<=256)colors.emplace(std::move(key),0);
-        const double gray=sample(v,x,y,0); sum+=gray; sum2+=gray*gray; ++n;
-        if(x>=step)edge+=std::abs(static_cast<int64_t>(sample(v,x,y,0))-sample(v,x-step,y,0));
+        std::string key(v.channels*v.bytes_per_sample,'\0');for(uint8_t c=0;c<v.channels;++c){const uint32_t s=sample(v,x,y,c);key[c*v.bytes_per_sample]=static_cast<char>(s);if(v.bytes_per_sample==2)key[c*2+1]=static_cast<char>(s>>8);}if(colors.size()<=256)colors.emplace(std::move(key),0);
+        const double first=sample(v,x,y,0)*scale,second=sample(v,x,y,std::min<uint8_t>(1,v.channels-1))*scale,gray=(first+second+sample(v,x,y,std::min<uint8_t>(2,v.channels-1))*scale)/3.0;sum+=gray;sum2+=gray*gray;cross+=first*second;first2+=first*first;second2+=second*second;++n;
+        if(x>=step){edge+=std::abs(gray-(sample(v,x-step,y,0)+sample(v,x-step,y,std::min<uint8_t>(1,v.channels-1))+sample(v,x-step,y,std::min<uint8_t>(2,v.channels-1)))*scale/3.0);if(v.channels==2||v.channels==4)alpha_edge+=std::abs(static_cast<int64_t>(sample(v,x,y,v.channels-1))-sample(v,x-step,y,v.channels-1))*scale;}
+        if(y>=step)edge+=std::abs(gray-(sample(v,x,y-step,0)+sample(v,x,y-step,std::min<uint8_t>(1,v.channels-1))+sample(v,x,y-step,std::min<uint8_t>(2,v.channels-1)))*scale/3.0);
     }
-    if(colors.size()<=256)return TileMode::Palette;
-    const double variance=static_cast<double>(sum2/n-(sum/n)*(sum/n));
-    return edge/std::max<size_t>(1,n)>25.0&&variance<5000.0?TileMode::Predictive:TileMode::Wavelet;
+    if(colors.size()<=256)return TileMode::Palette;const double mean=static_cast<double>(sum/n),variance=std::max(0.0,static_cast<double>(sum2/n)-mean*mean),gradient=static_cast<double>(edge/n),correlation=static_cast<double>(cross/std::sqrt(std::max<long double>(1.0,first2*second2)));
+    if(alpha_edge/n>12.0||gradient>28.0&&variance<5200.0)return TileMode::Predictive;return correlation>0.92&&gradient<22.0?TileMode::Wavelet:TileMode::Predictive;
 }
 
 std::vector<uint8_t> encode_predictive(const ImageView& v) {
@@ -162,5 +161,36 @@ std::vector<uint8_t> wavelet_inverse(const int64_t* coeff,size_t count,uint32_t 
 }
 
 uint32_t crc32(const uint8_t* data,size_t size){uint32_t crc=0xffffffffu;for(size_t i=0;i<size;++i){crc^=data[i];for(int k=0;k<8;++k)crc=(crc>>1)^(0xedb88320u&-(static_cast<int32_t>(crc&1)));}return ~crc;}
+
+namespace {
+constexpr size_t kHeaderSize = 26, kEntrySize = 32;
+uint16_t read16(const uint8_t* p){return static_cast<uint16_t>(p[0])|static_cast<uint16_t>(p[1])<<8;}
+uint32_t read32(const uint8_t* p){return static_cast<uint32_t>(p[0])|static_cast<uint32_t>(p[1])<<8|static_cast<uint32_t>(p[2])<<16|static_cast<uint32_t>(p[3])<<24;}
+uint64_t read64(const uint8_t* p){uint64_t value=0;for(int i=7;i>=0;--i)value=(value<<8)|p[i];return value;}
+void put16(std::vector<uint8_t>& out,uint16_t value){out.push_back(static_cast<uint8_t>(value));out.push_back(static_cast<uint8_t>(value>>8));}
+void put32(std::vector<uint8_t>& out,uint32_t value){for(int i=0;i<4;++i)out.push_back(static_cast<uint8_t>(value>>(i*8)));}
+void put64(std::vector<uint8_t>& out,uint64_t value){for(int i=0;i<8;++i)out.push_back(static_cast<uint8_t>(value>>(i*8)));}
+}
+
+ContainerInfo parse_container(const uint8_t* data,size_t size){
+    if(!data||size<kHeaderSize||std::memcmp(data,"WIM2",4)!=0||data[4]!=2)throw std::runtime_error("not a supported WIM2 container");
+    ContainerInfo out{};out.flags=data[5];out.bit_depth=data[6];out.channels=data[7];out.width=read32(data+8);out.height=read32(data+12);out.tile_size=read16(data+16);
+    const uint32_t metadata_size=read32(data+18),count=read32(data+22);
+    if(!out.width||!out.height||!out.channels||out.channels>16||(out.bit_depth!=8&&out.bit_depth!=10&&out.bit_depth!=16)||out.tile_size<16||out.tile_size>256||metadata_size>16u*1024u*1024u||count>16777216u)throw std::runtime_error("invalid WIM2 properties");
+    const uint64_t index_start=kHeaderSize+metadata_size,data_start=index_start+static_cast<uint64_t>(count)*kEntrySize;
+    if(data_start>size)throw std::runtime_error("truncated WIM2 index");out.metadata.assign(reinterpret_cast<const char*>(data+kHeaderSize),metadata_size);out.tiles.reserve(count);
+    const uint64_t expected=(out.width+out.tile_size-1)/out.tile_size*static_cast<uint64_t>((out.height+out.tile_size-1)/out.tile_size);if(count!=expected)throw std::runtime_error("WIM2 tile count mismatch");
+    std::unordered_set<uint64_t> seen;
+    for(uint32_t i=0;i<count;++i){const uint8_t* p=data+index_start+static_cast<uint64_t>(i)*kEntrySize;TileRecord tile{};tile.x=read16(p);tile.y=read16(p+2);tile.width=read16(p+4);tile.height=read16(p+6);tile.mode=p[8];tile.entropy=p[9];tile.layers=p[10];tile.offset=read64(p+12);tile.size=read32(p+20);tile.raw_size=read32(p+24);tile.checksum=read32(p+28);const uint64_t key=static_cast<uint64_t>(tile.y)<<32|tile.x;const uint64_t max_raw=std::max<uint64_t>(1048576,static_cast<uint64_t>(tile.width)*tile.height*out.channels*std::max(2,out.bit_depth/8)*32);
+        if(!tile.width||!tile.height||tile.mode>3||tile.entropy>1||tile.x+tile.width>out.width||tile.y+tile.height>out.height||tile.x%out.tile_size||tile.y%out.tile_size||tile.width!=std::min<uint32_t>(out.tile_size,out.width-tile.x)||tile.height!=std::min<uint32_t>(out.tile_size,out.height-tile.y)||!seen.insert(key).second||tile.offset<data_start||tile.offset>size||tile.size>size-tile.offset||tile.raw_size>max_raw)throw std::runtime_error("invalid WIM2 tile entry");out.tiles.push_back(std::move(tile));}
+    return out;
+}
+
+std::vector<uint8_t> write_container(const ContainerInfo& container){
+    if(!container.width||!container.height||!container.channels||container.channels>16||(container.bit_depth!=8&&container.bit_depth!=10&&container.bit_depth!=16)||container.tile_size<16||container.tile_size>256||container.metadata.size()>16u*1024u*1024u||container.tiles.size()>16777216u)throw std::invalid_argument("invalid WIM2 container");
+    const uint64_t header_size=kHeaderSize+container.metadata.size()+container.tiles.size()*kEntrySize;uint64_t total=header_size;for(const auto& tile:container.tiles){if(tile.payload.size()>std::numeric_limits<uint32_t>::max())throw std::overflow_error("tile payload too large");total+=tile.payload.size();}if(total>std::numeric_limits<size_t>::max())throw std::overflow_error("container too large");
+    std::vector<uint8_t> out;out.reserve(static_cast<size_t>(total));out.insert(out.end(),{'W','I','M','2',2,container.flags,container.bit_depth,container.channels});put32(out,container.width);put32(out,container.height);put16(out,container.tile_size);put32(out,static_cast<uint32_t>(container.metadata.size()));put32(out,static_cast<uint32_t>(container.tiles.size()));out.insert(out.end(),container.metadata.begin(),container.metadata.end());
+    uint64_t offset=header_size;for(const auto& tile:container.tiles){put16(out,tile.x);put16(out,tile.y);put16(out,tile.width);put16(out,tile.height);out.push_back(tile.mode);out.push_back(tile.entropy);out.push_back(tile.layers);out.push_back(0);put64(out,offset);put32(out,static_cast<uint32_t>(tile.payload.size()));put32(out,tile.raw_size);put32(out,crc32(tile.payload.data(),tile.payload.size()));offset+=tile.payload.size();}for(const auto& tile:container.tiles)out.insert(out.end(),tile.payload.begin(),tile.payload.end());return out;
+}
 
 }  // namespace wimf::v2

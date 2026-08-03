@@ -71,6 +71,13 @@ def runtime_info():
     import platform
 
     try:
+        import zstandard
+
+        zstd_version = zstandard.__version__
+    except (ImportError, AttributeError):
+        zstd_version = "unavailable"
+
+    try:
         from .wimf_v2_cpp import runtime_info as native_info
     except ImportError:
         return {
@@ -78,7 +85,12 @@ def runtime_info():
             "architecture": platform.machine().lower() or "unknown",
             "simd": "python",
             "hardware_threads": os.cpu_count() or 1,
+            "effective_threads": min(os.cpu_count() or 1, 8),
+            "codec_version": "2.1-python",
+            "zstandard_version": zstd_version,
         }
     details = dict(native_info())
     details["native"] = True
+    details["effective_threads"] = min(int(details["hardware_threads"]), 8)
+    details["zstandard_version"] = zstd_version
     return details

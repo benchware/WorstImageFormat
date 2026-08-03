@@ -2,113 +2,127 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/benchware/WorstImageFormat/main/.github/assets/white.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/benchware/WorstImageFormat/main/.github/assets/dark.png">
-    <img alt="Worst Image Format Logo" src="https://raw.githubusercontent.com/benchware/WorstImageFormat/main/.github/assets/dark.png" width="500">
+    <img alt="Worst Image Format" src="https://raw.githubusercontent.com/benchware/WorstImageFormat/main/.github/assets/dark.png" width="500">
   </picture>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3">
-  <img src="https://img.shields.io/badge/python-3.8+-aff.svg" alt="Python: 3.8+">
-  <img src="https://img.shields.io/badge/format-.wimf%20%7C%20.wif-orange" alt="Format: .wimf | .wif">
-</p>
+# WIMF — Worst IMage Format
 
-# WIMF: Worst IMage Format
+WIMF is an experimental, versioned image codec with a Python frontend and a portable C++17 backend. New still images use the WIM2 hybrid container: every 128×128 tile independently chooses Raw, Predictive, Palette, or CDF Wavelet coding and records its mode, entropy backend, bounds, size, offset, and checksum.
 
-WIMF is an experimental image format that provides advanced features like self-healing, undo history, and fast region loading. It uses modern color math and wavelets to store your images with high precision and density.
+The format is under active development. WIM2 still-image coding, ROI decoding, high bit depth, native kernels, optional anti-rot recovery, and indexed chrono history are implemented. Legacy WIMF/AWIF decoding remains available; animation and coefficient watermark creation still use v1.
 
-## Core Features
+## Highlights
 
-- **Tiled ROI Decoding**: High-speed Region of Interest extraction from massive (16K+) images without decompressing the full bitstream.
-- **Self-Healing (Anti-Rot)**: Built-in XOR parity protection (block-level)
-- **Chrono-Layers**: Delta-compressed historical state tracking, allowing a single file to store a complete undo history.
-- **Progressive Loading**: Chunked bitstream structure allows image quality to improve gradually during transit.
-- **Advanced Watermarking**: Invisible secret embedding directly within wavelet frequency layers.
-- **High Precision & Extra Channels**: Full 10-bit and 16-bit precision pipelines with native support for 5-channel data (RGBA + Depth).
-
-## The Technology
-
-WIMF utilizes an advanced wavelet-based engine to outperform traditional block-based compression (like JPEG) in detail preservation:
-
-- **Haar Wavelet Engine**: Multi-level frequency decomposition that prioritizes image structure over noise, resulting in painterly blurs rather than blocky artifacts at low bitrates.
-- **Reversible YCoCg-R**: A high-efficiency color transform providing superior decorrelation and bit-perfect color accuracy.
-- **LZMA Entropy Coding**: Deep dictionary-based compression for maximum data density.
-- **Vectorized Math**: 100% NumPy-based implementation for high-speed multi-threaded processing.
-
-## Developer Suite
-
-- **wimf Python Library**: API featuring stateful `WIMFDecoder` and `WIMFEncoder` classes.
-- **wimf-convert**: Robust CLI tool for batch conversion, format migration, and performance benchmarking.
-- **wimf-cat**: View WIMF images in the CLI.
-- **wimf-meta**: Metadata editor for non-destructive header updates.
+- Per-tile hybrid selection with `Fast`, `Balanced`, and `Extreme` search presets.
+- Exact lossless coding and quality-controlled CDF 9/7 lossy wavelets.
+- Palette coding for local regions with at most 256 colors.
+- Spatial prediction with row-level predictor selection.
+- Independently decodable tiles for bounded ROI reads.
+- RGB, RGBA, grayscale, and 8/10/16-bit pixel pipelines.
+- Zstandard-compressed structured symbols and per-tile CRC32 checksums.
+- Optional WIM2 anti-rot data capable of repairing up to two damaged shards.
+- Indexed WIM2 chrono states with random state decoding.
+- Portable C++17 kernels with a Python reference fallback.
 
 ## Installation
 
-WIMF is currently available as a source-only library. To install the developer suite:
+Precompiled PyPI wheels are the intended release path but are not advertised as published until the release workflow has completed. For development:
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/benchware/WorstImageFormat.git
-   cd WorstImageFormat
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install numpy pillow
-   ```
-
-3. Install in editable mode:
-   ```bash
-   pip install -e .
-   ```
-
-*(PyPI release coming soon)*
-
-## Quick Start
-
-```python
-import wimf
-from PIL import Image
-
-# High-level opening
-img = wimf.open("photo.wimf")
-img.pil.show()
-
-# High-level saving
-wimf.save("output.wimf", img.pil, quality=7, anti_rot=True)
+```bash
+git clone https://github.com/benchware/WorstImageFormat.git
+cd WorstImageFormat
+python -m pip install -e .
 ```
 
-## WIMF v2 Hybrid Codec
+A matching wheel does not require a local compiler. Source installations require a C++17 compiler and pybind11; the Python fallback remains usable when the native extension is unavailable.
 
-New still images use the `WIM2` container and independently compressed 128×128
-tiles. The encoder selects raw, palette, spatial-predictive, or CDF wavelet
-coding per tile; tile offsets and CRCs permit bounded region decoding and
-corruption detection. Zstandard is used for structured tile symbols.
+## Python API
 
 ```python
-# Automatic per-tile selection (default)
-wimf.save("hybrid.wimf", image, quality=8, codec="auto")
+from PIL import Image
+import wimf
 
-# Exact reconstruction, or explicit legacy output
+image = Image.open("photo.png")
+
+# Balanced per-tile selection is the default.
+wimf.save("photo.wimf", image, quality=7, codec="auto", threads=None)
+
+# Exact reconstruction and explicit legacy output.
 wimf.save("exact.wimf", image, lossless=True)
 wimf.save("legacy.wimf", image, lossless=True, format_version=1)
+
+decoded = wimf.open("photo.wimf")
+decoded.pil.save("decoded.png")
 ```
 
-`codec` may be `auto`, `wavelet`, `predictive`, or `palette`. Existing WIMF v1
-files remain readable. Animation and anti-rot protected output currently remain
-on the v1 container.
+`codec` accepts `auto`, `wavelet`, `predictive`, `palette`, or `raw`. `preset` accepts `Fast`, `Balanced`, or `Extreme`.
 
-The performance-critical v2 kernels are implemented in portable C++17 with a
-thin pybind11 wrapper. Python automatically uses the native extension when a
-binary wheel is installed and retains a reference decoder as a fallback. Use
-`wimf.runtime_info()` to inspect the active backend and pass `threads=N` to
-`wimf.save()` to control tile-level parallelism.
+### ROI decoding
 
-## TODO List
-- Web support
-- Test on ARM
-- Publish on PyPI
+```python
+decoder = wimf.WIMFDecoder("large.wimf")
+region = decoder.decode(roi=(1024, 768, 640, 480))
+```
+
+Only intersecting WIM2 tile payloads are decompressed.
+
+### Anti-rot and chrono history
+
+```python
+encoder = wimf.WIMFEncoder(image).set_anti_rot()
+encoder.add_chrono_state(edited_image)
+payload = encoder.encode(lossless=True)
+
+decoder = wimf.WIMFDecoder(payload)
+original = decoder.decode_chrono_state(0)
+edited = decoder.decode_chrono_state(1)
+print(decoder.was_protected, decoder.was_repaired)
+```
+
+WIM2 extensions are appended after the base tile payload. Existing WIM2 files remain valid and older readers can still decode the primary image.
+
+### Runtime diagnostics
+
+```python
+print(wimf.runtime_info())
+```
+
+The result reports whether native kernels are active, architecture, SIMD path, hardware and effective thread counts, codec version, and Zstandard version.
+
+## Command-line tools
+
+- `wimf-convert` converts images and exposes quality, codec, metadata, and benchmark options.
+- `wimf-view` opens the desktop viewer.
+- `wimf-cat` renders supported images in compatible terminals.
+- `wimf-meta` inspects and edits legacy metadata.
+
+## Compatibility and status
+
+| Capability | WIM2 | Legacy decode |
+|---|---|---|
+| Hybrid still images | Implemented | WIMF v1 supported |
+| Lossless and lossy coding | Implemented | Supported |
+| ROI and independent tiles | Implemented | Format-dependent |
+| Anti-rot | Two-shard WIM2 extension | `ROT!` supported |
+| Chrono history | Indexed WIM2 extension | AWIF states supported |
+| Animation creation | Planned | v1 only |
+| Wavelet watermark creation | Planned | v1 only |
+
+See [WIM2 format overview](docs/wim2-format.md) and [native embedding guide](docs/native-core.md) for implementation details.
+
+## Verification and roadmap
+
+CI runs Python quality checks, native and fallback codec tests, standalone C++ tests on Windows/Linux/macOS, source-distribution validation, and an image-based codec report. The active roadmap is:
+
+- Profile and move remaining candidate orchestration into the native core.
+- Verify and distribute ARM64 wheels with NEON equivalence coverage.
+- Publish signed PyPI wheels and a source distribution after release validation.
+- Design browser/WASM portability without changing the WIM2 bitstream.
+- Migrate animation and watermark creation only after the still-image path meets throughput targets.
+
+Target performance is at least 10 MP/s Balanced encoding and 50 MP/s decoding on reference hardware; benchmark results are hardware-dependent and are not claimed until measured.
 
 ## License
-Worst IMage Format is licensed under the GNU General Public License (GPL) v3.0. You are free to use, modify, and distribute this software under the terms of the GPL v3.0.
 
-For more information, see GNU General Public License.
+WIMF is licensed under GPL-3.0-or-later.
