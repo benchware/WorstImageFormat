@@ -8,9 +8,14 @@
 
 # WIMF — Worst IMage Format
 
+[![PyPI](https://img.shields.io/pypi/v/wimf.svg)](https://pypi.org/project/wimf/)
+[![Python](https://img.shields.io/pypi/pyversions/wimf.svg)](https://pypi.org/project/wimf/)
+[![CI](https://github.com/benchware/WorstImageFormat/actions/workflows/ci.yml/badge.svg)](https://github.com/benchware/WorstImageFormat/actions/workflows/ci.yml)
+[![License](https://img.shields.io/pypi/l/wimf.svg)](https://github.com/benchware/WorstImageFormat/blob/main/LICENSE)
+
 WIMF is an experimental, versioned image codec with a Python frontend and a portable C++17 backend. New still images use the WIM2 hybrid container: every 128×128 tile independently chooses Raw, Predictive, Palette, or CDF Wavelet coding and records its mode, entropy backend, bounds, size, offset, and checksum.
 
-The format is under active development. WIM2 still-image coding, ROI decoding, high bit depth, native kernels, optional anti-rot recovery, and indexed chrono history are implemented. Legacy WIMF/AWIF decoding remains available; animation and coefficient watermark creation still use v1.
+WIMF 2.0 is available on [PyPI](https://pypi.org/project/wimf/). WIM2 still-image coding, ROI decoding, high bit depth, native kernels, optional anti-rot recovery, and indexed chrono history are implemented. Legacy WIMF/AWIF decoding remains available; animation and coefficient watermark creation still use v1.
 
 ## Highlights
 
@@ -27,7 +32,15 @@ The format is under active development. WIM2 still-image coding, ROI decoding, h
 
 ## Installation
 
-Precompiled PyPI wheels are the intended release path but are not advertised as published until the release workflow has completed. For development:
+Install the published package with Python 3.10 or newer:
+
+```bash
+python -m pip install wimf
+```
+
+Precompiled wheels are published for Linux x86-64, Windows x86-64, macOS Intel, and macOS Apple Silicon across CPython 3.10–3.14. A matching wheel does not require a local compiler.
+
+For development:
 
 ```bash
 git clone https://github.com/benchware/WorstImageFormat.git
@@ -35,7 +48,7 @@ cd WorstImageFormat
 python -m pip install -e .
 ```
 
-A matching wheel does not require a local compiler. Source installations require a C++17 compiler and pybind11; the Python fallback remains usable when the native extension is unavailable.
+Source installations require a C++17 compiler and pybind11; the Python fallback remains usable when the native extension is unavailable.
 
 ## Python API
 
@@ -117,8 +130,8 @@ See the [WIM2 format overview](docs/wim2-format.md), [native embedding guide](do
 CI runs Python quality checks, native and fallback codec tests, standalone C++ tests on Windows/Linux/macOS, source-distribution validation, and an image-based codec report. The active roadmap is:
 
 - Profile and move remaining candidate orchestration into the native core.
-- Verify and distribute ARM64 wheels with NEON equivalence coverage.
-- Publish signed PyPI wheels and a source distribution after release validation.
+- Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
+- Expand measured AVX2 and NEON optimization only where profiling justifies it.
 - Design browser/WASM portability without changing the WIM2 bitstream.
 - Migrate animation and watermark creation only after the still-image path meets throughput targets.
 

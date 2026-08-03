@@ -2,7 +2,7 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
-## 2.0.0 — Unreleased
+## 2.0.0 — 2026-08-03
 
 ### Added
 
