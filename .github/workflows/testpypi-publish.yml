@@ -11,10 +11,10 @@ jobs:
     name: Build TestPyPI distributions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Build and test representative native wheel
@@ -44,7 +44,7 @@ jobs:
       name: testpypi
       url: https://test.pypi.org/p/wimf
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: testpypi-distributions
           path: dist
