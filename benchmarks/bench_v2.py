@@ -1,7 +1,12 @@
 """Small reproducible WIMF v2 throughput benchmark."""
 
 import argparse
+import sys
 import time
+from pathlib import Path
+
+# Keep the benchmark runnable directly from a source checkout, as CI does.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 

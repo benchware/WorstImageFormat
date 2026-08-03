@@ -476,8 +476,8 @@ def encode_v2(
 def parse_v2(data):
     if native is not None and hasattr(native, "inspect_container"):
         try:
-            inspected = native.inspect_container(data)
-        except (RuntimeError, ValueError) as exc:
+            inspected = native.inspect_container(bytes(data))
+        except (RuntimeError, TypeError, ValueError) as exc:
             raise ValueError(str(exc)) from exc
         try:
             metadata_bytes = bytes(inspected["metadata"])

@@ -264,7 +264,8 @@ PYBIND11_MODULE(wimf_cpp, m) {
     m.def("block_xor", [](py::array_t<uint8_t> t, py::array_t<uint8_t> s){ block_xor_raw((uint8_t*)t.mutable_data(0), (const uint8_t*)s.data(0), t.size()); });
     m.def("calculate_frame_diff", [](py::array_t<uint8_t> p, py::array_t<uint8_t> c, py::array_t<float> d){ calculate_frame_diff_raw(p.data(0), c.data(0), (float*)d.mutable_data(0), p.size()); });
     m.def("select_best_filters", [](py::array_t<int16_t> r0, py::array_t<int16_t> r1, py::array_t<int16_t> r2, py::array_t<int16_t> r3){
-        return select_best_filters_raw(r0.data(0,0), r1.data(0,0), r2.data(0,0), r3.data(0,0), r0.shape(0), r0.shape(1));
+        if (r0.shape(0) > std::numeric_limits<int>::max() || r0.shape(1) > std::numeric_limits<int>::max()) throw std::overflow_error("filter input is too large");
+        return select_best_filters_raw(r0.data(0,0), r1.data(0,0), r2.data(0,0), r3.data(0,0), static_cast<int>(r0.shape(0)), static_cast<int>(r0.shape(1)));
     });
     m.def("parse_header", [](py::array_t<uint8_t> d){ const uint8_t* p=d.data(0); uint32_t w,h,m_len; std::memcpy(&w,p+4,4); std::memcpy(&h,p+8,4); std::memcpy(&m_len,p+13,4); return py::make_tuple(w,h,p[12],m_len); });
     m.def("c_encode_lossy", &c_encode_lossy); m.def("c_decode_lossy", &c_decode_lossy);

@@ -117,7 +117,7 @@ TileMode classify_tile(const ImageView& v) {
         if(y>=step)edge+=std::abs(gray-(sample(v,x,y-step,0)+sample(v,x,y-step,std::min<uint8_t>(1,v.channels-1))+sample(v,x,y-step,std::min<uint8_t>(2,v.channels-1)))*scale/3.0);
     }
     if(colors.size()<=256)return TileMode::Palette;const double mean=static_cast<double>(sum/n),variance=std::max(0.0,static_cast<double>(sum2/n)-mean*mean),gradient=static_cast<double>(edge/n),correlation=static_cast<double>(cross/std::sqrt(std::max<long double>(1.0,first2*second2)));
-    if(alpha_edge/n>12.0||gradient>28.0&&variance<5200.0)return TileMode::Predictive;return correlation>0.92&&gradient<22.0?TileMode::Wavelet:TileMode::Predictive;
+    if(alpha_edge/n>12.0||(gradient>28.0&&variance<5200.0))return TileMode::Predictive;return correlation>0.92&&gradient<22.0?TileMode::Wavelet:TileMode::Predictive;
 }
 
 std::vector<uint8_t> encode_predictive(const ImageView& v) {
@@ -155,7 +155,7 @@ std::vector<int64_t> wavelet_forward(const uint8_t* data,uint32_t w,uint32_t h,u
 }
 
 std::vector<uint8_t> wavelet_inverse(const int64_t* coeff,size_t count,uint32_t w,uint32_t h,uint8_t bps,bool rev,unsigned levels,double q){
-    if(count!=static_cast<size_t>(w)*h)throw std::invalid_argument("invalid coefficient count");std::vector<double>a(coeff,coeff+count);for(auto&x:a)x*=q;
+    if(count!=static_cast<size_t>(w)*h)throw std::invalid_argument("invalid coefficient count");std::vector<double>a(count);for(size_t i=0;i<count;++i)a[i]=static_cast<double>(coeff[i])*q;
     for(int level=static_cast<int>(levels)-1;level>=0;--level){const uint32_t rw=(w+(1u<<level)-1)>>level,rh=(h+(1u<<level)-1)>>level;for(uint32_t x=0;x<rw;++x){std::vector<double>line(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];line=rev?lift53_inverse(line):lift97_inverse(line);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}for(uint32_t y=0;y<rh;++y){std::vector<double>line(a.begin()+y*w,a.begin()+y*w+rw);line=rev?lift53_inverse(line):lift97_inverse(line);std::copy(line.begin(),line.end(),a.begin()+y*w);}}
     const uint32_t max=bps==1?255u:65535u;std::vector<uint8_t>out(count*bps);for(size_t i=0;i<count;++i){const uint32_t v=static_cast<uint32_t>(std::clamp<int64_t>(std::llround(a[i]),0,max));out[i*bps]=static_cast<uint8_t>(v);if(bps==2)out[i*2+1]=static_cast<uint8_t>(v>>8);}return out;
 }
@@ -182,7 +182,7 @@ ContainerInfo parse_container(const uint8_t* data,size_t size){
     const uint64_t expected=(out.width+out.tile_size-1)/out.tile_size*static_cast<uint64_t>((out.height+out.tile_size-1)/out.tile_size);if(count!=expected)throw std::runtime_error("WIM2 tile count mismatch");
     std::unordered_set<uint64_t> seen;
     for(uint32_t i=0;i<count;++i){const uint8_t* p=data+index_start+static_cast<uint64_t>(i)*kEntrySize;TileRecord tile{};tile.x=read16(p);tile.y=read16(p+2);tile.width=read16(p+4);tile.height=read16(p+6);tile.mode=p[8];tile.entropy=p[9];tile.layers=p[10];tile.offset=read64(p+12);tile.size=read32(p+20);tile.raw_size=read32(p+24);tile.checksum=read32(p+28);const uint64_t key=static_cast<uint64_t>(tile.y)<<32|tile.x;const uint64_t max_raw=std::max<uint64_t>(1048576,static_cast<uint64_t>(tile.width)*tile.height*out.channels*std::max(2,out.bit_depth/8)*32);
-        if(!tile.width||!tile.height||tile.mode>3||tile.entropy>1||tile.x+tile.width>out.width||tile.y+tile.height>out.height||tile.x%out.tile_size||tile.y%out.tile_size||tile.width!=std::min<uint32_t>(out.tile_size,out.width-tile.x)||tile.height!=std::min<uint32_t>(out.tile_size,out.height-tile.y)||!seen.insert(key).second||tile.offset<data_start||tile.offset>size||tile.size>size-tile.offset||tile.raw_size>max_raw)throw std::runtime_error("invalid WIM2 tile entry");out.tiles.push_back(std::move(tile));}
+        if(!tile.width||!tile.height||tile.mode>3||tile.entropy>1||static_cast<uint32_t>(tile.x)+tile.width>out.width||static_cast<uint32_t>(tile.y)+tile.height>out.height||tile.x%out.tile_size||tile.y%out.tile_size||tile.width!=std::min<uint32_t>(out.tile_size,out.width-tile.x)||tile.height!=std::min<uint32_t>(out.tile_size,out.height-tile.y)||!seen.insert(key).second||tile.offset<data_start||tile.offset>size||tile.size>size-tile.offset||tile.raw_size>max_raw)throw std::runtime_error("invalid WIM2 tile entry");out.tiles.push_back(std::move(tile));}
     return out;
 }
 
