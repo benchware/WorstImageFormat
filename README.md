@@ -103,6 +103,16 @@ print(wimf.runtime_info())
 
 The result reports whether native kernels are active, architecture, SIMD path, hardware and effective thread counts, codec version, and Zstandard version.
 
+### Mandelbrot example
+
+The included generator renders a Mandelbrot set with NumPy and writes WIMF directly:
+
+```bash
+python examples/mandelbrot_wimf.py mandelbrot.wimf --width 1920 --height 1080 --quality 7
+```
+
+Use `--lossless`, force a tile mode with `--codec`, or zoom using `--center-x`, `--center-y`, and `--span`.
+
 ## Command-line tools
 
 - `wimf-convert` converts images and exposes quality, codec, metadata, and benchmark options.

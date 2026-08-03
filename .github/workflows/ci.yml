@@ -21,8 +21,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install ruff mypy numpy pillow zstandard
-      - run: python -m ruff check wimf tests benchmarks setup.py --output-format=github
-      - run: python -m ruff format wimf tests benchmarks setup.py --check
+      - run: python -m ruff check wimf tests benchmarks examples setup.py --output-format=github
+      - run: python -m ruff format wimf tests benchmarks examples setup.py --check
       - run: python -m mypy wimf --ignore-missing-imports --no-strict-optional --python-version 3.12
 
   test:
