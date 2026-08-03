@@ -348,8 +348,16 @@ class WIMFEncoder:
         return self
 
     # do the encoding
-    def encode(self, quality=7, preset="Balanced", lossless=False, format_version=2, codec="auto", threads=None,
-               operation_token=None):
+    def encode(
+        self,
+        quality=7,
+        preset="Balanced",
+        lossless=False,
+        format_version=2,
+        codec="auto",
+        threads=None,
+        operation_token=None,
+    ):
         meta = self.metadata.copy()
         meta["tuning"] = self.tuning
 

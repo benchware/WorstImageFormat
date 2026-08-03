@@ -1,6 +1,11 @@
 .venv/
 __pycache__/
 *.py[cod]
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.wimf
 *.awif
 *.wif

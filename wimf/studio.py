@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageEnhance, ImageTk
 
 import wimf
+
 from .diagnostics import AREAS, corrupt, diagnose, unsafe_preview
 from .studio_model import EncodeSettings, JobController, StudioDocument
 
@@ -56,8 +57,16 @@ class ImagePane(ttk.Frame):
             self.canvas.delete("all")
             return
         self.update_idletasks()
-        self.zoom = min(1.0, max(0.01, min(max(1, self.canvas.winfo_width()) / self.image.width,
-                                             max(1, self.canvas.winfo_height()) / self.image.height)))
+        self.zoom = min(
+            1.0,
+            max(
+                0.01,
+                min(
+                    max(1, self.canvas.winfo_width()) / self.image.width,
+                    max(1, self.canvas.winfo_height()) / self.image.height,
+                ),
+            ),
+        )
         self.redraw()
 
     def actual(self):
@@ -78,8 +87,9 @@ class ImagePane(ttk.Frame):
         self.canvas.create_image(0, 0, image=self.photo, anchor="nw")
         for overlay in self.overlays:
             x, y, width, height, color = overlay
-            self.canvas.create_rectangle(x * self.zoom, y * self.zoom, (x + width) * self.zoom,
-                                         (y + height) * self.zoom, outline=color, width=2)
+            self.canvas.create_rectangle(
+                x * self.zoom, y * self.zoom, (x + width) * self.zoom, (y + height) * self.zoom, outline=color, width=2
+            )
         self.canvas.configure(scrollregion=(0, 0, *size))
 
 
@@ -195,10 +205,26 @@ class WIMFStudio:
         self.threads = tk.StringVar(value="")
         for label, widget in (
             ("Quality", ttk.Spinbox(controls, from_=1, to=10, width=4, textvariable=self.quality)),
-            ("Preset", ttk.Combobox(controls, width=10, state="readonly", textvariable=self.preset,
-                                    values=("Fast", "Balanced", "Extreme"))),
-            ("Codec", ttk.Combobox(controls, width=10, state="readonly", textvariable=self.codec,
-                                   values=("auto", "raw", "predictive", "palette", "wavelet"))),
+            (
+                "Preset",
+                ttk.Combobox(
+                    controls,
+                    width=10,
+                    state="readonly",
+                    textvariable=self.preset,
+                    values=("Fast", "Balanced", "Extreme"),
+                ),
+            ),
+            (
+                "Codec",
+                ttk.Combobox(
+                    controls,
+                    width=10,
+                    state="readonly",
+                    textvariable=self.codec,
+                    values=("auto", "raw", "predictive", "palette", "wavelet"),
+                ),
+            ),
             ("Threads", ttk.Entry(controls, width=5, textvariable=self.threads)),
         ):
             ttk.Label(controls, text=label).pack(side="left", padx=(6, 2))
@@ -240,7 +266,9 @@ class WIMFStudio:
         panel = ttk.Frame(self.protection_tab, padding=16)
         panel.pack(fill="both", expand=True)
         self.anti_rot = tk.BooleanVar()
-        ttk.Checkbutton(panel, text="Enable anti-rot protection on next encode", variable=self.anti_rot).pack(anchor="w")
+        ttk.Checkbutton(panel, text="Enable anti-rot protection on next encode", variable=self.anti_rot).pack(
+            anchor="w"
+        )
         self.protection_text = tk.StringVar(value="No WIMF document loaded.")
         ttk.Label(panel, textvariable=self.protection_text, justify="left").pack(anchor="w", pady=12)
         row = ttk.Frame(panel)
@@ -265,7 +293,9 @@ class WIMFStudio:
         ttk.Combobox(controls, state="readonly", width=10, values=AREAS, textvariable=self.lab_area).pack(side="left")
         ttk.Button(controls, text="Corrupt copy", command=self.run_corruption).pack(side="left", padx=8)
         ttk.Button(controls, text="Copy Base64", command=self.copy_base64).pack(side="left")
-        ttk.Button(controls, text="Copy data URL", command=lambda: self.copy_base64(data_url=True)).pack(side="left", padx=4)
+        ttk.Button(controls, text="Copy data URL", command=lambda: self.copy_base64(data_url=True)).pack(
+            side="left", padx=4
+        )
         ttk.Button(controls, text="Paste Base64", command=self.paste_base64).pack(side="left")
         ttk.Button(controls, text="Export damaged...", command=self.export_damaged).pack(side="left", padx=4)
         self.lab_status = tk.StringVar(value="Strict decoder remains enabled.")
@@ -281,12 +311,20 @@ class WIMFStudio:
         self.image_panes.extend((self.lab_original, self.lab_preview, self.lab_recovered))
 
     def confirm_discard(self):
-        return not self.document.dirty or messagebox.askyesno("Unsaved changes", "Discard unsaved WIMF changes?", parent=self.root)
+        return not self.document.dirty or messagebox.askyesno(
+            "Unsaved changes", "Discard unsaved WIMF changes?", parent=self.root
+        )
 
     def open_file(self):
         if not self.confirm_discard():
             return
-        path = filedialog.askopenfilename(parent=self.root, filetypes=(("Images", "*.wimf *.wif *.awif *.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff"), ("All files", "*.*")))
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            filetypes=(
+                ("Images", "*.wimf *.wif *.awif *.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff"),
+                ("All files", "*.*"),
+            ),
+        )
         if path:
             self.open_path(path)
 
@@ -325,7 +363,14 @@ class WIMFStudio:
     def start_encode(self):
         try:
             threads = int(self.threads.get()) if self.threads.get().strip() else None
-            settings = EncodeSettings(self.quality.get(), self.lossless.get(), self.preset.get(), self.codec.get(), threads, self.anti_rot.get())
+            settings = EncodeSettings(
+                self.quality.get(),
+                self.lossless.get(),
+                self.preset.get(),
+                self.codec.get(),
+                threads,
+                self.anti_rot.get(),
+            )
             self.jobs.submit("encode", self.document.encode, settings)
         except Exception as error:
             messagebox.showerror("Encode failed", str(error), parent=self.root)
@@ -333,7 +378,9 @@ class WIMFStudio:
     def _poll_jobs(self):
         if self.jobs.running and self.jobs.token is not None and self.jobs.token.total:
             self.progress.stop()
-            self.progress.configure(mode="determinate", maximum=max(1, self.jobs.token.total), value=self.jobs.token.completed)
+            self.progress.configure(
+                mode="determinate", maximum=max(1, self.jobs.token.total), value=self.jobs.token.completed
+            )
             self.status.set(f"{self.jobs.token.stage}: {self.jobs.token.completed}/{self.jobs.token.total}")
         while True:
             try:
@@ -342,9 +389,12 @@ class WIMFStudio:
                 break
             if kind == "started":
                 self.progress.configure(mode="indeterminate", value=0)
-                self.progress.start(12); self.cancel_button.configure(state="normal"); self.status.set(f"Running {name}...")
+                self.progress.start(12)
+                self.cancel_button.configure(state="normal")
+                self.status.set(f"Running {name}...")
             else:
-                self.progress.stop(); self.progress.configure(mode="determinate", value=0)
+                self.progress.stop()
+                self.progress.configure(mode="determinate", value=0)
                 self.cancel_button.configure(state="disabled")
                 if kind == "completed" and name == "encode":
                     self.document.apply_encode_result(payload)
@@ -354,7 +404,9 @@ class WIMFStudio:
                     self._refresh_document()
                     psnr = self.document.metrics["psnr"]
                     modes = ", ".join(
-                        f"{name[0].upper()}:{count}" for name, count in self.document.details.get("tile_modes", {}).items() if count
+                        f"{name[0].upper()}:{count}"
+                        for name, count in self.document.details.get("tile_modes", {}).items()
+                        if count
                     )
                     self.metrics_text.set(
                         f"{self.document.metrics['encoded_bytes']:,} B ({self.document.metrics['ratio']:.3f}x) | "
@@ -364,22 +416,33 @@ class WIMFStudio:
                     )
                     self.status.set("Encode completed")
                 elif kind == "failed":
-                    messagebox.showerror(f"{name.title()} failed", payload, parent=self.root); self.status.set(payload)
+                    messagebox.showerror(f"{name.title()} failed", payload, parent=self.root)
+                    self.status.set(payload)
                 else:
                     self.status.set("Operation cancelled")
         self.root.after(80, self._poll_jobs)
 
     def save(self, as_new=False):
         if not self.document.encoded:
-            messagebox.showinfo("Nothing to save", "Encode the document first.", parent=self.root); return
-        path = None if as_new or not self.document.path or self.document.path.suffix.lower() not in (".wimf", ".wif") else self.document.path
+            messagebox.showinfo("Nothing to save", "Encode the document first.", parent=self.root)
+            return
+        path = (
+            None
+            if as_new or not self.document.path or self.document.path.suffix.lower() not in (".wimf", ".wif")
+            else self.document.path
+        )
         if path is None:
-            selected = filedialog.asksaveasfilename(parent=self.root, defaultextension=".wimf", filetypes=(("WIMF", "*.wimf"),))
+            selected = filedialog.asksaveasfilename(
+                parent=self.root, defaultextension=".wimf", filetypes=(("WIMF", "*.wimf"),)
+            )
             if not selected:
                 return
             path = Path(selected)
         Path(path).write_bytes(self.document.encoded)
-        self.document.path = Path(path); self.document.dirty = False; self._remember(path); self.status.set(f"Saved {path}")
+        self.document.path = Path(path)
+        self.document.dirty = False
+        self._remember(path)
+        self.status.set(f"Saved {path}")
 
     def apply_metadata(self):
         try:
@@ -413,7 +476,9 @@ class WIMFStudio:
         try:
             if not self.document.encoded:
                 raise ValueError("encode or open a WIMF file first")
-            damaged = corrupt(self.document.encoded, seed=self.lab_seed.get(), count=self.lab_count.get(), area=self.lab_area.get())
+            damaged = corrupt(
+                self.document.encoded, seed=self.lab_seed.get(), count=self.lab_count.get(), area=self.lab_area.get()
+            )
             self.damaged = damaged
             report = diagnose(damaged)
             preview, failed = unsafe_preview(damaged)
@@ -430,9 +495,11 @@ class WIMFStudio:
 
     def copy_base64(self, data_url=False):
         if not self.document.encoded:
-            messagebox.showinfo("No WIMF data", "Encode or open a WIMF file first.", parent=self.root); return
+            messagebox.showinfo("No WIMF data", "Encode or open a WIMF file first.", parent=self.root)
+            return
         value = wimf.to_data_url(self.document.encoded) if data_url else wimf.to_base64(self.document.encoded, wrap=76)
-        self.root.clipboard_clear(); self.root.clipboard_append(value)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(value)
         self.lab_status.set(f"Copied {len(value):,} Base64 characters")
 
     def paste_base64(self):
@@ -443,8 +510,12 @@ class WIMFStudio:
                 raise ValueError("clipboard Base64 is not WIMF")
             image = wimf.decode(payload)
             self.document = StudioDocument(
-                source=image.to_numpy().copy(), encoded=payload, decoded=image.to_numpy().copy(),
-                metadata=dict(image.metadata), details=wimf.inspect(payload), dirty=True
+                source=image.to_numpy().copy(),
+                encoded=payload,
+                decoded=image.to_numpy().copy(),
+                metadata=dict(image.metadata),
+                details=wimf.inspect(payload),
+                dirty=True,
             )
             self._refresh_document()
             self.lab_status.set(f"Imported {len(payload):,} WIMF bytes from Base64")
@@ -453,7 +524,8 @@ class WIMFStudio:
 
     def export_damaged(self):
         if not getattr(self, "damaged", None):
-            messagebox.showinfo("No damaged copy", "Run a corruption experiment first.", parent=self.root); return
+            messagebox.showinfo("No damaged copy", "Run a corruption experiment first.", parent=self.root)
+            return
         path = filedialog.asksaveasfilename(parent=self.root, defaultextension=".wimf", filetypes=(("WIMF", "*.wimf"),))
         if path:
             Path(path).write_bytes(self.damaged)
@@ -496,7 +568,8 @@ class WIMFStudio:
 
     def close(self):
         if self.confirm_discard():
-            self.jobs.close(); self.root.destroy()
+            self.jobs.close()
+            self.root.destroy()
 
 
 def launch(path=None):

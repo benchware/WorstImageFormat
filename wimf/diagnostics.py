@@ -105,7 +105,9 @@ def diagnose(data):
         report.update({key: info[key] for key in ("width", "height", "channels", "bit_depth", "tile_size")})
         for entry in info["entries"]:
             x, y, width, height, mode, _, _, _, offset, size, _, checksum = entry
-            valid = offset + size <= len(source) and (zlib.crc32(source[offset : offset + size]) & 0xFFFFFFFF) == checksum
+            valid = (
+                offset + size <= len(source) and (zlib.crc32(source[offset : offset + size]) & 0xFFFFFFFF) == checksum
+            )
             report["tiles"].append(
                 {"x": x, "y": y, "width": width, "height": height, "mode": MODE_NAMES[mode], "checksum_valid": valid}
             )

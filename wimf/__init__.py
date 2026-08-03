@@ -76,7 +76,11 @@ def compare(first, second, *, bit_depth=None):
         left = left[..., None]
     if right.ndim == 2:
         right = right[..., None]
-    if left.shape != right.shape or left.dtype != right.dtype or left.dtype not in (np.dtype("uint8"), np.dtype("uint16")):
+    if (
+        left.shape != right.shape
+        or left.dtype != right.dtype
+        or left.dtype not in (np.dtype("uint8"), np.dtype("uint16"))
+    ):
         raise ValueError("comparison images must have matching uint8 or uint16 shape and dtype")
     depth = int(bit_depth or (8 if left.dtype == np.uint8 else 16))
     try:
@@ -84,7 +88,12 @@ def compare(first, second, *, bit_depth=None):
 
         result = dict(
             wimf_v2_cpp.compare_images(
-                np.ascontiguousarray(left), np.ascontiguousarray(right), left.shape[1], left.shape[0], left.shape[2], depth
+                np.ascontiguousarray(left),
+                np.ascontiguousarray(right),
+                left.shape[1],
+                left.shape[0],
+                left.shape[2],
+                depth,
             )
         )
         result["difference"] = np.frombuffer(result["difference"], dtype=left.dtype).reshape(left.shape).copy()
@@ -104,7 +113,6 @@ def compare(first, second, *, bit_depth=None):
 def rewrite_metadata(source, metadata):
     """Rewrite WIM2 metadata without recompressing any tile payload."""
     import json
-    import struct
     import zlib
 
     from .extensions import append_extensions, encode_anti_rot, parse_extensions
@@ -137,14 +145,29 @@ def rewrite_metadata(source, metadata):
             x, y, width, height, mode, entropy, layers, reserved, old_offset, size, raw_size, checksum = entry
             packed = data[old_offset : old_offset + size]
             if len(packed) != size or (zlib.crc32(packed) & 0xFFFFFFFF) != checksum:
-                raise ValueError("cannot rewrite metadata in a corrupted WIM2 file")
-            index.extend(ENTRY.pack(x, y, width, height, mode, entropy, layers, reserved, offset, size, raw_size, checksum))
+                raise ValueError("cannot rewrite metadata in a corrupted WIM2 file") from None
+            index.extend(
+                ENTRY.pack(x, y, width, height, mode, entropy, layers, reserved, offset, size, raw_size, checksum)
+            )
             payload.extend(packed)
             offset += size
-        base = HEADER.pack(
-            b"WIM2", 2, info["flags"], info["bit_depth"], info["channels"], info["width"], info["height"],
-            info["tile_size"], len(metadata_bytes), len(entries)
-        ) + metadata_bytes + index + payload
+        base = (
+            HEADER.pack(
+                b"WIM2",
+                2,
+                info["flags"],
+                info["bit_depth"],
+                info["channels"],
+                info["width"],
+                info["height"],
+                info["tile_size"],
+                len(metadata_bytes),
+                len(entries),
+            )
+            + metadata_bytes
+            + index
+            + payload
+        )
     chunks = [(kind, item["payload"], item["flags"]) for kind, item in extensions.items() if kind != b"AROT"]
     if b"AROT" in extensions:
         protected_prefix = base + b"".join(chunk for _, chunk, _ in chunks)

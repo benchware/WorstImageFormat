@@ -42,7 +42,14 @@ class StudioDocument:
             encoded = path.read_bytes()
             image = wimf.decode(encoded)
             array = image.to_numpy().copy()
-            return cls(path=path, source=array, encoded=encoded, decoded=array.copy(), metadata=dict(image.metadata), details=wimf.inspect(encoded))
+            return cls(
+                path=path,
+                source=array,
+                encoded=encoded,
+                decoded=array.copy(),
+                metadata=dict(image.metadata),
+                details=wimf.inspect(encoded),
+            )
         with Image.open(path) as image:
             image.load()
             if image.mode not in ("L", "LA", "RGB", "RGBA"):

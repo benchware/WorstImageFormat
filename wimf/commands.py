@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 import wimf
+
 from .diagnostics import AREAS, corrupt, diagnose, unsafe_preview
 
 
@@ -75,7 +76,9 @@ def _info(args):
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))
         return
-    print(f"{result['format']} | {result['width']}x{result['height']} | {result['channels']} channels | {result['bit_depth']}-bit")
+    print(
+        f"{result['format']} | {result['width']}x{result['height']} | {result['channels']} channels | {result['bit_depth']}-bit"
+    )
     print(f"Protected: {'yes' if result['protected'] else 'no'} | History states: {result['history_states']}")
     if "tile_modes" in result:
         modes = ", ".join(f"{name}={count}" for name, count in result["tile_modes"].items() if count)
@@ -162,7 +165,9 @@ def _diagnose(args):
         array, failed = unsafe_preview(source)
         display = array
         if display.dtype != np.uint8:
-            display = np.rint(display.astype(np.float64) * (255 / max(1, (1 << report["bit_depth"]) - 1))).astype(np.uint8)
+            display = np.rint(display.astype(np.float64) * (255 / max(1, (1 << report["bit_depth"]) - 1))).astype(
+                np.uint8
+            )
         if display.shape[2] == 1:
             image = Image.fromarray(display[..., 0], "L")
         else:
