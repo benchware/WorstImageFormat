@@ -98,6 +98,6 @@ warn_unused_ignores = false
 # ── cibuildwheel ──────────────────────────────────────────────────────[...]
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
-skip = "*-win32 pp* *-i686 *-musllinux*"
+skip = "*-musllinux*"
 test-command = "python {project}/tests/wheel_smoke.py"
-manylinux-x86_64-image = "manylinux_2_17"
+manylinux-x86_64-image = "manylinux2014"
