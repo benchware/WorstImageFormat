@@ -9,9 +9,12 @@ embed without depending on Python.
 - [ ] Freeze and publish the WIM2 bitstream specification and compatibility rules.
 - [ ] Add normative encoder/decoder conformance vectors for every tile mode,
   bit depth, channel layout, ROI case, extension, and malformed-input boundary.
-- [ ] Introduce a small, versioned C ABI over the portable C++17 core with opaque
+- [x] Introduce an experimental, versioned C ABI over the portable C++17 core with
+  plain option/result records, owned output buffers, and structured errors.
+- [ ] Stabilize that C ABI with opaque
   handles, caller-owned buffers, structured errors, and explicit ABI negotiation.
-- [ ] Publish installable C/C++ headers and libraries independently of Python.
+- [x] Add CMake build, install, and `find_package(WIMF)` rules independently of Python.
+- [ ] Publish signed standalone C/C++ development archives in releases.
 - [ ] Document resource limits, thread safety, cancellation, ownership, licensing,
   and the decoder security model.
 

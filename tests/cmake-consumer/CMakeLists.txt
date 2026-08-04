@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+project(wimf_consumer LANGUAGES C)
+find_package(WIMF 2.2 REQUIRED CONFIG)
+add_executable(wimf_consumer main.c)
+target_link_libraries(wimf_consumer PRIVATE WIMF::wimf)

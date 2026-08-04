@@ -6,4 +6,9 @@ The core exposes complete-image encode/decode, ROI reconstruction, comparison, m
 
 The experimental `src/wimf_c.h` bridge exposes ABI version 1 using plain C structures, initialized option records, structured status codes, and explicit output-buffer release functions. Third-party applications should target this boundary once it is marked stable rather than binding directly to C++ standard-library types.
 
+The root CMake project builds static or shared libraries, installs `wimf_c.h`,
+and exports `WIMF::wimf` for `find_package(WIMF CONFIG REQUIRED)`. The shared
+library uses ABI major version 1; this is independent of the WIM2 container
+version and the canonical `.wimf` filename extension.
+
 Planned consumers are Pillow, ImageMagick/GraphicsMagick, FFmpeg, desktop thumbnail providers, WebAssembly, and Rust.

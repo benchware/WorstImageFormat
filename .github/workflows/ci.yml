@@ -123,6 +123,15 @@ jobs:
           else
             echo "Emscripten is not installed on this runner; portable compile check skipped."
           fi
+      - name: Build, install, and consume the shared C ABI with CMake
+        shell: bash
+        run: |
+          cmake -S . -B cmake-build -DBUILD_SHARED_LIBS=ON -DWIMF_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build cmake-build --config Release
+          ctest --test-dir cmake-build --build-config Release --output-on-failure
+          cmake --install cmake-build --config Release --prefix "$PWD/cmake-install"
+          cmake -S tests/cmake-consumer -B consumer-build -DCMAKE_PREFIX_PATH="$PWD/cmake-install" -DCMAKE_BUILD_TYPE=Release
+          cmake --build consumer-build --config Release
 
   visual-report:
     name: Visual codec report

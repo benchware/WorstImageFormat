@@ -4,6 +4,8 @@ include src/*.h
 include README.md
 include CHANGELOG.md
 include LICENSE
+include CMakeLists.txt
+recursive-include cmake *.cmake.in
 include third_party/zstd/LICENSE
 include third_party/zstd/README.md
 include third_party/zstd/zstd.c

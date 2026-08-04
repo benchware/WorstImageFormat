@@ -41,6 +41,7 @@ bool copy_buffer(const std::vector<uint8_t>& source, wimf_buffer* output) {
 }  // namespace
 
 extern "C" uint32_t wimf_abi_version(void) { return WIMF_C_ABI_VERSION; }
+extern "C" const char* wimf_codec_version(void) { return "2.2"; }
 
 extern "C" void wimf_encode_options_init(wimf_encode_options* options) {
     if (!options) return;
@@ -64,6 +65,8 @@ extern "C" wimf_status wimf_encode(const wimf_image_view* image, const wimf_enco
                                      wimf_buffer* output) {
     if (!image || !options || !output) return invalid("null encode argument");
     if (options->struct_size != sizeof(*options)) return invalid("unsupported encode options size");
+    if (options->preset > 2 || options->codec > 4) return invalid("invalid preset or codec identifier");
+    if (options->metadata_size && !options->metadata_json) return invalid("metadata pointer is null");
     *output = {};
     wimf::v2::ImageView view{image->data, image->width, image->height, image->channels,
                              image->bytes_per_sample, image->row_stride};
@@ -105,8 +108,15 @@ extern "C" wimf_status wimf_decode(const uint8_t* data, size_t size, const wimf_
     if (!status) return status_from(status);
     if (!copy_buffer(decoded.pixels, &output->pixels))
         return failure(WIMF_STATUS_RESOURCE_LIMIT, "output allocation failed");
+    const std::vector<uint8_t> metadata(decoded.metadata.begin(), decoded.metadata.end());
+    if (!copy_buffer(metadata, &output->metadata_json)) {
+        wimf_buffer_free(&output->pixels);
+        return failure(WIMF_STATUS_RESOURCE_LIMIT, "metadata allocation failed");
+    }
     output->width = decoded.width; output->height = decoded.height;
     output->channels = decoded.channels; output->bit_depth = decoded.bit_depth;
+    output->stats = {decoded.stats.raw_tiles, decoded.stats.predictive_tiles, decoded.stats.palette_tiles,
+                     decoded.stats.wavelet_tiles, decoded.stats.effective_threads};
     return {};
 }
 
@@ -119,6 +129,7 @@ extern "C" void wimf_buffer_free(wimf_buffer* buffer) {
 extern "C" void wimf_decoded_image_free(wimf_decoded_image* image) {
     if (!image) return;
     wimf_buffer_free(&image->pixels);
+    wimf_buffer_free(&image->metadata_json);
     image->width = image->height = 0;
     image->channels = image->bit_depth = 0;
 }

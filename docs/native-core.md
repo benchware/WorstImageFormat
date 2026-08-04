@@ -13,8 +13,9 @@ memory is owned by WIMF and must be released with `wimf_buffer_free` or
 `wimf_decoded_image_free`.
 
 The `struct_size` fields provide forward compatibility and
-`wimf_abi_version()` supports runtime negotiation. This bridge is experimental
-until conformance vectors and shared-library symbol/export policy are complete.
+`wimf_abi_version()` supports runtime negotiation. Export visibility and shared
+library ABI versioning are implemented; the bridge remains experimental until
+normative conformance vectors and compatibility tests are complete.
 
 ```c
 #include "wimf_c.h"
@@ -30,6 +31,19 @@ if (status.code == WIMF_STATUS_OK) {
 }
 wimf_buffer_free(&encoded);
 ```
+
+Build and install the shared library with CMake:
+
+```bash
+cmake -S . -B build-native -DBUILD_SHARED_LIBS=ON -DWIMF_BUILD_TESTS=ON
+cmake --build build-native --config Release
+ctest --test-dir build-native --build-config Release --output-on-failure
+cmake --install build-native --prefix /your/install/prefix
+```
+
+Consumers can then use `find_package(WIMF CONFIG REQUIRED)` and link
+`WIMF::wimf`. The installed shared-library major version follows the C ABI
+version, independently of the WIM2 bitstream version.
 
 Zstandard 1.5.7 is pinned under `third_party/zstd`. The codec does not read files, mutate process-wide state, or depend on an operating-system API.
 

@@ -4,8 +4,9 @@
 
 - [ ] Freeze the WIM2 normative specification.
 - [ ] Publish decoder conformance vectors.
-- [ ] Stabilize a versioned C ABI with caller-owned buffers and structured errors.
-- [ ] Publish standalone C/C++ headers and libraries.
+- [x] Add an experimental versioned C ABI with owned buffers and structured errors.
+- [x] Add portable CMake build, install, and `find_package` support.
+- [ ] Freeze the ABI and publish standalone signed C/C++ development archives.
 
 ## Application support
 
