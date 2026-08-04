@@ -4,7 +4,7 @@
 **Test System**: HP ProDesk 600 G3 DM (Mini Desktop, 2017)  
 **CPU**: Intel Core i3-7100T @ 3.40 GHz (2 cores, 4 threads, Kaby Lake, 2017)  
 **RAM**: 16 GB DDR4-2400 (dual-channel, Micron + Samsung)  
-**Storage**: 115 GB SSD (btrfs) + 916 GB HDD (ext4)  
+**Storage**: 256 GB NVME SSD (btrfs) + 1 TB HDD (ext4)  
 **GPU**: Intel HD Graphics 630 (not used by WIMF)  
 **OS**: CachyOS (Arch-based Linux, 7.1.3-2-cachyos)  
 **Python**: 3.14.6  
@@ -12,15 +12,14 @@
 **Native Backend**: C++17, scalar (no AVX2, NEON, or AVX-512)  
 **Threads**: 4  
 **Image**: 8256 × 5504 (45.4 MP), RGB, source: NASA ART002-E-15971.JPG  
-**Measurement methodology**: Each configuration was encoded and decoded five times; the reported values are the median of the three middle runs.
+
+**Note**: This system represents a typical business desktop form factor with a low-power 35W Kaby Lake CPU running a performance-optimized Linux distribution.
 
 ---
 
 ## Overview
 
 These benchmarks measure the current state of the WIMF encoder on a 35W Kaby Lake desktop CPU from 2017. The system runs CachyOS, an Arch-based Linux distribution optimized for performance. The SIMD path was reported as `scalar`; no platform-specific vector extensions were used.
-
-The ProDesk represents a typical business desktop form factor with a low-power 35W CPU, delivering excellent performance per watt.
 
 ---
 
@@ -30,7 +29,7 @@ The ProDesk represents a typical business desktop form factor with a low-power 3
 |--------:|----------:|------------------:|-----------:|-----------:|------------------:|----------:|
 | Q10     | 41.4      | 3.22×             | 2.50       | 0.66       | 18.2              | 67.6      |
 | Q9      | 40.7      | 3.27×             | 2.89       | 0.42       | 15.7              | 62.8      |
-| Q8      | 40.3      | 3.30×             | 2.17       | 0.38       | **21.0**          | 59.8      |
+| Q8      | 40.3      | 3.30×             | 2.17       | 0.38       | 21.0              | 59.8      |
 | Q7      | 40.0      | 3.33×             | 2.14       | 0.38       | 21.2              | 57.6      |
 | Q6      | 39.8      | 3.34×             | 2.17       | 0.38       | 20.9              | 55.9      |
 | Q5      | 39.6      | 3.36×             | 2.12       | 0.36       | 21.4              | 54.5      |
@@ -43,7 +42,6 @@ The ProDesk represents a typical business desktop form factor with a low-power 3
 - Peak encode throughput: **21.5 MP/s** (Q1 Fast).
 - All Fast runs complete in under 2.9 seconds.
 - PSNR ranges from 51.1 dB (Q1) to 67.6 dB (Q10), with diminishing returns beyond Q7.
-- The ProDesk is **72% faster than the NUC** (same cores, higher clock speed).
 
 ---
 
@@ -86,9 +84,8 @@ The ProDesk represents a typical business desktop form factor with a low-power 3
 
 **Observations**:
 - Best compression: **17.31×** at Q2 (7.7 MB) in **14.81 seconds**.
-- Peak throughput on Extreme: **3.1 MP/s** at Q1.
+- Peak throughput on Extreme: **3.1 MP/s**.
 - Encode times range from 14.6 to 27.0 seconds.
-- PSNR drops below 40 dB only at Q2; Q3 and above remain above 39 dB.
 
 ---
 
@@ -111,9 +108,9 @@ The ProDesk represents a typical business desktop form factor with a low-power 3
 | Raw        | Any       | 133.2     | 1.00×             | ~1.66      | ~27.4             | ∞         |
 
 **Observations**:
-- **Palette Fast** is the fastest configuration: **26.3 MP/s**, 44.6 MB — suitable for flat graphics.
+- **Palette Fast** is the fastest configuration: **26.3 MP/s**.
 - **Wavelet Balanced** is the best balance of size, speed, and quality: 13.7 MB, 3.33 s, 41.4 dB.
-- **Auto Fast** delivers 21.4 MP/s with 54.5 dB PSNR — excellent for general use.
+- **Auto Fast** delivers 21.4 MP/s with 54.5 dB PSNR.
 
 ---
 
@@ -138,7 +135,7 @@ The ProDesk represents a typical business desktop form factor with a low-power 3
 | **TDP** | 35W |
 | **RAM** | 16 GB DDR4-2400 (dual-channel) |
 | **RAM Modules** | Micron + Samsung |
-| **Storage** | 115 GB SSD (btrfs) + 916 GB HDD |
+| **Storage** | 256 GB NVME SSD (btrfs) + 1 TB HDD |
 | **OS** | CachyOS (Arch-based Linux) |
 | **Kernel** | Linux 7.1.3-2-cachyos |
 
@@ -149,3 +146,23 @@ The ProDesk represents a typical business desktop form factor with a low-power 3
 - All tests were run with **scalar** code paths. The test CPU does not support AVX2.
 - File sizes are still being tuned. The encoder produces correct output, but the compression search logic is not yet fully optimized for all images.
 - These numbers represent one 45 MP photograph. Real-world performance varies with image content, resolution, and available threads.
+
+---
+
+## Reproducibility
+
+To reproduce these results on your own hardware:
+
+```bash
+pip install wimf pillow numpy
+python -c "
+from PIL import Image
+import wimf
+import time
+import numpy as np
+
+img = Image.open('your_image.jpg')
+t0 = time.perf_counter()
+wimf.save('test.wimf', img, quality=5, preset='Balanced')
+print(f'{(8256*5504/1e6) / (time.perf_counter()-t0):.1f} MP/s')
+"
