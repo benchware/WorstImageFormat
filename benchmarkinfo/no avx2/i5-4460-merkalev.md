@@ -1,8 +1,9 @@
-# WIMF Benchmark Report
+# WIMF Benchmark Report — Intel Core i5-4460
 
 **Date**: 2026-08-04  
-**Test System**: Intel i5-4460 (Haswell, 4 cores, 2014)  
-**RAM**: 32 GB  
+**Test System**: Intel Core i5-4460 (Haswell, 4 cores, 2014)  
+**RAM**: 32 GB DDR3-1600  
+**OS**: Microsoft Windows 10 Pro 22H2 (Build 19045)  
 **Python**: 3.14.6  
 **WIMF Version**: 2.2  
 **Native Backend**: C++17, scalar (no AVX2, NEON, or AVX-512)  
