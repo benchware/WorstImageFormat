@@ -146,7 +146,7 @@ jobs:
       - name: Build and run the synchronous codec as WebAssembly
         run: |
           emcc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd-wasm.o
-          em++ -std=c++17 -O2 -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd-wasm.o -sEXIT_RUNTIME=1 -o wimf-wasm-tests.js
+          em++ -std=c++17 -O2 -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd-wasm.o -sEXIT_RUNTIME=1 -sENVIRONMENT=node -sWASM_ASYNC_COMPILATION=0 -sALLOW_MEMORY_GROWTH=1 -o wimf-wasm-tests.js
           node wimf-wasm-tests.js
 
   visual-report:
