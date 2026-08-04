@@ -4,6 +4,7 @@
 **Test System**: Intel Core i5-8400 (Coffee Lake, 6 cores, 2017)  
 **RAM**: 16 GB DDR4 @ 3200 MHz  
 **GPU**: NVIDIA GeForce RTX 2060 (not used by WIMF)  
+**OS**: Microsoft Windows 10 Pro 22H2 (Build 19045)  
 **Python**: 3.14.6  
 **WIMF Version**: 2.2  
 **Native Backend**: C++17, scalar (no AVX2, NEON, or AVX-512)  
@@ -128,3 +129,8 @@ These benchmarks measure the current state of the WIMF encoder on a mainstream 6
 - All tests were run with **scalar** code paths. The test CPU supports AVX2, but the current wheel does not enable it. Preliminary estimates suggest 2.5–3× throughput gains once AVX2 and NEON optimizations land.
 - File sizes are still being tuned. The encoder produces correct output, but the compression search logic is not yet fully optimized for all images.
 - These numbers represent one 45 MP photograph. Real-world performance varies with image content, resolution, and available threads.
+
+
+```
+
+A full benchmark suite with all presets and codecs is available in the `benchmarks/` directory of the repository.
