@@ -543,8 +543,17 @@ def parse_v2(data):
     seen = set()
     for i in range(count):
         entry = ENTRY.unpack_from(data, index_start + i * ENTRY.size)
-        x, y, tw, th, mode, entropy, layers, _, offset, size, raw_size, crc = entry
-        if not tw or not th or x + tw > width or y + th > height or mode not in MODE_NAMES or entropy not in (0, 1):
+        x, y, tw, th, mode, entropy, layers, reserved, offset, size, raw_size, crc = entry
+        if (
+            not tw
+            or not th
+            or x + tw > width
+            or y + th > height
+            or mode not in MODE_NAMES
+            or entropy not in (0, 1)
+            or layers != 1
+            or reserved != 0
+        ):
             raise ValueError("invalid WIMF v2 tile index entry")
         if offset < data_start or offset + size > len(data):
             raise ValueError("WIMF v2 tile points outside file")

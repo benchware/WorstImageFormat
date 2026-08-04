@@ -116,15 +116,6 @@ jobs:
           cc -std=c11 -O2 -Wall -Wextra -Isrc -c tests/cpp/test_c_api.c -o test_c_api.o
           c++ -std=c++17 -O2 -Wall -Wextra -Isrc -Ithird_party/zstd test_c_api.o src/wimf_c.cpp src/v2_core.cpp zstd.o -pthread -o c_api_tests
           ./c_api_tests
-      - name: Compile synchronous core with Emscripten when available
-        if: runner.os == 'Linux'
-        run: |
-          if command -v em++ >/dev/null 2>&1; then
-            em++ -std=c++17 -O2 -Ithird_party/zstd -c src/v2_core.cpp -o v2_core_wasm.o
-            emcc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd_wasm.o
-          else
-            echo "Emscripten is not installed on this runner; portable compile check skipped."
-          fi
       - name: Build, install, and consume the shared C ABI with CMake
         shell: bash
         run: |
@@ -134,6 +125,29 @@ jobs:
           cmake --install cmake-build --config Release --prefix "$PWD/cmake-install"
           cmake -S tests/cmake-consumer -B consumer-build -DCMAKE_PREFIX_PATH="$PWD/cmake-install" -DCMAKE_BUILD_TYPE=Release
           cmake --build consumer-build --config Release
+          cmake --build cmake-build --config Release --target package
+      - name: Upload native SDK test package
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-sdk-${{ matrix.os }}
+          path: cmake-build/WIMF-SDK-*
+          if-no-files-found: error
+          retention-days: 14
+
+  wasm-core:
+    name: WebAssembly core conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Emscripten
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes emscripten
+      - name: Build and run the synchronous codec as WebAssembly
+        run: |
+          emcc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd-wasm.o
+          em++ -std=c++17 -O2 -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd-wasm.o -sEXIT_RUNTIME=1 -o wimf-wasm-tests.js
+          node wimf-wasm-tests.js
 
   visual-report:
     name: Visual codec report

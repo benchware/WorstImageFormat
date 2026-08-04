@@ -88,6 +88,11 @@ Both complete-image functions are `noexcept`: exceptions are contained at the fa
 
 `compare_images` calculates a native difference buffer, MSE, maximum error, and PSNR. `rewrite_metadata` rebuilds the base header and tile index while copying compressed payloads unchanged. Optional `OperationControl` function pointers report stage/tile progress and cooperatively cancel work between tiles without introducing Python or operating-system dependencies.
 
+The C ABI exposes the same callback contract through its encode and decode
+option records. CI also builds the standalone core conformance binary with
+Emscripten and runs it under Node.js, making WebAssembly portability tested
+rather than a compile-only claim.
+
 ## Portability
 
 Scalar C++17 is the reference implementation. `ExecutionPolicy::Synchronous` is the portable/WASM-ready path; desktop builds can select `Threaded` for deterministic tile scheduling. Emscripten builds automatically remain synchronous. Architecture-specific kernels must produce equivalent coefficients and decoded pixels and retain a scalar fallback. Python wheels build the core and bindings together; matching wheels do not require an end-user compiler.

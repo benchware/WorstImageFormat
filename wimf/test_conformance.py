@@ -49,6 +49,21 @@ def test_conformance_vector_payload_corruption_is_rejected():
         hybrid.decode_v2(bytes(damaged))
 
 
+def test_reserved_progressive_layer_count_is_rejected():
+    vector = json.loads(MANIFEST.read_text(encoding="utf-8"))["vectors"]["predictive"]
+    damaged = bytearray(base64.b64decode(vector["wimf_base64"], validate=True))
+    metadata_size = int.from_bytes(damaged[18:22], "little")
+    first_entry = 26 + metadata_size
+    damaged[first_entry + 10] = 2
+    native_backend = hybrid.native
+    try:
+        hybrid.native = None
+        with pytest.raises(ValueError, match="tile index"):
+            hybrid.parse_v2(bytes(damaged))
+    finally:
+        hybrid.native = native_backend
+
+
 def test_multitile_roi_crosses_four_edge_tiles_exactly():
     vector = json.loads(MANIFEST.read_text(encoding="utf-8"))["vectors"]["odd-multitile"]
     container = base64.b64decode(vector["wimf_base64"], validate=True)

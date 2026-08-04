@@ -6,13 +6,13 @@ embed without depending on Python.
 
 ## 1. Stabilize the integration contract
 
-- [ ] Freeze and publish the WIM2 bitstream specification and compatibility rules.
+- [x] Freeze the implemented WIM2 revision-2 base-container specification and compatibility rules.
 - [x] Add initial committed lossless decoder vectors for all four tile modes.
 - [x] Expand core vectors to grayscale, RGBA, 10/16-bit, odd edge tiles,
   multi-tile ROI, metadata, corruption rejection, and thread determinism.
 - [x] Add HIST, AROT, protected-history, bounded-repair, and unrecoverable-damage vectors.
-- [ ] Expand normative vectors to progressive layers, cancellation, and the
-  complete malformed-input boundary.
+- [x] Cover the single-layer boundary, cancellation, and malformed-input limits;
+  unsupported progressive layer counts are reserved and rejected.
 - [x] Introduce an experimental, versioned C ABI over the portable C++17 core with
   plain option/result records, owned output buffers, and structured errors.
 - [x] Freeze ABI v1 fields, enums, ownership, threading, errors, exception
@@ -22,7 +22,8 @@ embed without depending on Python.
   yet link the native library directly.
 - [ ] Publish signed standalone C/C++ development archives in releases.
 - [x] Document ABI resource limits, thread safety, ownership, errors, and decoder safety.
-- [ ] Complete cancellation callbacks and licensing guidance for external SDK archives.
+- [x] Expose portable progress/cancellation callbacks through both C++ and C APIs.
+- [x] Package native SDK archives with WIMF/Zstandard licenses and distribution guidance.
 
 ## 2. High-impact integrations
 
@@ -37,7 +38,7 @@ embed without depending on Python.
 
 ## 3. Web and language ecosystems
 
-- [ ] Build the memory-only synchronous core with Emscripten on the web branch.
+- [x] Build and run the memory-only synchronous core conformance suite with Emscripten.
 - [ ] Publish a small JavaScript/WASM decoder package before considering browser
   encoding or worker orchestration.
 - [ ] Add Rust bindings around the C ABI once its versioning policy is proven.

@@ -1,12 +1,36 @@
-# WIM2 format overview
+# WIM2 format specification
 
-This document describes the implemented WIM2 container. It is an engineering overview, not yet a frozen standards document. All integers are little-endian.
+This document defines the normative WIM2 revision-2 base container implemented
+by WIMF 2.2. All integers are unsigned little-endian. Readers must reject
+reserved values unless a later compatible specification assigns them.
 
 ## Base container
 
-The fixed header records `WIM2`, version 2, flags, bit depth, channel count, image dimensions, tile size, metadata length, and tile count. UTF-8 JSON metadata follows, then a fixed-size tile index.
+The 26-byte fixed header is followed by `metadata_size` bytes of UTF-8 JSON and
+then `tile_count` 32-byte index records.
 
-Each tile entry records geometry, codec mode, entropy-coder ID, progressive-layer count, payload offset, compressed and expanded sizes, and CRC32. Payloads do not overlap semantically and each tile is independently decodable. Current modes are Raw (0), Predictive (1), Palette (2), and Wavelet (3); entropy IDs are None (0) and Zstandard (1).
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 4 | ASCII `WIM2` |
+| 4 | 1 | container version, exactly `2` |
+| 5 | 1 | flags |
+| 6 | 1 | bit depth: 8, 10, or 16 |
+| 7 | 1 | channel count, 1–16 |
+| 8 | 4 | width |
+| 12 | 4 | height |
+| 16 | 2 | tile size, 16–256 |
+| 18 | 4 | metadata size |
+| 22 | 4 | tile count |
+
+Each tile record contains `x:u16`, `y:u16`, `width:u16`, `height:u16`,
+`mode:u8`, `entropy:u8`, `layers:u8`, one reserved zero byte, `offset:u64`,
+`compressed_size:u32`, `expanded_size:u32`, and `crc32:u32`, in that order.
+
+Payloads do not overlap semantically and each tile is independently decodable.
+Current modes are Raw (0), Predictive (1), Palette (2), and Wavelet (3);
+entropy IDs are None (0) and Zstandard (1). WIMF 2.2 writes and accepts exactly
+one layer. Other layer counts are reserved and rejected rather than silently
+misdecoded.
 
 Readers validate dimensions, tile coverage, mode and entropy IDs, offsets, expanded-size limits, metadata limits, and checksums before decoding. ROI decoding reads only intersecting entries.
 

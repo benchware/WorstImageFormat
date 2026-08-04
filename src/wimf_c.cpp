@@ -40,6 +40,22 @@ bool copy_buffer(const std::vector<uint8_t>& source, wimf_buffer* output) {
     output->size = source.size();
     return true;
 }
+
+struct COperation {
+    void* context;
+    wimf_cancel_callback cancelled;
+    wimf_progress_callback progress;
+};
+
+bool c_cancelled(void* value) noexcept {
+    const auto* operation = static_cast<const COperation*>(value);
+    return operation->cancelled && operation->cancelled(operation->context) != 0;
+}
+
+void c_progress(void* value, const char* stage, uint64_t completed, uint64_t total) noexcept {
+    const auto* operation = static_cast<const COperation*>(value);
+    if (operation->progress) operation->progress(operation->context, stage, completed, total);
+}
 }  // namespace
 
 extern "C" uint32_t wimf_abi_version(void) { return WIMF_C_ABI_VERSION; }
@@ -83,6 +99,9 @@ extern "C" wimf_status wimf_encode(const wimf_image_view* image, const wimf_enco
     native.threads = options->threads;
     native.execution = options->synchronous ? wimf::v2::ExecutionPolicy::Synchronous
                                              : wimf::v2::ExecutionPolicy::Threaded;
+    COperation operation{options->operation_context, options->is_cancelled, options->on_progress};
+    wimf::v2::OperationControl control{&operation, c_cancelled, c_progress};
+    if (operation.cancelled || operation.progress) native.control = &control;
     if (options->metadata_json && options->metadata_size)
         native.metadata.assign(options->metadata_json, options->metadata_size);
     std::vector<uint8_t> encoded;
@@ -117,6 +136,9 @@ extern "C" wimf_status wimf_decode(const uint8_t* data, size_t size, const wimf_
     native.execution = options->synchronous ? wimf::v2::ExecutionPolicy::Synchronous
                                              : wimf::v2::ExecutionPolicy::Threaded;
     native.max_output_bytes = options->max_output_bytes;
+    COperation operation{options->operation_context, options->is_cancelled, options->on_progress};
+    wimf::v2::OperationControl control{&operation, c_cancelled, c_progress};
+    if (operation.cancelled || operation.progress) native.control = &control;
     wimf::v2::DecodeResult decoded;
     const auto status = wimf::v2::decode_image(data, size, native, decoded);
     if (!status) return status_from(status);

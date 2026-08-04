@@ -3,6 +3,23 @@
 #include <assert.h>
 #include <string.h>
 
+typedef struct operation_state {
+    uint8_t cancelled;
+    uint64_t completed;
+    uint64_t total;
+} operation_state;
+
+static uint8_t is_cancelled(void* context) {
+    return ((operation_state*)context)->cancelled;
+}
+
+static void on_progress(void* context, const char* stage, uint64_t completed, uint64_t total) {
+    operation_state* state = (operation_state*)context;
+    assert(stage != NULL && stage[0] != '\0');
+    state->completed = completed;
+    state->total = total;
+}
+
 int main(void) {
     uint8_t pixels[8 * 8 * 3];
     memset(pixels, 42, sizeof(pixels));
@@ -13,14 +30,29 @@ int main(void) {
     encode_options.synchronous = 1;
     encode_options.metadata_json = "{\"suite\":\"c-api\"}";
     encode_options.metadata_size = strlen(encode_options.metadata_json);
+    operation_state operation = {0};
+    encode_options.operation_context = &operation;
+    encode_options.is_cancelled = is_cancelled;
+    encode_options.on_progress = on_progress;
     wimf_buffer encoded = {0};
     wimf_status status = wimf_encode(&image, &encode_options, &encoded);
     assert(status.code == WIMF_STATUS_OK && encoded.size > 4);
     assert(memcmp(encoded.data, "WIM2", 4) == 0);
+    assert(operation.completed == 1 && operation.total == 1);
+
+    operation.cancelled = 1;
+    wimf_buffer cancelled_output = {0};
+    status = wimf_encode(&image, &encode_options, &cancelled_output);
+    assert(status.code == WIMF_STATUS_CANCELLED);
+    assert(cancelled_output.data == NULL && cancelled_output.size == 0);
+    operation.cancelled = 0;
 
     wimf_decode_options decode_options;
     wimf_decode_options_init(&decode_options);
     decode_options.synchronous = 1;
+    decode_options.operation_context = &operation;
+    decode_options.is_cancelled = is_cancelled;
+    decode_options.on_progress = on_progress;
     wimf_decoded_image decoded = {0};
     status = wimf_decode(encoded.data, encoded.size, &decode_options, &decoded);
     assert(status.code == WIMF_STATUS_OK);
@@ -32,6 +64,13 @@ int main(void) {
     assert(decoded.stats.raw_tiles + decoded.stats.predictive_tiles + decoded.stats.palette_tiles +
                decoded.stats.wavelet_tiles == 1);
     wimf_decoded_image_free(&decoded);
+
+    operation.cancelled = 1;
+    status = wimf_decode(encoded.data, encoded.size, &decode_options, &decoded);
+    assert(status.code == WIMF_STATUS_CANCELLED);
+    assert(decoded.pixels.data == NULL && decoded.pixels.size == 0);
+    operation.cancelled = 0;
+
     encoded.data[encoded.size - 1] ^= 1;
     status = wimf_decode(encoded.data, encoded.size, &decode_options, &decoded);
     assert(status.code == WIMF_STATUS_CORRUPT_DATA);

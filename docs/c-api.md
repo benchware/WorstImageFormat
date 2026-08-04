@@ -50,6 +50,16 @@ pointers, sizes, plain records, and C linkage.
   callers must not treat partial pixels as verified output.
 - Decode expansion remains bounded by `max_output_bytes`.
 
+## Progress and cancellation
+
+- Encode and decode options may provide `operation_context`, `is_cancelled`,
+  and `on_progress` callbacks.
+- The context remains caller-owned and valid until the operation returns.
+- Callbacks must not throw, re-enter the same operation, or release its inputs.
+  They may run on codec worker threads, so shared state must be synchronized.
+- Cancellation is cooperative between tiles and major stages. It returns
+  `WIMF_STATUS_CANCELLED` and never publishes a partial output buffer.
+
 ## Metadata
 
 Metadata is a sized UTF-8 JSON byte sequence and is not required to be

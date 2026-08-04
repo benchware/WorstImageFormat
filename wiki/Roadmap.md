@@ -6,13 +6,13 @@ embed without depending on Python.
 
 ## 1. Integration foundation
 
-- [ ] Freeze the WIM2 normative specification.
+- [x] Freeze the implemented WIM2 revision-2 base-container specification.
 - [x] Publish initial lossless decoder vectors for every WIM2 tile mode.
 - [x] Expand vectors across grayscale, RGBA, 10/16-bit, odd edge tiles, ROI,
   metadata, corruption rejection, and deterministic threading.
 - [x] Add HIST, AROT, protected-history, bounded-repair, and unrecoverable-damage vectors.
-- [ ] Expand normative vectors across progressive layers, cancellation, and the
-  complete malformed-input boundary.
+- [x] Cover the single-layer boundary, cancellation, and malformed-input limits;
+  unsupported progressive layer counts are reserved and rejected.
 - [x] Add an experimental versioned C ABI with owned buffers and structured errors.
 - [x] Freeze ABI v1 fields, enums, ownership, cleanup, threading, structured
   errors, exception containment, and version negotiation.
@@ -20,7 +20,8 @@ embed without depending on Python.
 - [x] Add the C-ABI-only `wimf-native` PGM/PPM process bridge.
 - [x] Document ABI resource limits, thread safety, ownership, errors, and decoder safety.
 - [ ] Publish standalone signed C/C++ development archives.
-- [ ] Complete cancellation callbacks and licensing guidance for external SDK archives.
+- [x] Expose portable progress/cancellation callbacks through both C++ and C APIs.
+- [x] Package native SDK archives with WIMF/Zstandard licenses and distribution guidance.
 
 ## 2. Application support
 
@@ -33,7 +34,7 @@ embed without depending on Python.
 
 ## 3. Web and languages
 
-- [ ] Single-threaded WebAssembly decoder on the web branch.
+- [x] Build and run the single-threaded core conformance suite as WebAssembly.
 - [ ] JavaScript/WASM package.
 - [ ] Rust bindings after the C ABI stabilizes.
 - [ ] Add other language bindings when real integration requests justify them.

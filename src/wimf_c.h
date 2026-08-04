@@ -57,6 +57,10 @@ typedef struct wimf_image_view {
     size_t row_stride;
 } wimf_image_view;
 
+typedef uint8_t (*wimf_cancel_callback)(void* context);
+typedef void (*wimf_progress_callback)(void* context, const char* stage, uint64_t completed,
+                                       uint64_t total);
+
 typedef struct wimf_encode_options {
     uint32_t struct_size;
     uint8_t bit_depth;
@@ -69,6 +73,9 @@ typedef struct wimf_encode_options {
     uint8_t synchronous;
     const char* metadata_json;
     size_t metadata_size;
+    void* operation_context;
+    wimf_cancel_callback is_cancelled;
+    wimf_progress_callback on_progress;
 } wimf_encode_options;
 
 typedef struct wimf_decode_options {
@@ -82,6 +89,9 @@ typedef struct wimf_decode_options {
     uint32_t threads;
     uint8_t synchronous;
     uint64_t max_output_bytes;
+    void* operation_context;
+    wimf_cancel_callback is_cancelled;
+    wimf_progress_callback on_progress;
 } wimf_decode_options;
 
 typedef struct wimf_codec_stats {
