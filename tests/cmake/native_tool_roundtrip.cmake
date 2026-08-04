@@ -2,7 +2,7 @@ if(NOT DEFINED TOOL OR NOT DEFINED WORK)
     message(FATAL_ERROR "TOOL and WORK are required")
 endif()
 file(MAKE_DIRECTORY "${WORK}")
-string(ASCII 1 2 3 4 5 6 PIXELS)
+string(ASCII 65 66 67 68 69 70 PIXELS)
 file(WRITE "${WORK}/source.ppm" "P6\n2 1\n255\n${PIXELS}")
 execute_process(COMMAND "${TOOL}" encode "${WORK}/source.ppm" "${WORK}/image.wimf"
                 RESULT_VARIABLE ENCODE_RESULT)
