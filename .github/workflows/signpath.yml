@@ -1,0 +1,73 @@
+name: Sign Windows native release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing non-prerelease release tag to build
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  sign-windows-sdk:
+    if: ${{ vars.SIGNPATH_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || !github.event.release.prerelease) }}
+    runs-on: windows-latest
+    environment: signpath
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+      - name: Validate release tag and project version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          if ($env:RELEASE_TAG -ne "v$version") { throw "Tag $env:RELEASE_TAG does not match v$version" }
+      - name: Configure signed SDK surface
+        run: cmake -S . -B build-sign -A x64 -DBUILD_SHARED_LIBS=ON -DWIMF_BUILD_TESTS=ON -DWIMF_BUILD_WINDOWS_SHELL=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build and test
+        run: |
+          cmake --build build-sign --config Release
+          ctest --test-dir build-sign --build-config Release --output-on-failure
+          cmake --build build-sign --config Release --target package
+      - name: Stage unsigned archive
+        id: unsigned
+        uses: actions/upload-artifact@v7
+        with:
+          name: wimf-windows-sdk-unsigned
+          path: build-sign/WIMF-SDK-*.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: Submit SignPath request
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+          parameters: |
+            version: "${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}"
+      - name: Upload signed archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: wimf-windows-sdk-signed
+          path: signed/**
+          if-no-files-found: error
+          retention-days: 30
+      - name: Record signing request
+        shell: pwsh
+        run: |
+          "## SignPath Windows SDK" >> $env:GITHUB_STEP_SUMMARY
+          "Signing request: ${{ steps.signpath.outputs.signing-request-web-url }}" >> $env:GITHUB_STEP_SUMMARY

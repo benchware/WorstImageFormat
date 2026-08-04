@@ -19,17 +19,19 @@ embed without depending on Python.
 - [x] Add portable CMake build, install, and `find_package` support.
 - [x] Add the C-ABI-only `wimf-native` PGM/PPM process bridge.
 - [x] Document ABI resource limits, thread safety, ownership, errors, and decoder safety.
-- [ ] Publish standalone signed C/C++ development archives.
+- [ ] Publish standalone signed C/C++ development archives (SignPath policy and
+  dormant workflow are ready; Foundation acceptance is external).
 - [x] Expose portable progress/cancellation callbacks through both C++ and C APIs.
 - [x] Package native SDK archives with WIMF/Zstandard licenses and distribution guidance.
 
 ## 2. Application support
 
 - [x] Pillow open/save plugin for grayscale, RGB, and RGBA WIM2 images.
-- [ ] ImageMagick/GraphicsMagick coder backed by the C ABI.
-- [ ] FFmpeg/libavcodec WIM2 still-image decoder.
-- [ ] Linux MIME and thumbnail integration.
-- [ ] Windows Explorer preview and thumbnails.
+- [x] Optional ImageMagick 7 decode coder backed by the C ABI.
+- [x] Upstream-oriented FFmpeg/libavcodec WIM2 decoder source kit.
+- [x] Linux MIME registration and thumbnail integration.
+- [x] Native Windows Explorer thumbnail and preview-pane providers.
+- [ ] GraphicsMagick-specific coder and upstream FFmpeg registration.
 - [ ] macOS Quick Look support.
 
 ## 3. Web and languages

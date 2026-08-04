@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="image/x-wimf">
+    <comment>WIMF image</comment>
+    <generic-icon name="image-x-generic"/>
+    <magic priority="80">
+      <match type="string" value="WIM2" offset="0"/>
+      <match type="string" value="WIMF" offset="0"/>
+      <match type="string" value="ROT!" offset="0"/>
+    </magic>
+    <glob pattern="*.wimf" weight="80"/>
+    <glob pattern="*.wif" weight="30"/>
+  </mime-type>
+</mime-info>

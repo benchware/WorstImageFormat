@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=wimf
+Exec=wimf thumbnail %i %o --size %s --force
+MimeType=image/x-wimf;

@@ -71,6 +71,17 @@ def _decode(args):
     print(f"Decoded {source} -> {output}")
 
 
+def _thumbnail(args):
+    output = Path(args.output)
+    if output.exists() and not args.force:
+        raise ValueError(f"refusing to overwrite {str(output)!r}; pass --force")
+    image = wimf.decode(args.input).pil
+    image.thumbnail((args.size, args.size), Image.Resampling.LANCZOS)
+    if image.mode not in ("RGB", "RGBA"):
+        image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+    image.save(output, format="PNG")
+
+
 def _info(args):
     result = wimf.inspect(args.input)
     if args.json:
@@ -241,6 +252,13 @@ def build_parser():
     decode.add_argument("output", nargs="?", help="output path (default: source.png)")
     decode.add_argument("--roi", nargs=4, type=int, metavar=("X", "Y", "WIDTH", "HEIGHT"))
     decode.set_defaults(handler=_decode)
+
+    thumbnail = commands.add_parser("thumbnail", help="render a bounded PNG thumbnail for desktop services")
+    thumbnail.add_argument("input", help="source WIMF file")
+    thumbnail.add_argument("output", help="output PNG path")
+    thumbnail.add_argument("--size", type=_positive_int, default=256, help="maximum width and height")
+    thumbnail.add_argument("--force", action="store_true")
+    thumbnail.set_defaults(handler=_thumbnail)
 
     info = commands.add_parser("info", aliases=["i"], help="show image, tile, protection, and metadata details")
     info.add_argument("input")

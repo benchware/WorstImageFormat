@@ -16,16 +16,23 @@
 - Run the TestPyPI workflow and install its sdist/wheel in a clean environment.
 - Confirm PyPI and TestPyPI trusted publishers reference the exact repository, workflow filename, and protected environment.
 - Inspect the eight-panel codec report and distribution manifest.
+- For Windows native signing, confirm SignPath approval, protected-environment
+  reviewers, and the exact artifact configuration before enabling
+  `SIGNPATH_ENABLED`.
 
 ## Publishing
 
 - Create a non-prerelease GitHub release from the verified commit.
 - Let `python-publish.yml` build all distributions from that release; do not upload local artifacts.
 - Confirm the release preflight, 20-wheel matrix, sdist test, `twine check`, and OIDC publish job pass.
+- Approve the SignPath request, verify its signed output, and attach only the
+  verified signed SDK archive to the release.
 
 ## After publishing
 
 - Confirm the four clean-platform `pip install wimf` jobs pass.
 - Verify the PyPI description, links, Python requirement, license, files, hashes, and provenance.
 - Attach or link the distribution manifest and visual codec report in the GitHub release notes.
+- Verify the Windows Authenticode signer, timestamp, WIMF product metadata, and
+  SHA-256 digest recorded for the signed SDK.
 - If any artifact is wrong, publish a new patch version; PyPI files and versions cannot be replaced.

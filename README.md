@@ -242,7 +242,9 @@ The visual report separately exercises synthetic mixed content, a credited natur
 | Animation creation | Legacy-only | AWIF encode/decode with preserved timing |
 | Wavelet watermark creation | Planned | v1 only |
 
-See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](docs/legacy-migration.md), [native embedding guide](docs/native-core.md), [adoption roadmap](docs/roadmap.md), and [release checklist](docs/release-checklist.md).
+See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](docs/legacy-migration.md), [native embedding guide](docs/native-core.md), [desktop/application integrations](docs/integrations.md), [adoption roadmap](docs/roadmap.md), and [release checklist](docs/release-checklist.md).
+
+Official Windows native releases follow the project [code signing policy](CODE_SIGNING.md). CI artifacts are unsigned unless the corresponding release explicitly records a successful SignPath request.
 
 ## Verification and roadmap
 

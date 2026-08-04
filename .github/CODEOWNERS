@@ -1,0 +1,4 @@
+/.github/workflows/signpath.yml @benchware
+/.github/CODEOWNERS @benchware
+/CODE_SIGNING.md @benchware
+/cmake/wimf_version.rc.in @benchware

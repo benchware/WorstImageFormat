@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=WIMF Studio
+Comment=Inspect and encode WIMF images
+TryExec=wimf-studio
+Exec=wimf-studio %f
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/x-wimf;
+NoDisplay=true

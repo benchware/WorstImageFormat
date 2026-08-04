@@ -53,7 +53,7 @@ jobs:
       - run: python setup.py build_ext --inplace
       - name: Verify native extensions
         run: python -c "import wimf.wimf_cpp, wimf.wimf_v2_cpp; assert wimf.runtime_info()['native']"
-      - run: python -m pytest wimf/test_core.py wimf/test_v2.py wimf/test_features.py wimf/test_studio.py wimf/test_conformance.py wimf/test_extension_conformance.py wimf/test_pillow_plugin.py wimf/test_transport.py -v --junitxml=test-results.xml
+      - run: python -m pytest wimf/test_core.py wimf/test_v2.py wimf/test_features.py wimf/test_studio.py wimf/test_conformance.py wimf/test_extension_conformance.py wimf/test_pillow_plugin.py wimf/test_transport.py tests/test_integration_assets.py -v --junitxml=test-results.xml
       - name: Upload test results
         if: ${{ always() && hashFiles('test-results.xml') != '' }}
         uses: actions/upload-artifact@v7
@@ -119,7 +119,7 @@ jobs:
       - name: Build, install, and consume the shared C ABI with CMake
         shell: bash
         run: |
-          cmake -S . -B cmake-build -DBUILD_SHARED_LIBS=ON -DWIMF_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B cmake-build -DBUILD_SHARED_LIBS=ON -DWIMF_BUILD_TESTS=ON -DWIMF_BUILD_WINDOWS_SHELL=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build cmake-build --config Release
           ctest --test-dir cmake-build --build-config Release --output-on-failure
           cmake --install cmake-build --config Release --prefix "$PWD/cmake-install"

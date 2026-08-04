@@ -82,6 +82,7 @@ def main():
     assert {"wimf", "wimf-studio", "wimf-convert", "wimf-view", "wimf-meta", "wimf-cat"} <= scripts
     subprocess.run([sys.executable, "-m", "wimf", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf", "runtime", "--json"], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "wimf", "thumbnail", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf.studio_cli", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf", "base16", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf", "base32", "--help"], check=True, capture_output=True)

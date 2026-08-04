@@ -20,3 +20,4 @@ recursive-include tests *.c
 recursive-include tests/cmake *.cmake
 recursive-include tests/fixtures *.b64
 recursive-include tests/conformance *.json
+recursive-include integrations *
