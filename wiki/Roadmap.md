@@ -50,6 +50,50 @@ embed without depending on Python.
   conformance blocking for releases.
 - [ ] Provide minimal examples and an upstreaming checklist for each integration.
 
+## 5. Performance optimization
+
+- [ ] AVX2 (x86_64)
+  - Benchmark targets: 2.5-3× speedup on Intel Haswell+ / AMD Zen+
+  - Measured baseline: i5-4460 (Haswell, scalar): 26.7 MP/s (Fast preset),
+    9.1 MP/s (Wavelet Balanced), 3.4 MP/s (Extreme Q2)
+  - Implementation deferred until profiling confirms real-world gain
+- [ ] NEON (ARMv8+)
+  - Benchmark targets: 2.5-3× speedup on ARMv8+ (Apple M1/M2, Raspberry Pi 4/5,
+    Android, ChromeOS)
+  - Minimum acceptable Raspberry Pi 5 target: 25+ MP/s (Fast), 10+ MP/s
+    (Wavelet Balanced), 5+ MP/s (Extreme)
+- [ ] AVX-512
+  - Experimental; deferred until AVX2/NEON paths are stable and hardware
+    support is widespread enough to justify the maintenance cost.
+  - Thermal and performance-regression risks documented.
+
+## 6. Quality-of-life improvements
+
+- [ ] Accept case-insensitive codec names in the Python API: `auto`, `Auto`,
+  `Auto (hybrid)` and similar variants should map to the same internal path.
+- [ ] Implement ROI decode conformance test (currently returns `'encode'` error).
+- [ ] Add `--file` or `--image` flag to the CLI to target a single image rather
+  than scanning an entire directory.
+- [ ] Expose progress feedback for long-running encodes (especially Extreme preset).
+- [ ] Publish recommended configuration presets in the README based on real
+  user benchmarks:
+  - `quality=5, preset=Balanced, codec=auto` for general daily use.
+  - `quality=5, preset=Balanced, codec=wavelet` for web/game delivery.
+  - `quality=2, preset=Extreme, codec=auto` for archival storage.
+  - `quality=4, preset=Fast, codec=auto` for high-speed batch work.
+  - `lossless=True, preset=Balanced, codec=auto` for visually lossless quality.
+- [ ] Publish standalone `wimf-native` CLI binary for systems without Python.
+
+## 7. Platform validation
+
+- [ ] Complete and publish benchmarks for:
+  - x86_64 scalar baseline (completed: i5-4460, 2014)
+  - x86_64 AVX2 on Kaby Lake or newer
+  - ARM NEON on Apple M1/M2
+  - ARM NEON on Raspberry Pi 5
+- [ ] Maintain decoder conformance across all supported platforms.
+- [ ] Document minimal hardware requirements and expected performance tiers.
+
 Base16, Base32, and Base64 transport support is implemented. These encodings
 help move WIMF through text-only systems but are not compression formats.
 
