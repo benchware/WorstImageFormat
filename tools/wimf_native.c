@@ -21,6 +21,10 @@ static int token(FILE* file, char* output, size_t capacity) {
         output[length++] = (char)value;
         value = fgetc(file);
     }
+    if (value == '\r') {
+        int next = fgetc(file);
+        if (next != '\n' && next != EOF) ungetc(next, file);
+    }
     output[length] = '\0';
     return length != 0;
 }
