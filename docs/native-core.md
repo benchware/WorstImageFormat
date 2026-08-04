@@ -4,6 +4,33 @@ The code in `src/v2_core.hpp` and `src/v2_core.cpp` is a standalone C++17 librar
 
 The core exposes memory-only `encode_image` and `decode_image` operations, tile classification and mode evaluation, Predictive and Palette coding, reversible and irreversible wavelet transforms, CRC32, Zstandard entropy coding, ROI reconstruction, and WIM2 container parsing/writing. Buffers use explicit dimensions, channel counts, bytes per sample, row strides, and byte vectors.
 
+## Experimental C ABI
+
+`src/wimf_c.h` exposes ABI version 1 without C++ standard-library types. Callers
+initialize options with `wimf_encode_options_init` or
+`wimf_decode_options_init`, then call `wimf_encode` or `wimf_decode`. Output
+memory is owned by WIMF and must be released with `wimf_buffer_free` or
+`wimf_decoded_image_free`.
+
+The `struct_size` fields provide forward compatibility and
+`wimf_abi_version()` supports runtime negotiation. This bridge is experimental
+until conformance vectors and shared-library symbol/export policy are complete.
+
+```c
+#include "wimf_c.h"
+
+wimf_encode_options options;
+wimf_encode_options_init(&options);
+options.lossless = 1;
+
+wimf_buffer encoded = {0};
+wimf_status status = wimf_encode(&image, &options, &encoded);
+if (status.code == WIMF_STATUS_OK) {
+    /* consume encoded.data / encoded.size */
+}
+wimf_buffer_free(&encoded);
+```
+
 Zstandard 1.5.7 is pinned under `third_party/zstd`. The codec does not read files, mutate process-wide state, or depend on an operating-system API.
 
 ## Embedding

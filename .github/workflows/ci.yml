@@ -101,12 +101,19 @@ jobs:
           cl /nologo /O2 /c /Ithird_party/zstd third_party/zstd/zstd.c /Fo:zstd.obj
           cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd.obj /Fe:v2_core_tests.exe
           .\v2_core_tests.exe
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd /c src/wimf_c.cpp /Fo:wimf_c.obj
+          cl /nologo /O2 /Isrc /c tests/cpp/test_c_api.c /Fo:test_c_api.obj
+          link /nologo test_c_api.obj wimf_c.obj v2_core.obj zstd.obj /OUT:c_api_tests.exe
+          .\c_api_tests.exe
       - name: Build and test with the system C++ compiler
         if: runner.os != 'Windows'
         run: |
           cc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd.o
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd.o -pthread -o v2_core_tests
           ./v2_core_tests
+          cc -std=c11 -O2 -Wall -Wextra -Isrc -c tests/cpp/test_c_api.c -o test_c_api.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Isrc -Ithird_party/zstd test_c_api.o src/wimf_c.cpp src/v2_core.cpp zstd.o -pthread -o c_api_tests
+          ./c_api_tests
       - name: Compile synchronous core with Emscripten when available
         if: runner.os == 'Linux'
         run: |

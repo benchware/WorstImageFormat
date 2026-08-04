@@ -1,5 +1,6 @@
 include src/*.cpp
 include src/*.hpp
+include src/*.h
 include README.md
 include CHANGELOG.md
 include LICENSE
@@ -12,4 +13,5 @@ include benchmarks/*.py
 include examples/*.py
 recursive-include docs *.md
 recursive-include tests *.cpp *.py
+recursive-include tests *.c
 recursive-include tests/fixtures *.b64
