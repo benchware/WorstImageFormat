@@ -25,6 +25,20 @@ decoded = wimf.open("output.wimf")
 decoded.pil.save("decoded.png")
 ```
 
+## Pillow integration
+
+Import WIMF once to register the Pillow plugin:
+
+```python
+import wimf
+from PIL import Image
+
+image = Image.open("photo.wimf")
+image.save("copy.wimf", format="WIMF", lossless=True)
+```
+
+The canonical registered extension is `.wimf`; `.wim2` is not a filename extension.
+
 ## ROI decoding
 
 ```python

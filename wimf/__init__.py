@@ -4,6 +4,10 @@ import os
 from .api import WIMFDecoder, WIMFEncoder, WIMFImage
 from .api import edit_metadata as edit_meta
 from .io import loadImage, saveImage, stream_load
+from .pillow_plugin import register as _register_pillow_plugin
+from .transport import from_base64, from_data_url, to_base64, to_data_url
+
+_register_pillow_plugin()
 
 __version__ = "2.2.0"
 __all__ = [
@@ -29,8 +33,6 @@ __all__ = [
     "rewrite_metadata",
     "operation_token",
 ]
-
-from .transport import from_base64, from_data_url, to_base64, to_data_url
 
 
 class _PythonOperationToken:

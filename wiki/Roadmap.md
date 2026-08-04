@@ -3,14 +3,15 @@
 ## Integration foundation
 
 - [ ] Freeze the WIM2 normative specification.
-- [ ] Publish decoder conformance vectors.
+- [x] Publish initial lossless decoder vectors for every WIM2 tile mode.
+- [ ] Expand vectors across bit depths, alpha, ROI, extensions, and malformed files.
 - [x] Add an experimental versioned C ABI with owned buffers and structured errors.
 - [x] Add portable CMake build, install, and `find_package` support.
 - [ ] Freeze the ABI and publish standalone signed C/C++ development archives.
 
 ## Application support
 
-- [ ] Pillow plugin.
+- [x] Pillow open/save plugin for grayscale, RGB, and RGBA WIM2 images.
 - [ ] ImageMagick/GraphicsMagick coder.
 - [ ] FFmpeg/libavcodec decoder.
 - [ ] Linux MIME and thumbnail integration.

@@ -7,7 +7,8 @@ embed without depending on Python.
 ## 1. Stabilize the integration contract
 
 - [ ] Freeze and publish the WIM2 bitstream specification and compatibility rules.
-- [ ] Add normative encoder/decoder conformance vectors for every tile mode,
+- [x] Add initial committed lossless decoder vectors for all four tile modes.
+- [ ] Expand normative encoder/decoder conformance vectors to every
   bit depth, channel layout, ROI case, extension, and malformed-input boundary.
 - [x] Introduce an experimental, versioned C ABI over the portable C++17 core with
   plain option/result records, owned output buffers, and structured errors.
@@ -20,7 +21,7 @@ embed without depending on Python.
 
 ## 2. High-impact integrations
 
-- [ ] Ship a Pillow plugin so `Image.open("image.wimf")` and Pillow save workflows
+- [x] Ship an initial Pillow plugin so `Image.open("image.wimf")` and Pillow save workflows
   can use WIM2 naturally.
 - [ ] Add an ImageMagick/GraphicsMagick coder backed by the stable C ABI.
 - [ ] Add an FFmpeg/libavcodec WIM2 still-image decoder after the ABI and

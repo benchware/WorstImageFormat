@@ -17,6 +17,7 @@ WIM2 divides an image into independently decodable tiles and chooses Raw, Predic
 - [[Command-line tools]] — headless workflows and diagnostics.
 - [[WIMF-Studio]] — desktop encoder, inspector, and corruption lab.
 - [[WIM2-Format]] — container and tile-mode overview.
+- [[Conformance-Vectors]] — portable decoder expectations and hashes.
 - [[Native-Integration]] — embed the codec without Python.
 - [[Corruption-and-Recovery]] — strict decoding, diagnostic previews, and anti-rot.
 - [[Legacy-Migration]] — move WIMF v1, `.wif`, AWIF, and `ROT!` content to WIM2.
