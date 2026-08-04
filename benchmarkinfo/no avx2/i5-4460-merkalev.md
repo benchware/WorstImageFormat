@@ -9,7 +9,7 @@
 **Threads**: 4  
 **Image**: 8256 × 5504 (45.4 MP), RGB, source: NASA ART002-E-15971.JPG  
 **Measurement methodology**: Each configuration was encoded and decoded five times; the reported values are the median of the three middle runs.
-
+**OS**: Windows 10 22H2
 ---
 
 ## Overview
