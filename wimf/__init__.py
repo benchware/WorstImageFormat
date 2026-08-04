@@ -5,7 +5,16 @@ from .api import WIMFDecoder, WIMFEncoder, WIMFImage
 from .api import edit_metadata as edit_meta
 from .io import loadImage, saveImage, stream_load
 from .pillow_plugin import register as _register_pillow_plugin
-from .transport import from_base64, from_data_url, to_base64, to_data_url
+from .transport import (
+    from_base16,
+    from_base32,
+    from_base64,
+    from_data_url,
+    to_base16,
+    to_base32,
+    to_base64,
+    to_data_url,
+)
 
 _register_pillow_plugin()
 
@@ -27,6 +36,10 @@ __all__ = [
     "runtime_info",
     "to_base64",
     "from_base64",
+    "to_base16",
+    "from_base16",
+    "to_base32",
+    "from_base32",
     "to_data_url",
     "from_data_url",
     "compare",

@@ -45,6 +45,19 @@ Consumers can then use `find_package(WIMF CONFIG REQUIRED)` and link
 `WIMF::wimf`. The installed shared-library major version follows the C ABI
 version, independently of the WIM2 bitstream version.
 
+The default CMake build also installs `wimf-native`, a deliberately small
+process bridge built exclusively on the C ABI:
+
+```bash
+wimf-native encode source.ppm output.wimf
+wimf-native encode source.pgm output.wimf --lossy 7
+wimf-native decode output.wimf restored.ppm
+```
+
+It accepts 8-bit binary PGM (P5) and PPM (P6). Set `WIMF_BUILD_TOOLS=OFF` when
+only the library is required. The tool owns filesystem I/O; the codec core
+remains memory-only and dependency-free.
+
 Zstandard 1.5.7 is pinned under `third_party/zstd`. The codec does not read files, mutate process-wide state, or depend on an operating-system API.
 
 ## Embedding

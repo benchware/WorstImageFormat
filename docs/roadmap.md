@@ -10,16 +10,19 @@ embed without depending on Python.
 - [x] Add initial committed lossless decoder vectors for all four tile modes.
 - [x] Expand core vectors to grayscale, RGBA, 10/16-bit, odd edge tiles,
   multi-tile ROI, metadata, corruption rejection, and thread determinism.
-- [ ] Expand normative vectors to extensions, progressive layers, cancellation,
-  protected history, and the complete malformed-input boundary.
+- [x] Add HIST, AROT, protected-history, bounded-repair, and unrecoverable-damage vectors.
+- [ ] Expand normative vectors to progressive layers, cancellation, and the
+  complete malformed-input boundary.
 - [x] Introduce an experimental, versioned C ABI over the portable C++17 core with
   plain option/result records, owned output buffers, and structured errors.
-- [ ] Stabilize that C ABI with opaque
-  handles, caller-owned buffers, structured errors, and explicit ABI negotiation.
+- [x] Freeze ABI v1 fields, enums, ownership, threading, errors, exception
+  containment, cleanup, and version negotiation.
 - [x] Add CMake build, install, and `find_package(WIMF)` rules independently of Python.
+- [x] Add a C-ABI-only PGM/PPM process bridge for tools and languages that do not
+  yet link the native library directly.
 - [ ] Publish signed standalone C/C++ development archives in releases.
-- [ ] Document resource limits, thread safety, cancellation, ownership, licensing,
-  and the decoder security model.
+- [x] Document ABI resource limits, thread safety, ownership, errors, and decoder safety.
+- [ ] Complete cancellation callbacks and licensing guidance for external SDK archives.
 
 ## 2. High-impact integrations
 

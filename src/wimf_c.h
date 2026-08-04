@@ -10,6 +10,13 @@ extern "C" {
 
 #define WIMF_C_ABI_VERSION 1u
 
+/* ABI v1 ownership summary:
+ * - inputs are borrowed for the duration of a call;
+ * - successful output buffers must be freed by this library;
+ * - calls are independent and may execute concurrently;
+ * - no C++ exception crosses this interface.
+ * See docs/c-api.md for the complete contract. */
+
 #if defined(_WIN32) && defined(WIMF_C_SHARED)
 #  if defined(WIMF_C_BUILDING_DLL)
 #    define WIMF_C_API __declspec(dllexport)

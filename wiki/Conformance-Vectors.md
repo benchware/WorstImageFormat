@@ -12,3 +12,7 @@ thread determinism; and checksum rejection after payload corruption.
 Encoder output is not required to be byte-identical: alternative valid
 Zstandard streams and mode decisions are allowed. Decoder pixels and safety
 behavior are the compatibility contract.
+
+The extension pack covers indexed `HIST`, `AROT`, combined protected history,
+random state access, exact repaired pixels, and rejection when damage exceeds
+the two-shard recovery budget.

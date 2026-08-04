@@ -143,6 +143,35 @@ def _base64_decode(args):
     _write_stream(args.output, decoded, binary=True, force=args.force)
 
 
+def _base_encode(args):
+    encoder = wimf.to_base16 if args.transport == "base16" else wimf.to_base32
+    _write_stream(args.output, encoder(args.input, wrap=args.wrap), force=args.force)
+
+
+def _base_decode(args):
+    decoder = wimf.from_base16 if args.transport == "base16" else wimf.from_base32
+    decoded = decoder(_read_stream(args.input))
+    if not wimf.is_wimf(decoded):
+        raise ValueError(f"decoded {args.transport} is not a supported WIMF container")
+    _write_stream(args.output, decoded, binary=True, force=args.force)
+
+
+def _add_base_transport(commands, name):
+    parser = commands.add_parser(name, help=f"convert WIMF to or from RFC 4648 {name.title()} text")
+    subcommands = parser.add_subparsers(dest=f"{name}_command", required=True)
+    encode = subcommands.add_parser("encode", help=f"encode a WIMF file as {name.title()}")
+    encode.add_argument("input")
+    encode.add_argument("output", nargs="?", default="-")
+    encode.add_argument("--wrap", type=int, default=0)
+    encode.add_argument("--force", action="store_true")
+    encode.set_defaults(handler=_base_encode, transport=name)
+    decode = subcommands.add_parser("decode", help=f"decode {name.title()} into a WIMF file")
+    decode.add_argument("input")
+    decode.add_argument("output")
+    decode.add_argument("--force", action="store_true")
+    decode.set_defaults(handler=_base_decode, transport=name)
+
+
 def _corrupt(args):
     source = Path(args.input).read_bytes()
     damaged = corrupt(
@@ -240,6 +269,8 @@ def build_parser():
     base64_decode.add_argument("output")
     base64_decode.add_argument("--force", action="store_true")
     base64_decode.set_defaults(handler=_base64_decode)
+    _add_base_transport(commands, "base16")
+    _add_base_transport(commands, "base32")
 
     corrupt_parser = commands.add_parser("corrupt", help="write a deterministically corrupted WIM2 copy")
     corrupt_parser.add_argument("input")

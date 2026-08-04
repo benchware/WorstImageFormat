@@ -23,11 +23,26 @@ if(BUILD_SHARED_LIBS)
 endif()
 
 option(WIMF_BUILD_TESTS "Build standalone native tests" ON)
+option(WIMF_BUILD_TOOLS "Build dependency-free native conversion tools" ON)
+if(WIMF_BUILD_TOOLS)
+    add_executable(wimf_native tools/wimf_native.c)
+    set_target_properties(wimf_native PROPERTIES OUTPUT_NAME wimf-native)
+    target_link_libraries(wimf_native PRIVATE WIMF::wimf)
+    install(TARGETS wimf_native RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 if(WIMF_BUILD_TESTS)
     enable_testing()
     add_executable(wimf_c_api_test tests/cpp/test_c_api.c)
     target_link_libraries(wimf_c_api_test PRIVATE WIMF::wimf)
     add_test(NAME wimf_c_api_roundtrip COMMAND wimf_c_api_test)
+    if(WIMF_BUILD_TOOLS)
+        add_test(NAME wimf_native_version COMMAND wimf_native --version)
+        add_test(NAME wimf_native_ppm_roundtrip
+            COMMAND ${CMAKE_COMMAND}
+                -DTOOL=$<TARGET_FILE:wimf_native>
+                -DWORK=${CMAKE_CURRENT_BINARY_DIR}/native-tool-test
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/native_tool_roundtrip.cmake)
+    endif()
 endif()
 
 install(TARGETS wimf EXPORT WIMFTargets

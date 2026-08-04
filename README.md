@@ -140,17 +140,20 @@ updated = wimf.rewrite_metadata(payload, {"author": "Bee", "license": "CC0"})
 
 WIM2 tile payloads remain byte-for-byte identical. Tile offsets and checksums are recalculated, history is retained, and anti-rot protection is regenerated when present.
 
-### Base64 and data URLs
+### Text transports
 
 ```python
 text = wimf.to_base64(payload, wrap=76)
 assert wimf.from_base64(text) == payload
 
+assert wimf.from_base16(wimf.to_base16(payload)) == payload
+assert wimf.from_base32(wimf.to_base32(payload)) == payload
+
 url = wimf.to_data_url(payload)
 assert wimf.from_data_url(url) == payload
 ```
 
-These helpers use strict parsing, bounded input sizes, and the `image/x-wimf` MIME type. Base64 is transport encoding, not image compression.
+These helpers use strict RFC 4648 parsing, bounded input sizes, and whitespace-tolerant decoding. Data URLs use Base64 and the `image/x-wimf` MIME type. Base16, Base32, and Base64 are transport encodings—not compression—and expand data by roughly 100%, 60%, and 33%, respectively.
 
 ### Runtime diagnostics
 
@@ -182,6 +185,8 @@ wimf decode huge.wimf crop.png --roi 100 200 640 480
 wimf info photo.wimf
 wimf runtime
 wimf view photo.wimf
+wimf base16 encode photo.wimf photo.hex
+wimf base32 encode photo.wimf photo.b32
 wimf base64 encode photo.wimf photo.txt --data-url
 wimf corrupt photo.wimf damaged.wimf --seed 42 --area payload
 wimf diagnose damaged.wimf --unsafe-preview damaged-preview.png
@@ -196,11 +201,13 @@ Run `wimf <command> --help` for focused options. Metadata uses repeatable `--met
 - `wimf-cat` renders supported images in compatible terminals.
 - `wimf-meta` inspects and edits legacy metadata.
 
+Native C/C++ builds also provide `wimf-native`, a dependency-free process bridge for lossless PGM/PPM ↔ WIMF conversion. It is intentionally narrow; ordinary PNG/JPEG import remains in the Python CLI through Pillow.
+
 ### WIMF Studio and corruption experiments
 
 WIMF Studio uses four focused panels: Encode & Compare, Inspect, Protection & History, and Codec Lab. Long-running encoding runs outside the Tk event loop and native tile progress can be cancelled between tiles.
 
-The Codec Lab never disables normal checksum validation. Its unsafe preview decodes only checksum-valid independent tiles and replaces rejected tiles with an obvious checkerboard. Base64 is treated as a transport representation, including `data:image/x-wimf;base64,...` URLs; it is not a new compression mode.
+The Codec Lab never disables normal checksum validation. Its unsafe preview decodes only checksum-valid independent tiles and replaces rejected tiles with an obvious checkerboard. Text encodings are transport representations; they are not new compression modes.
 
 ## Tested feature matrix
 
@@ -215,7 +222,7 @@ The Codec Lab never disables normal checksum validation. Its unsafe preview deco
 | Metadata rewrite | Implemented | Tile payload identity, history retention, anti-rot regeneration |
 | Anti-rot | Experimental | Two-shard repair, three-shard rejection, damaged parity, protected history |
 | Chrono history | Experimental | Unchanged/changed states, ordering, random state access, protected history |
-| Base64 and data URLs | Implemented | Strict alphabet, MIME validation, whitespace and safety bounds |
+| Base16, Base32, Base64, and data URLs | Implemented | Strict alphabets, MIME validation, whitespace and safety bounds |
 | Corruption laboratory | Experimental | Header, metadata, index, payload, extension, and parity targeting |
 | AWIF animation | Legacy decode compatibility | Committed fixtures and malformed-input safety |
 | WIMF v1, `.wif`, and `ROT!` | Deprecated authoring; legacy decoding | Warning coverage, migration, and protected decode |
@@ -245,8 +252,8 @@ CI separates Python quality, cross-platform API/feature tests, legacy decode com
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
 - Expand measured AVX2 and NEON optimization only where profiling justifies it.
 - Validate the memory-only synchronous core with Emscripten on the future web branch without changing the WIM2 bitstream.
-- Stabilize a versioned C ABI and publish conformance vectors before pursuing third-party integrations.
-- Add Pillow and ImageMagick support first, followed by FFmpeg and native desktop thumbnailers.
+- Publish signed standalone C/C++ development archives for the versioned ABI and conformance pack.
+- Build on the Pillow plugin and native PGM/PPM bridge with ImageMagick, FFmpeg, and desktop thumbnailer integrations.
 - Preserve legacy animation and watermark decoding without reviving their deprecated authoring paths.
 
 Target performance is at least 10 MP/s Balanced encoding and 50 MP/s decoding on reference hardware; benchmark results are hardware-dependent and are not claimed until measured.

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -64,10 +66,11 @@ extern "C" void wimf_decode_options_init(wimf_decode_options* options) {
 extern "C" wimf_status wimf_encode(const wimf_image_view* image, const wimf_encode_options* options,
                                      wimf_buffer* output) {
     if (!image || !options || !output) return invalid("null encode argument");
+    *output = {};
+    try {
     if (options->struct_size != sizeof(*options)) return invalid("unsupported encode options size");
     if (options->preset > 2 || options->codec > 4) return invalid("invalid preset or codec identifier");
     if (options->metadata_size && !options->metadata_json) return invalid("metadata pointer is null");
-    *output = {};
     wimf::v2::ImageView view{image->data, image->width, image->height, image->channels,
                              image->bytes_per_sample, image->row_stride};
     wimf::v2::EncodeOptions native;
@@ -87,13 +90,24 @@ extern "C" wimf_status wimf_encode(const wimf_image_view* image, const wimf_enco
     if (!status) return status_from(status);
     if (!copy_buffer(encoded, output)) return failure(WIMF_STATUS_RESOURCE_LIMIT, "output allocation failed");
     return {};
+    } catch (const std::bad_alloc&) {
+        wimf_buffer_free(output);
+        return failure(WIMF_STATUS_RESOURCE_LIMIT, "encode allocation failed");
+    } catch (const std::exception& error) {
+        wimf_buffer_free(output);
+        return failure(WIMF_STATUS_INTERNAL, error.what());
+    } catch (...) {
+        wimf_buffer_free(output);
+        return failure(WIMF_STATUS_INTERNAL, "unknown encode failure");
+    }
 }
 
 extern "C" wimf_status wimf_decode(const uint8_t* data, size_t size, const wimf_decode_options* options,
                                      wimf_decoded_image* output) {
     if (!data || !options || !output) return invalid("null decode argument");
-    if (options->struct_size != sizeof(*options)) return invalid("unsupported decode options size");
     *output = {};
+    try {
+    if (options->struct_size != sizeof(*options)) return invalid("unsupported decode options size");
     wimf::v2::DecodeOptions native;
     native.use_roi = options->use_roi != 0;
     native.roi_x = options->roi_x; native.roi_y = options->roi_y;
@@ -118,6 +132,16 @@ extern "C" wimf_status wimf_decode(const uint8_t* data, size_t size, const wimf_
     output->stats = {decoded.stats.raw_tiles, decoded.stats.predictive_tiles, decoded.stats.palette_tiles,
                      decoded.stats.wavelet_tiles, decoded.stats.effective_threads};
     return {};
+    } catch (const std::bad_alloc&) {
+        wimf_decoded_image_free(output);
+        return failure(WIMF_STATUS_RESOURCE_LIMIT, "decode allocation failed");
+    } catch (const std::exception& error) {
+        wimf_decoded_image_free(output);
+        return failure(WIMF_STATUS_INTERNAL, error.what());
+    } catch (...) {
+        wimf_decoded_image_free(output);
+        return failure(WIMF_STATUS_INTERNAL, "unknown decode failure");
+    }
 }
 
 extern "C" void wimf_buffer_free(wimf_buffer* buffer) {

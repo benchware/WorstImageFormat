@@ -19,5 +19,10 @@ deterministic with 1, 2, and 4 worker threads.
 
 These vectors freeze decoder expectations, not encoder byte identity. Encoders
 may produce different valid Zstandard streams or mode decisions while decoding
-to the required pixels. Future packs will add extensions, progressive layers,
-cancellation checkpoints, protected history, and more malformed headers.
+to the required pixels.
+
+`tests/conformance/extensions.json` additionally freezes `HIST`, `AROT`, and
+combined protected-history behavior. It verifies random state access, exact
+state hashes, successful one-shard repair, and rejection beyond the two-shard
+repair budget. Future packs will add progressive layers, cancellation
+checkpoints, and more malformed headers.

@@ -83,6 +83,8 @@ def main():
     subprocess.run([sys.executable, "-m", "wimf", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf", "runtime", "--json"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf.studio_cli", "--help"], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "wimf", "base16", "--help"], check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "wimf", "base32", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf", "base64", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf.cli", "--help"], check=True, capture_output=True)
     subprocess.run([sys.executable, "-m", "wimf.meta_tool", "--help"], check=True, capture_output=True)

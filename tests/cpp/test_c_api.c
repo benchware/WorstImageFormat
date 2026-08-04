@@ -32,6 +32,11 @@ int main(void) {
     assert(decoded.stats.raw_tiles + decoded.stats.predictive_tiles + decoded.stats.palette_tiles +
                decoded.stats.wavelet_tiles == 1);
     wimf_decoded_image_free(&decoded);
+    encoded.data[encoded.size - 1] ^= 1;
+    status = wimf_decode(encoded.data, encoded.size, &decode_options, &decoded);
+    assert(status.code == WIMF_STATUS_CORRUPT_DATA);
+    assert(decoded.pixels.data == NULL && decoded.pixels.size == 0);
+    wimf_decoded_image_free(&decoded);
     wimf_buffer_free(&encoded);
     assert(wimf_abi_version() == WIMF_C_ABI_VERSION);
     assert(strcmp(wimf_codec_version(), "2.2") == 0);

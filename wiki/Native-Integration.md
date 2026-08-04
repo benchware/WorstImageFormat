@@ -11,4 +11,15 @@ and exports `WIMF::wimf` for `find_package(WIMF CONFIG REQUIRED)`. The shared
 library uses ABI major version 1; this is independent of the WIM2 container
 version and the canonical `.wimf` filename extension.
 
+ABI v1 freezes symbol meanings, record fields, enum values, ownership, cleanup,
+threading, and error behavior. Inputs are borrowed during calls; successful
+outputs are owned by WIMF and must be released by the same loaded library. No
+C++ exception may cross the C boundary, and independent calls may run concurrently.
+
 Planned consumers are Pillow, ImageMagick/GraphicsMagick, FFmpeg, desktop thumbnail providers, WebAssembly, and Rust.
+
+For integrations that cannot link a library yet, CMake also builds the small
+`wimf-native` process bridge. It converts 8-bit binary PGM/PPM images to and
+from `.wimf` using only the public C ABI. This keeps the bridge portable and
+gives other languages an immediate integration path without making filesystem
+or image-format dependencies part of the codec core.

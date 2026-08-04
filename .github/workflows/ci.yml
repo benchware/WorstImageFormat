@@ -53,7 +53,7 @@ jobs:
       - run: python setup.py build_ext --inplace
       - name: Verify native extensions
         run: python -c "import wimf.wimf_cpp, wimf.wimf_v2_cpp; assert wimf.runtime_info()['native']"
-      - run: python -m pytest wimf/test_core.py wimf/test_v2.py wimf/test_features.py wimf/test_studio.py wimf/test_conformance.py wimf/test_pillow_plugin.py -v --junitxml=test-results.xml
+      - run: python -m pytest wimf/test_core.py wimf/test_v2.py wimf/test_features.py wimf/test_studio.py wimf/test_conformance.py wimf/test_extension_conformance.py wimf/test_pillow_plugin.py wimf/test_transport.py -v --junitxml=test-results.xml
       - name: Upload test results
         if: ${{ always() && hashFiles('test-results.xml') != '' }}
         uses: actions/upload-artifact@v7
@@ -61,7 +61,7 @@ jobs:
           name: test-results-${{ matrix.os }}-py${{ matrix.python }}
           path: |
             test-results.xml
-            tests/conformance/vectors.json
+            tests/conformance/*.json
           retention-days: 14
 
   legacy-decode:

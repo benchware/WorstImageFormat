@@ -6,6 +6,7 @@ include CHANGELOG.md
 include LICENSE
 include CMakeLists.txt
 recursive-include cmake *.cmake.in
+include tools/wimf_native.c
 include third_party/zstd/LICENSE
 include third_party/zstd/README.md
 include third_party/zstd/zstd.c
@@ -16,5 +17,6 @@ include examples/*.py
 recursive-include docs *.md
 recursive-include tests *.cpp *.py
 recursive-include tests *.c
+recursive-include tests/cmake *.cmake
 recursive-include tests/fixtures *.b64
 recursive-include tests/conformance *.json
