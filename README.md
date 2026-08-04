@@ -235,7 +235,7 @@ The visual report separately exercises synthetic mixed content, a credited natur
 | Animation creation | Legacy-only | AWIF encode/decode with preserved timing |
 | Wavelet watermark creation | Planned | v1 only |
 
-See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](docs/legacy-migration.md), [native embedding guide](docs/native-core.md), and [release checklist](docs/release-checklist.md).
+See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](docs/legacy-migration.md), [native embedding guide](docs/native-core.md), [adoption roadmap](docs/roadmap.md), and [release checklist](docs/release-checklist.md).
 
 ## Verification and roadmap
 
@@ -245,7 +245,9 @@ CI separates Python quality, cross-platform API/feature tests, legacy decode com
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
 - Expand measured AVX2 and NEON optimization only where profiling justifies it.
 - Validate the memory-only synchronous core with Emscripten on the future web branch without changing the WIM2 bitstream.
-- Migrate animation and watermark creation only after the still-image path meets throughput targets.
+- Stabilize a versioned C ABI and publish conformance vectors before pursuing third-party integrations.
+- Add Pillow and ImageMagick support first, followed by FFmpeg and native desktop thumbnailers.
+- Preserve legacy animation and watermark decoding without reviving their deprecated authoring paths.
 
 Target performance is at least 10 MP/s Balanced encoding and 50 MP/s decoding on reference hardware; benchmark results are hardware-dependent and are not claimed until measured.
 
