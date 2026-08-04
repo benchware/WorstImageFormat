@@ -35,5 +35,33 @@ int main(void) {
     wimf_buffer_free(&encoded);
     assert(wimf_abi_version() == WIMF_C_ABI_VERSION);
     assert(strcmp(wimf_codec_version(), "2.2") == 0);
+
+    uint16_t high_depth[17 * 17];
+    for (size_t index = 0; index < 17 * 17; ++index) high_depth[index] = (uint16_t)(index * 197u);
+    wimf_image_view high_view = {(const uint8_t*)high_depth, 17, 17, 1, 2, 17 * sizeof(uint16_t)};
+    wimf_encode_options_init(&encode_options);
+    encode_options.bit_depth = 16;
+    encode_options.lossless = 1;
+    encode_options.synchronous = 1;
+    status = wimf_encode(&high_view, &encode_options, &encoded);
+    assert(status.code == WIMF_STATUS_OK);
+
+    wimf_decode_options_init(&decode_options);
+    decode_options.use_roi = 1;
+    decode_options.roi_x = 5;
+    decode_options.roi_y = 6;
+    decode_options.roi_width = 3;
+    decode_options.roi_height = 4;
+    decode_options.synchronous = 1;
+    status = wimf_decode(encoded.data, encoded.size, &decode_options, &decoded);
+    assert(status.code == WIMF_STATUS_OK && decoded.width == 3 && decoded.height == 4);
+    assert(decoded.bit_depth == 16 && decoded.channels == 1 && decoded.pixels.size == 3 * 4 * 2);
+    for (uint32_t row = 0; row < 4; ++row) {
+        const uint16_t* actual = (const uint16_t*)decoded.pixels.data + row * 3;
+        const uint16_t* expected = high_depth + (6 + row) * 17 + 5;
+        assert(memcmp(actual, expected, 3 * sizeof(uint16_t)) == 0);
+    }
+    wimf_decoded_image_free(&decoded);
+    wimf_buffer_free(&encoded);
     return 0;
 }

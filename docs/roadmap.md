@@ -8,8 +8,10 @@ embed without depending on Python.
 
 - [ ] Freeze and publish the WIM2 bitstream specification and compatibility rules.
 - [x] Add initial committed lossless decoder vectors for all four tile modes.
-- [ ] Expand normative encoder/decoder conformance vectors to every
-  bit depth, channel layout, ROI case, extension, and malformed-input boundary.
+- [x] Expand core vectors to grayscale, RGBA, 10/16-bit, odd edge tiles,
+  multi-tile ROI, metadata, corruption rejection, and thread determinism.
+- [ ] Expand normative vectors to extensions, progressive layers, cancellation,
+  protected history, and the complete malformed-input boundary.
 - [x] Introduce an experimental, versioned C ABI over the portable C++17 core with
   plain option/result records, owned output buffers, and structured errors.
 - [ ] Stabilize that C ABI with opaque

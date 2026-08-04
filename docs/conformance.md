@@ -9,12 +9,15 @@ and copied through text systems. The manifest records:
 - dimensions, channels, and bit depth;
 - the required recorded tile mode.
 
-The pack contains lossless Raw, Predictive, Palette, and Wavelet vectors. Tests
+The pack contains lossless Raw, Predictive, Palette, and Wavelet vectors plus
+grayscale, RGBA, 10-bit, 16-bit, odd dimensions, multi-tile edge geometry, and
+a four-tile ROI crossing. Tests
 decode every vector through the Python reference implementation and the native
 backend when available. A deterministic payload mutation must be rejected by
-strict checksum validation.
+strict checksum validation. Multi-tile encoding must also remain byte-for-byte
+deterministic with 1, 2, and 4 worker threads.
 
 These vectors freeze decoder expectations, not encoder byte identity. Encoders
 may produce different valid Zstandard streams or mode decisions while decoding
-to the required pixels. Future packs will add 10/16-bit samples, alpha, odd edge
-tiles, multi-tile ROI, extensions, progressive layers, and malformed headers.
+to the required pixels. Future packs will add extensions, progressive layers,
+cancellation checkpoints, protected history, and more malformed headers.
