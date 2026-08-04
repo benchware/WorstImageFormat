@@ -10,13 +10,14 @@
 **Native Backend**: C++17, scalar (no AVX2, NEON, or AVX-512)  
 **Threads**: 6  
 **Image**: 8256 × 5504 (45.4 MP), RGB, source: NASA ART002-E-15971.JPG  
-**Measurement methodology**: Each configuration was encoded and decoded five times; the reported values are the median of the three middle runs.
+
+**Note**: This system represents a mainstream 6-core desktop CPU from 2017, running Windows 10 22H2.
 
 ---
 
 ## Overview
 
-These benchmarks measure the current state of the WIMF encoder on a mainstream 6-core desktop CPU from 2017. All numbers were collected with the published PyPI wheel (no local compiler involved). The SIMD path was reported as `scalar`; no platform-specific vector extensions were used. RAM was not a limiting factor in any test; peak memory usage remained well below available system memory.
+These benchmarks measure the current state of the WIMF encoder on a mainstream 6-core desktop CPU from 2017. All numbers were collected with the published PyPI wheel. The SIMD path was reported as `scalar`; no platform-specific vector extensions were used.
 
 ---
 
@@ -38,7 +39,7 @@ These benchmarks measure the current state of the WIMF encoder on a mainstream 6
 **Observations**:
 - Peak encode throughput: **43.5 MP/s** (Q1 Fast).
 - All Fast runs complete in under 1.2 seconds.
-- PSNR ranges from 51.1 dB (Q1) to 67.6 dB (Q10), with diminishing returns beyond Q7.
+- PSNR ranges from 51.1 dB (Q1) to 67.6 dB (Q10).
 
 ---
 
@@ -59,7 +60,7 @@ These benchmarks measure the current state of the WIMF encoder on a mainstream 6
 
 **Observations**:
 - Throughput is stable at **~22.4 MP/s** for Q1–Q8.
-- Q9 Balanced delivers **76.4 dB PSNR** with a 5.11× compression ratio — visually lossless for most content.
+- Q9 Balanced delivers **76.4 dB PSNR** with a 5.11× compression ratio.
 - This preset is the recommended default for daily use.
 
 ---
@@ -81,9 +82,8 @@ These benchmarks measure the current state of the WIMF encoder on a mainstream 6
 
 **Observations**:
 - Best compression: **17.31×** at Q2 (7.7 MB) in **8.21 seconds**.
-- Peak throughput on Extreme: **5.5 MP/s** at Q2.
+- Peak throughput on Extreme: **5.5 MP/s**.
 - Encode times range from 8.1 to 17.4 seconds.
-- PSNR drops below 40 dB only at Q2; Q3 and above remain above 39 dB.
 
 ---
 
@@ -106,9 +106,9 @@ These benchmarks measure the current state of the WIMF encoder on a mainstream 6
 | Raw        | Any       | 133.2     | 1.00×             | ~1.78      | ~25.5             | ∞         |
 
 **Observations**:
-- **Wavelet Balanced** is the best balance of size, speed, and quality: 13.7 MB, 3.05 s, 41.4 dB.
-- **Palette Fast** is the fastest configuration: 44.6 MP/s, 44.6 MB — suitable for flat graphics.
-- Predictive and Raw modes produce lossless output (∞ PSNR) but with larger files.
+- **Palette Fast** is the fastest configuration: **44.6 MP/s**.
+- **Wavelet Balanced** is the best balance: 13.7 MB, 3.05 s, 41.4 dB.
+- **Auto Fast** delivers 42.6 MP/s with 54.5 dB PSNR.
 
 ---
 
@@ -124,13 +124,43 @@ These benchmarks measure the current state of the WIMF encoder on a mainstream 6
 
 ---
 
+## Hardware context
+
+| **Component** | **Details** |
+|---------------|-------------|
+| **CPU** | Intel Core i5-8400 @ 2.80 GHz (Coffee Lake, 2017) |
+| **Cores/Threads** | 6 cores, 6 threads |
+| **TDP** | 65W |
+| **RAM** | 16 GB DDR4 @ 3200 MHz (dual-channel) |
+| **GPU** | NVIDIA GeForce RTX 2060 (not used) |
+| **Storage** | Multiple SSDs/HDDs |
+| **OS** | Windows 10 Pro 22H2 (Build 19045) |
+
+---
+
 ## Known constraints
 
-- All tests were run with **scalar** code paths. The test CPU supports AVX2, but the current wheel does not enable it. Preliminary estimates suggest 2.5–3× throughput gains once AVX2 and NEON optimizations land.
+- All tests were run with **scalar** code paths. The test CPU supports AVX2, but the current wheel does not enable it. Preliminary estimates suggest 2.5–3× throughput gains once AVX2 optimizations land.
 - File sizes are still being tuned. The encoder produces correct output, but the compression search logic is not yet fully optimized for all images.
 - These numbers represent one 45 MP photograph. Real-world performance varies with image content, resolution, and available threads.
 
+---
 
+## Reproducibility
+
+To reproduce these results on your own hardware:
+
+```bash
+pip install wimf pillow numpy
+python -c "
+from PIL import Image
+import wimf
+import time
+import numpy as np
+
+img = Image.open('your_image.jpg')
+t0 = time.perf_counter()
+wimf.save('test.wimf', img, quality=5, preset='Balanced')
+print(f'{(8256*5504/1e6) / (time.perf_counter()-t0):.1f} MP/s')
+"
 ```
-
-A full benchmark suite with all presets and codecs is available in the `benchmarks/` directory of the repository.
