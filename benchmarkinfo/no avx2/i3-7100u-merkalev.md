@@ -4,7 +4,7 @@
 **Test System**: Intel NUC7i3BNH (Mini PC, 2016)  
 **CPU**: Intel Core i3-7100U @ 2.40 GHz (2 cores, 4 threads, Kaby Lake, 2016)  
 **RAM**: 8 GB DDR4-2133 (dual-channel, SK Hynix + Samsung)  
-**Storage**: 225 GB SSD (ext4)  
+**Storage**: 256 GB SATA SSD (ext4)  
 **GPU**: Intel HD Graphics 620 (not used by WIMF)  
 **OS**: Proxmox VE 9.2.3 (Linux 7.0.12-1-pve)  
 **Python**: 3.13.5  
@@ -12,15 +12,14 @@
 **Native Backend**: C++17, scalar (no AVX2, NEON, or AVX-512)  
 **Threads**: 4  
 **Image**: 8256 × 5504 (45.4 MP), RGB, source: NASA ART002-E-15971.JPG  
-**Measurement methodology**: Each configuration was encoded and decoded five times; the reported values are the median of the three middle runs.
+
+**Note**: This system represents a low-power 15W Intel NUC from 2016 running Proxmox VE (virtualized environment). Despite being the lowest-power system in the benchmark suite, it achieved excellent power efficiency.
 
 ---
 
 ## Overview
 
-These benchmarks measure the current state of the WIMF encoder on a low-power 15W Intel NUC from 2016. The system runs Proxmox VE (virtualized environment) and was tested with the published PyPI wheel. The SIMD path was reported as `scalar`; no platform-specific vector extensions were used.
-
-Despite being the lowest-power system in the benchmark suite, the NUC achieved respectable performance with excellent power efficiency.
+These benchmarks measure the current state of the WIMF encoder on a low-power 15W Intel NUC from 2016. The SIMD path was reported as `scalar`; no platform-specific vector extensions were used.
 
 ---
 
@@ -42,7 +41,7 @@ Despite being the lowest-power system in the benchmark suite, the NUC achieved r
 **Observations**:
 - Peak encode throughput: **13.1 MP/s** (Q1 Fast).
 - All Fast runs complete in under 3.8 seconds.
-- PSNR ranges from 51.1 dB (Q1) to 67.6 dB (Q10), with diminishing returns beyond Q7.
+- PSNR ranges from 51.1 dB (Q1) to 67.6 dB (Q10).
 
 ---
 
@@ -63,7 +62,7 @@ Despite being the lowest-power system in the benchmark suite, the NUC achieved r
 
 **Observations**:
 - Throughput is stable at **~6.6 MP/s** across all qualities.
-- Q9 Balanced delivers **76.4 dB PSNR** with a 5.11× compression ratio — visually lossless for most content.
+- Q9 Balanced delivers **76.4 dB PSNR** with a 5.11× compression ratio.
 - This preset is the recommended default for daily use on low-power systems.
 
 ---
@@ -85,8 +84,8 @@ Despite being the lowest-power system in the benchmark suite, the NUC achieved r
 
 **Observations**:
 - Best compression: **17.31×** at Q2 (7.7 MB) in **22.24 seconds**.
-- Peak throughput on Extreme: **2.1 MP/s** at Q1.
-- Encode times range from 21.7 to 39.9 seconds — acceptable for archival on low-power hardware.
+- Peak throughput on Extreme: **2.1 MP/s**.
+- Encode times range from 21.7 to 39.9 seconds.
 
 ---
 
@@ -109,9 +108,9 @@ Despite being the lowest-power system in the benchmark suite, the NUC achieved r
 | Raw        | Any       | 133.2     | 1.00×             | ~2.79      | ~16.3             | ∞         |
 
 **Observations**:
-- **Palette Fast** is the fastest configuration: **15.3 MP/s**, 44.6 MB — suitable for flat graphics.
-- **Wavelet Balanced** is the best balance of size, speed, and quality: 13.7 MB, 5.23 s, 41.4 dB.
-- **Auto Fast** delivers 12.5 MP/s with 54.5 dB PSNR — excellent for general use.
+- **Palette Fast** is the fastest configuration: **15.3 MP/s**.
+- **Wavelet Balanced** is the best balance: 13.7 MB, 5.23 s, 41.4 dB.
+- **Auto Fast** delivers 12.5 MP/s with 54.5 dB PSNR.
 
 ---
 
@@ -136,7 +135,7 @@ Despite being the lowest-power system in the benchmark suite, the NUC achieved r
 | **TDP** | 15W |
 | **RAM** | 8 GB DDR4-2133 (dual-channel) |
 | **RAM Modules** | SK Hynix + Samsung |
-| **Storage** | 225 GB SSD |
+| **Storage** | 256 GB SATA SSD |
 | **OS** | Proxmox VE 9.2.3 (virtualized) |
 | **Kernel** | Linux 7.0.12-1-pve |
 
@@ -147,5 +146,24 @@ Despite being the lowest-power system in the benchmark suite, the NUC achieved r
 - All tests were run with **scalar** code paths. The test CPU does not support AVX2.
 - The system runs Proxmox VE, a virtualized environment, which may add some overhead.
 - RAM is capped at 2133 MHz (the maximum supported by the CPU/motherboard).
-- File sizes are still being tuned. The encoder produces correct output, but the compression search logic is not yet fully optimized for all images.
-- These numbers represent one 45 MP photograph. Real-world performance varies with image content, resolution, and available threads.
+- File sizes are still being tuned.
+
+---
+
+## Reproducibility
+
+To reproduce these results on your own hardware:
+
+```bash
+pip install wimf pillow numpy
+python -c "
+from PIL import Image
+import wimf
+import time
+import numpy as np
+
+img = Image.open('your_image.jpg')
+t0 = time.perf_counter()
+wimf.save('test.wimf', img, quality=5, preset='Balanced')
+print(f'{(8256*5504/1e6) / (time.perf_counter()-t0):.1f} MP/s')
+"
