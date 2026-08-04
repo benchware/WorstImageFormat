@@ -1,3 +1,10 @@
+# WIMF — Worst IMage Format
+
+[![PyPI](https://img.shields.io/pypi/v/wimf.svg)](https://pypi.org/project/wimf/)
+[![Python](https://img.shields.io/pypi/pyversions/wimf.svg)](https://pypi.org/project/wimf/)
+[![CI](https://github.com/benchware/WorstImageFormat/actions/workflows/ci.yml/badge.svg)](https://github.com/benchware/WorstImageFormat/actions/workflows/ci.yml)
+[![License](https://img.shields.io/pypi/l/wimf.svg)](https://github.com/benchware/WorstImageFormat/blob/main/LICENSE)
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/benchware/WorstImageFormat/main/.github/assets/white.png">
@@ -5,13 +12,6 @@
     <img alt="Worst Image Format" src="https://raw.githubusercontent.com/benchware/WorstImageFormat/main/.github/assets/dark.png" width="500">
   </picture>
 </p>
-
-# WIMF — Worst IMage Format
-
-[![PyPI](https://img.shields.io/pypi/v/wimf.svg)](https://pypi.org/project/wimf/)
-[![Python](https://img.shields.io/pypi/pyversions/wimf.svg)](https://pypi.org/project/wimf/)
-[![CI](https://github.com/benchware/WorstImageFormat/actions/workflows/ci.yml/badge.svg)](https://github.com/benchware/WorstImageFormat/actions/workflows/ci.yml)
-[![License](https://img.shields.io/pypi/l/wimf.svg)](https://github.com/benchware/WorstImageFormat/blob/main/LICENSE)
 
 WIMF is an experimental, versioned image codec with a Python frontend and a portable C++17 backend. New still images use the WIM2 hybrid container: every 128×128 tile independently chooses Raw, Predictive, Palette, or CDF Wavelet coding and records its mode, entropy backend, bounds, size, offset, and checksum.
 
@@ -33,6 +33,12 @@ WIMF compression is not encryption. Pixels and metadata can be recovered by anyo
 - Optional WIM2 anti-rot data capable of repairing up to two damaged shards.
 - Indexed WIM2 chrono states with random state decoding.
 - Portable C++17 kernels with a Python reference fallback.
+
+## Known limitations
+
+File size remains a work in progress. While WIMF achieves competitive compression on many workloads, the current encoder does not always produce the smallest possible output. The per-tile hybrid selection is functional, and the codecs themselves are correct, but the search and decision logic are still being tuned. Future releases will improve compression ratios without breaking decode compatibility.
+
+Benchmarks and comparative metrics against PNG, WebP, AVIF, JPEG, and JPEG XL will be published separately once the codec reaches a stable performance baseline.
 
 ## Installation
 
