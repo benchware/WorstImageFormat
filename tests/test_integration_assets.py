@@ -33,3 +33,13 @@ def test_upstream_adapters_use_only_the_public_wimf_boundary():
         source = (ROOT / relative).read_text(encoding="utf-8")
         assert '#include "wimf_c.h"' in source
         assert "v2_core" not in source
+
+
+def test_windows_shell_provider_has_stable_com_exports():
+    source = (ROOT / "integrations/windows/wimf_thumbnail.cpp").read_text(encoding="utf-8")
+    exports = (ROOT / "integrations/windows/wimf-thumbnail.def").read_text(encoding="utf-8")
+    assert "#define NOMINMAX" in source
+    assert "STDAPI DllGetClassObject" in source
+    assert "STDAPI DllCanUnloadNow" in source
+    assert "DllGetClassObject PRIVATE" in exports
+    assert "DllCanUnloadNow PRIVATE" in exports

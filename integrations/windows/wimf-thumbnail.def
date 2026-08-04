@@ -1,0 +1,4 @@
+LIBRARY "wimf-thumbnail"
+EXPORTS
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE

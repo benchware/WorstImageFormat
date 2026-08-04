@@ -52,7 +52,9 @@ if(WIMF_BUILD_IMAGEMAGICK)
     set_target_properties(wimf_imagemagick PROPERTIES PREFIX "" OUTPUT_NAME "wimf")
 endif()
 if(WIN32 AND WIMF_BUILD_WINDOWS_SHELL)
-    add_library(wimf_thumbnail SHARED integrations/windows/wimf_thumbnail.cpp)
+    add_library(wimf_thumbnail SHARED
+        integrations/windows/wimf_thumbnail.cpp
+        integrations/windows/wimf-thumbnail.def)
     target_sources(wimf_thumbnail PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/wimf_dll_version.rc)
     target_compile_features(wimf_thumbnail PRIVATE cxx_std_17)
     target_link_libraries(wimf_thumbnail PRIVATE WIMF::wimf ole32 uuid gdi32 user32)

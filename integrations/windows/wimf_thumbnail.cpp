@@ -1,3 +1,6 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <shobjidl.h>
 #include <thumbcache.h>
@@ -21,7 +24,7 @@ std::atomic<long> objects{0};
 class Provider final : public IInitializeWithStream, public IThumbnailProvider {
 public:
     Provider() { ++objects; }
-    ~Provider() override { if (stream_) stream_->Release(); --objects; }
+    ~Provider() { if (stream_) stream_->Release(); --objects; }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
         if (!out) return E_POINTER;
         *out = nullptr;
@@ -93,7 +96,7 @@ private:
 class Preview final : public IInitializeWithStream, public IPreviewHandler, public IOleWindow {
 public:
     Preview() { ++objects; }
-    ~Preview() override { Unload(); if (stream_) stream_->Release(); --objects; }
+    ~Preview() { Unload(); if (stream_) stream_->Release(); --objects; }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
         if (!out) return E_POINTER; *out = nullptr;
         if (id == IID_IUnknown || id == IID_IInitializeWithStream)
@@ -140,7 +143,7 @@ public:
         if (bitmap_) { DeleteObject(bitmap_); bitmap_ = nullptr; }
         return S_OK;
     }
-    HRESULT STDMETHODCALLTYPE SetFocus() override { return window_ ? (SetFocus(window_), S_OK) : S_FALSE; }
+    HRESULT STDMETHODCALLTYPE SetFocus() override { return window_ ? (::SetFocus(window_), S_OK) : S_FALSE; }
     HRESULT STDMETHODCALLTYPE QueryFocus(HWND* window) override {
         if (!window) return E_POINTER; *window = GetFocus(); return S_OK;
     }
@@ -177,11 +180,11 @@ private:
 };
 }
 
-extern "C" HRESULT __declspec(dllexport) __stdcall DllGetClassObject(REFCLSID clsid, REFIID id, void** out) {
+STDAPI DllGetClassObject(REFCLSID clsid, REFIID id, void** out) {
     const bool preview = IsEqualCLSID(clsid, CLSID_WimfPreview);
     if (!preview && !IsEqualCLSID(clsid, CLSID_WimfThumbnail)) return CLASS_E_CLASSNOTAVAILABLE;
     auto* factory = new (std::nothrow) Factory(preview);
     if (!factory) return E_OUTOFMEMORY;
     const HRESULT result = factory->QueryInterface(id, out); factory->Release(); return result;
 }
-extern "C" HRESULT __declspec(dllexport) __stdcall DllCanUnloadNow() { return objects == 0 ? S_OK : S_FALSE; }
+STDAPI DllCanUnloadNow() { return objects == 0 ? S_OK : S_FALSE; }
