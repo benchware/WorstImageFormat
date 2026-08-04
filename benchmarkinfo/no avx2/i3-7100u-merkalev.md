@@ -142,20 +142,6 @@ Despite being the lowest-power system in the benchmark suite, the NUC achieved r
 
 ---
 
-## Efficiency comparison
-
-| **System** | **CPU** | **TDP** | **Fast (MP/s)** | **Efficiency (MP/s per W)** |
-|------------|---------|---------|-----------------|----------------------------|
-| **NUC** | i3-7100U | 15W | 13.1 | **0.87** 🏆 |
-| ProDesk | i3-7100T | 35W | 22.6 | 0.65 |
-| Ken's Desktop | i5-8400 | 65W | 44.6 | 0.69 |
-| Your Desktop | i5-4460 | 84W | 26.7 | 0.32 |
-| Friend's Laptop | i5-3230M | 35W | 15.1 | 0.43 |
-
-**The NUC is the most power-efficient system in the benchmark suite, delivering 0.87 MP/s per watt.** 🌿
-
----
-
 ## Known constraints
 
 - All tests were run with **scalar** code paths. The test CPU does not support AVX2.
