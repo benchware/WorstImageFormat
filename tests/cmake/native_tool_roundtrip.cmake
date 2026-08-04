@@ -24,5 +24,7 @@ math(EXPR DECODED_RASTER_OFFSET "${DECODED_HEX_LENGTH} - 12")
 string(SUBSTRING "${SOURCE_HEX}" ${SOURCE_RASTER_OFFSET} 12 SOURCE_RASTER)
 string(SUBSTRING "${DECODED_HEX}" ${DECODED_RASTER_OFFSET} 12 DECODED_RASTER)
 if(NOT SOURCE_RASTER STREQUAL DECODED_RASTER)
-    message(FATAL_ERROR "native PPM round trip changed raster bytes")
+    message(FATAL_ERROR
+        "native PPM round trip changed raster bytes: expected=${SOURCE_RASTER}, actual=${DECODED_RASTER}; "
+        "source_hex=${SOURCE_HEX}; decoded_hex=${DECODED_HEX}")
 endif()

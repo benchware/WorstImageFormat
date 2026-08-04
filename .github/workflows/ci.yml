@@ -126,6 +126,14 @@ jobs:
           cmake -S tests/cmake-consumer -B consumer-build -DCMAKE_PREFIX_PATH="$PWD/cmake-install" -DCMAKE_BUILD_TYPE=Release
           cmake --build consumer-build --config Release
           cmake --build cmake-build --config Release --target package
+      - name: Upload native failure diagnostics
+        if: ${{ failure() && runner.os == 'Windows' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-failure-windows
+          path: cmake-build/native-tool-test/*
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload native SDK test package
         uses: actions/upload-artifact@v7
         with:
