@@ -1,6 +1,6 @@
 # WIMF Benchmark Rankings
 
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C++ backend. All systems running scalar code — no AVX2, NEON, or AVX-512 acceleration.
 
@@ -14,9 +14,10 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | 2 | Custom Desktop | Intel Core i5-8400 | 2017 | 6C/6T | 16 GB DDR4-3200 | Windows 10 | 44.6 | 1.02 |
 | 3 | Custom Desktop | Intel Core i5-4460 | 2014 | 4C/4T | 32 GB DDR3-1600 | Windows 10 | 26.7 | 1.21 |
 | 4 | HP ProDesk 600 G3 | Intel Core i3-7100T | 2017 | 2C/4T | 16 GB DDR4-2400 | CachyOS Linux | 22.6 | 1.73 |
-| 5 | Dell Latitude E6530 | Intel Core i5-3230M | 2012 | 2C/4T | 8 GB DDR3-1333 | Windows 11 | 15.1 | 2.20 |
-| 6 | Intel NUC7i3BNH | Intel Core i3-7100U | 2016 | 2C/4T | 8 GB DDR4-2133 | Proxmox Linux | 13.1 | 2.96 |
-| 7 | Custom Desktop | Intel Core i3-3240 | 2012 | 2C/4T | 16 GB DDR3-1600 | Windows 11 | 7.0 | 4.15 |
+| 5 | HP ProBook 640 G3 | Intel Core i5-7200U | 2016 | 2C/4T | 16 GB DDR4 | Windows 10 | 20.1 | 2.26 |
+| 6 | Dell Latitude E6530 | Intel Core i5-3230M | 2012 | 2C/4T | 8 GB DDR3-1333 | Windows 11 | 15.1 | 2.20 |
+| 7 | Intel NUC7i3BNH | Intel Core i3-7100U | 2016 | 2C/4T | 8 GB DDR4-2133 | Proxmox Linux | 13.1 | 2.96 |
+| 8 | Custom Desktop | Intel Core i3-3240 | 2012 | 2C/4T | 16 GB DDR3-1600 | Windows 11 | 7.0 | 4.15 |
 
 ---
 
@@ -28,9 +29,10 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | 2 | Custom Desktop | Intel Core i5-8400 | 22.5 | 2.03 | 5.23× |
 | 3 | Custom Desktop | Intel Core i5-4460 | 12.4 | 3.67 | 5.23× |
 | 4 | HP ProDesk 600 G3 | Intel Core i3-7100T | 10.2 | 4.51 | 5.23× |
-| 5 | Intel NUC7i3BNH | Intel Core i3-7100U | 6.6 | 6.91 | 5.23× |
-| 6 | Dell Latitude E6530 | Intel Core i5-3230M | 5.6 | 8.21 | 5.23× |
-| 7 | Custom Desktop | Intel Core i3-3240 | 3.5 | 14.07 | 5.24× |
+| 5 | HP ProBook 640 G3 | Intel Core i5-7200U | **7.6** | 5.97 | 5.23× |
+| 6 | Intel NUC7i3BNH | Intel Core i3-7100U | 6.6 | 6.91 | 5.23× |
+| 7 | Dell Latitude E6530 | Intel Core i5-3230M | 5.6 | 8.21 | 5.23× |
+| 8 | Custom Desktop | Intel Core i3-3240 | 3.5 | 14.07 | 5.24× |
 
 ---
 
@@ -44,7 +46,8 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | 4 | HP ProDesk 600 G3 | Intel Core i3-7100T | 3.1 | 14.81 | 17.31× |
 | 5 | Intel NUC7i3BNH | Intel Core i3-7100U | 2.0 | 22.24 | 17.31× |
 | 6 | Dell Latitude E6530 | Intel Core i5-3230M | 1.4 | 33.41 | 17.31× |
-| 7 | Custom Desktop | Intel Core i3-3240 | 0.5 | 100.94 | 17.31× |
+| 7 | HP ProBook 640 G3 | Intel Core i5-7200U | **1.7** | 27.10 | 17.31× |
+| 8 | Custom Desktop | Intel Core i3-3240 | 0.5 | 100.94 | 17.31× |
 
 ---
 
@@ -56,6 +59,7 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | i5-8400 | i5-8400 | Palette | Fast | 44.6 | 44.6 |
 | i5-4460 | i5-4460 | Palette | Fast | 37.7 | 44.6 |
 | i3-7100T | i3-7100T | Palette | Fast | 26.3 | 44.6 |
+| i5-7200U | i5-7200U | Palette | Fast | **24.0** | 44.6 |
 | i5-3230M | i5-3230M | Palette | Fast | 20.6 | 44.6 |
 | i3-7100U | i3-7100U | Palette | Fast | 15.3 | 44.6 |
 | i3-3240 | i3-3240 | Palette | Fast | 10.9 | 44.6 |
@@ -70,9 +74,10 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | 2 | Custom Desktop | Intel Core i5-8400 | 157.3 | Palette Balanced |
 | 3 | Custom Desktop | Intel Core i5-4460 | 141.2 | Palette Fast |
 | 4 | HP ProDesk 600 G3 | Intel Core i3-7100T | 136.8 | Palette Balanced |
-| 5 | Intel NUC7i3BNH | Intel Core i3-7100U | 73.1 | Palette Fast |
-| 6 | Custom Desktop | Intel Core i3-3240 | 72.7 | Raw Extreme |
-| 7 | Dell Latitude E6530 | Intel Core i5-3230M | 65.2 | Palette Fast |
+| 5 | HP ProBook 640 G3 | Intel Core i5-7200U | **93.7** | Palette Extreme |
+| 6 | Intel NUC7i3BNH | Intel Core i3-7100U | 73.1 | Palette Fast |
+| 7 | Custom Desktop | Intel Core i3-3240 | 72.7 | Raw Extreme |
+| 8 | Dell Latitude E6530 | Intel Core i5-3230M | 65.2 | Palette Fast |
 
 ---
 
@@ -84,6 +89,7 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 4. **Windows vs Linux**: Linux systems (CachyOS) tend to perform better than Windows on the same architecture.
 5. **Newer architectures win**: Zen 2 and Coffee Lake outperform older Haswell and Ivy Bridge CPUs.
 6. **Decode speed scales with CPU**: Newer CPUs decode significantly faster than older ones.
+7. **i5-7200U vs i3-7100U**: The i5-7200U is 53% faster on Fast preset despite both being 15W Kaby Lake parts, due to higher boost clocks (3.1 GHz vs 3.0 GHz).
 
 ---
 
@@ -92,12 +98,15 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | Rank | System | CPU | TDP | Fast Throughput (MP/s) | Efficiency (MP/s per W) |
 |------|--------|-----|-----|----------------------|------------------------|
 | 1 | Vivobook Go | Ryzen 3 7320U | 15W | 45.2 | **3.01** |
-| 2 | i5-8400 | i5-8400 | 65W | 44.6 | 0.69 |
-| 3 | i3-7100T | i3-7100T | 35W | 22.6 | 0.65 |
-| 4 | i3-7100U | i3-7100U | 15W | 13.1 | 0.87 |
-| 5 | i5-3230M | i5-3230M | 35W | 15.1 | 0.43 |
-| 6 | i5-4460 | i5-4460 | 84W | 26.7 | 0.32 |
-| 7 | i3-3240 | i3-3240 | 55W | 7.0 | 0.13 |
+| 2 | i5-7200U | i5-7200U | 15W | 22.1 | **1.47** |
+| 3 | i3-7100U | i3-7100U | 15W | 13.1 | 0.87 |
+| 4 | i5-8400 | i5-8400 | 65W | 44.6 | 0.69 |
+| 5 | i3-7100T | i3-7100T | 35W | 22.6 | 0.65 |
+| 6 | i5-3230M | i5-3230M | 35W | 15.1 | 0.43 |
+| 7 | i5-4460 | i5-4460 | 84W | 26.7 | 0.32 |
+| 8 | i3-3240 | i3-3240 | 55W | 7.0 | 0.13 |
+
+**The Ryzen 3 7320U leads in efficiency, but the i5-7200U holds the #2 spot among 15W chips.**
 
 ---
 
@@ -109,6 +118,7 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | i5-8400 | i5-8400 | 44.6 MP/s | **~90-130 MP/s** | 2-3× |
 | i5-4460 | i5-4460 | 26.7 MP/s | **~60-80 MP/s** | 2-3× |
 | i3-7100T | i3-7100T | 22.6 MP/s | **~50-70 MP/s** | 2-3× |
+| i5-7200U | i5-7200U | 22.1 MP/s | **~50-70 MP/s** | 2-3× |
 | i3-7100U | i3-7100U | 13.1 MP/s | **~30-40 MP/s** | 2-3× |
 
 ---
