@@ -129,21 +129,6 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 ---
 
 
-## Projected Performance with AVX2/NEON
-
-| System | CPU | Current (Scalar) | Projected (AVX2/NEON) | Speedup |
-|--------|-----|------------------|-----------------------|---------|
-| Fujitsu E5412 | i7-1255U | 50.9 MP/s | **~100-150 MP/s** | 2-3× |
-| Fujitsu E5411 | i7-1165G7 | 48.0 MP/s | **~100-140 MP/s** | 2-3× |
-| Vivobook Go | Ryzen 3 7320U | 45.2 MP/s | **~90-135 MP/s** | 2-3× |
-| i5-8400 | i5-8400 | 44.6 MP/s | **~90-130 MP/s** | 2-3× |
-| i5-4460 | i5-4460 | 26.7 MP/s | **~60-80 MP/s** | 2-3× |
-| i3-7100T | i3-7100T | 22.6 MP/s | **~50-70 MP/s** | 2-3× |
-| i5-7200U | i5-7200U | 22.1 MP/s | **~50-70 MP/s** | 2-3× |
-| i3-7100U | i3-7100U | 13.1 MP/s | **~30-40 MP/s** | 2-3× |
-
----
-
 ## Notes
 
 - Performance numbers are hardware-dependent and may vary.
