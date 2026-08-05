@@ -128,15 +128,6 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 
 ---
 
-## The Race — Fujitsu vs Lenovo (Same Room, ~16°C)
-
-| Rank | System | CPU | Fastest Encode | Cooling | ThrottleStop |
-|------|--------|-----|----------------|---------|--------------|
-| 🥇 **1st** | **Fujitsu E5412** | i7-1255U (10C/12T) | **50.9 MP/s** | ~16°C AC | ❌ No |
-| 🥈 **2nd** | **Fujitsu E5411** | i7-1165G7 (4C/8T) | **48.0 MP/s** | ~16°C AC | ❌ No |
-| 🥉 **3rd** | **Lenovo L13 Yoga** | i5-10210U (4C/8T) | **42.0 MP/s** | ~16°C AC | ✅ Yes |
-
----
 
 ## Projected Performance with AVX2/NEON
 
