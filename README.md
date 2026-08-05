@@ -32,11 +32,11 @@ WIMF compression is not encryption. Pixels and metadata can be recovered by anyo
 - Zstandard-compressed structured symbols and per-tile CRC32 checksums.
 - Optional WIM2 anti-rot data capable of repairing up to two damaged shards.
 - Indexed WIM2 chrono states with random state decoding.
-- Portable C++17 kernels with a Python reference fallback.
+- Portable C++17 kernels with NEON and AVX2 SIMD acceleration and a Python reference fallback.
 
 ## Known limitations
 
-File size remains a work in progress. While WIMF achieves competitive compression on many workloads, the current encoder does not always produce the smallest possible output. The per-tile hybrid selection is functional, and the codecs themselves are correct, but the search and decision logic are still being tuned. Future releases will improve compression ratios without breaking decode compatibility.
+Compression ratios are actively improving. WIMF 2.2 introduced content-adaptive wavelet quantization, improved Zstandard compression levels, and quadratic rate-distortion scoring. The encoder now produces significantly smaller output for most workloads, but further tuning is expected in future releases without breaking decode compatibility.
 
 Benchmarks and comparative metrics against PNG, WebP, AVIF, JPEG, and JPEG XL will be published separately once the codec reaches a stable performance baseline.
 
@@ -256,9 +256,8 @@ Official Windows native releases follow the project [code signing policy](CODE_S
 
 CI separates Python quality, cross-platform API/feature tests, legacy decode compatibility, standalone C++, sanitizers, packaging, visual evidence, and non-blocking performance measurements. Python-versus-C++ benchmarks cover current WIM2 still images on Windows, Linux, and macOS. The active roadmap is:
 
-- Profile the completed native orchestration and optimize only measured allocation, transform, or entropy-coding hotspots.
+- Measure AVX2 and NEON SIMD acceleration across reference hardware (CRC-32 and predictive filter paths are implemented; wavelet lifting is scalar).
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
-- Expand measured AVX2 and NEON optimization only where profiling justifies it.
 - Validate the memory-only synchronous core with Emscripten on the future web branch without changing the WIM2 bitstream.
 - Publish signed standalone C/C++ development archives for the versioned ABI and conformance pack.
 - Build on the Pillow plugin and native PGM/PPM bridge with ImageMagick, FFmpeg, and desktop thumbnailer integrations.

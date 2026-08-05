@@ -52,20 +52,27 @@ embed without depending on Python.
 
 ## 5. Performance optimization
 
-- [ ] AVX2 (x86_64)
-  - Benchmark targets: 2.5-3× speedup on Intel Haswell+ / AMD Zen+
-  - Measured baseline: i5-4460 (Haswell, scalar): 26.7 MP/s (Fast preset),
-    9.1 MP/s (Wavelet Balanced), 3.4 MP/s (Extreme Q2)
-  - Implementation deferred until profiling confirms real-world gain
-- [ ] NEON (ARMv8+)
-  - Benchmark targets: 2.5-3× speedup on ARMv8+ (Apple M1/M2, Raspberry Pi 4/5,
-    Android, ChromeOS)
-  - Minimum acceptable Raspberry Pi 5 target: 25+ MP/s (Fast), 10+ MP/s
-    (Wavelet Balanced), 5+ MP/s (Extreme)
+- [x] AVX2 (x86_64)
+  - CRC-32 lookup-table acceleration and predictive left-filter vectorization.
+  - Opt-in via `WIMF_ENABLE_AVX2` CMake flag or `-mavx2` compiler option.
+  - Benchmark targets: 2.5-3× speedup on Intel Haswell+ / AMD Zen+.
+- [x] NEON (ARMv8+)
+  - CRC-32 hardware acceleration (ARM CRC extension) and predictive left-filter vectorization.
+  - Always enabled on aarch64 targets; no additional build flags required.
+  - Benchmark targets: 2.5-3× speedup on Apple M1/M2, Raspberry Pi 4/5.
 - [ ] AVX-512
-  - Experimental; deferred until AVX2/NEON paths are stable and hardware
+  - Deferred until AVX2/NEON paths are measured and hardware
     support is widespread enough to justify the maintenance cost.
-  - Thermal and performance-regression risks documented.
+
+## 5b. Compression tuning
+
+- [x] Content-adaptive wavelet quantization scaled by local tile energy.
+- [x] Improved Zstandard compression levels (Fast 3, Balanced 9, Extreme 19).
+- [x] Quadratic rate-distortion scoring for lossy tile selection.
+- [x] Relaxed wavelet classification thresholds for smooth-gradient content.
+- [x] Bitwise masking replacing modular arithmetic in the predictive codec.
+- [ ] Subband-aware coefficient scanning for improved entropy coding.
+- [ ] Tile-size adaptation based on image content.
 
 ## 6. Quality-of-life improvements
 

@@ -10,6 +10,13 @@ All notable WIMF changes are recorded here. The project follows semantic version
 - Retained read-only compatibility and added a committed AWIF-era decode fixture.
 - Limited CodeQL to first-party production code and documented bundled Zstandard 1.5.7 provenance.
 - Unified public native/Python option validation and removed AWIF from performance benchmarks.
+- Added NEON (ARMv8) and AVX2 (x86-64) SIMD acceleration for CRC-32 checksums and predictive filter encoding.
+- Added content-adaptive wavelet quantization that scales with local tile detail.
+- Improved Zstandard compression levels for all search presets (Fast 1→3, Balanced 6→9, Extreme 15→19).
+- Improved lossy tile selection with quadratic rate-distortion scoring.
+- Relaxed wavelet tile classification thresholds for better compression of smooth content.
+- Replaced modular-arithmetic operations with bitwise masking in the predictive codec.
+- Added `WIMF_ENABLE_AVX2` CMake option for opt-in AVX2 builds.
 
 ## 2.1.0 — 2026-08-03
 

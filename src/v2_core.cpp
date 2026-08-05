@@ -15,6 +15,7 @@
 #include <unordered_set>
 
 #include "zstd.h"
+#include "v2_simd.hpp"
 
 namespace wimf::v2 {
 namespace {
@@ -132,24 +133,27 @@ TileMode classify_tile(const ImageView& v) {
         if(y>=step)edge+=std::abs(gray-(sample(v,x,y-step,0)+sample(v,x,y-step,std::min<uint8_t>(1,v.channels-1))+sample(v,x,y-step,std::min<uint8_t>(2,v.channels-1)))*scale/3.0);
     }
     if(colors.size()<=256)return TileMode::Palette;const double mean=static_cast<double>(sum/n),variance=std::max(0.0,static_cast<double>(sum2/n)-mean*mean),gradient=static_cast<double>(edge/n),correlation=static_cast<double>(cross/std::sqrt(std::max<long double>(1.0,first2*second2)));
-    if(alpha_edge/n>12.0||(gradient>28.0&&variance<5200.0))return TileMode::Predictive;return correlation>0.92&&gradient<22.0?TileMode::Wavelet:TileMode::Predictive;
+    if(alpha_edge/n>12.0||(gradient>28.0&&variance<5200.0))return TileMode::Predictive;return correlation>0.85&&gradient<30.0?TileMode::Wavelet:TileMode::Predictive;
 }
 
 std::vector<uint8_t> encode_predictive(const ImageView& v) {
-    validate(v); const uint32_t modulus=v.bytes_per_sample==1?256u:65536u;
+    validate(v); const uint32_t mask=v.bytes_per_sample==1?0xFFu:0xFFFFu; const uint32_t mod=mask+1;
     std::vector<uint8_t> out; out.reserve(static_cast<size_t>(v.height)*(1+v.width*v.bytes_per_sample)*v.channels);
+    std::vector<uint8_t> rbuf(v.bytes_per_sample==1?v.width:0u);
     for(uint8_t c=0;c<v.channels;++c)for(uint32_t y=0;y<v.height;++y){
         std::array<uint64_t,4> costs{};
-        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0; const uint32_t ps[4]={0,l,u,paeth(l,u,ul)}; for(int k=0;k<4;++k){uint32_t r=(cur+modulus-ps[k])%modulus; costs[k]+=std::min(r,modulus-r);}}
+        if(v.bytes_per_sample==1){const uint8_t* base=v.data+static_cast<size_t>(y)*v.row_stride+c;for(uint32_t x=0;x<v.width;++x)rbuf[x]=base[x*v.channels];costs[1]=simd::left_filter_cost(rbuf.data(),v.width);}
+        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0; const uint32_t ps[4]={0,l,u,paeth(l,u,ul)}; for(int k=0;k<4;++k){if(v.bytes_per_sample==1&&k==1)continue;uint32_t r=(cur-ps[k])&mask; costs[k]+=std::min(r,mod-r);}}
         const uint8_t kind=static_cast<uint8_t>(std::min_element(costs.begin(),costs.end())-costs.begin()); out.push_back(kind);
-        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0; const uint32_t ps[4]={0,l,u,paeth(l,u,ul)}; append_sample(out,(cur+modulus-ps[kind])%modulus,v.bytes_per_sample);}
+        if(v.bytes_per_sample==1&&kind==1){const size_t pos=out.size();out.resize(pos+v.width);simd::left_filter_emit(rbuf.data(),out.data()+pos,v.width);}
+        else{for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0; const uint32_t ps[4]={0,l,u,paeth(l,u,ul)}; append_sample(out,(cur-ps[kind])&mask,v.bytes_per_sample);}}
     } return out;
 }
 
 std::vector<uint8_t> decode_predictive(const uint8_t* data,size_t size,uint32_t w,uint32_t h,uint8_t ch,uint8_t bps){
     const size_t expected=static_cast<size_t>(ch)*h*(1+static_cast<size_t>(w)*bps); if(size!=expected)throw std::runtime_error("invalid predictive payload");
-    const uint32_t mod=bps==1?256u:65536u; std::vector<uint8_t> out(static_cast<size_t>(w)*h*ch*bps); ImageView view{out.data(),w,h,ch,bps,static_cast<size_t>(w)*ch*bps}; size_t p=0;
-    for(uint8_t c=0;c<ch;++c)for(uint32_t y=0;y<h;++y){const uint8_t kind=data[p++];if(kind>3)throw std::runtime_error("invalid predictor");for(uint32_t x=0;x<w;++x){uint32_t r=data[p++];if(bps==2)r|=static_cast<uint32_t>(data[p++])<<8;const uint32_t l=x?sample(view,x-1,y,c):0,u=y?sample(view,x,y-1,c):0,ul=x&&y?sample(view,x-1,y-1,c):0,ps[4]={0,l,u,paeth(l,u,ul)},value=(ps[kind]+r)%mod;uint8_t* dst=out.data()+(static_cast<size_t>(y)*w*ch+x*ch+c)*bps;dst[0]=static_cast<uint8_t>(value);if(bps==2)dst[1]=static_cast<uint8_t>(value>>8);}}
+    const uint32_t mask=bps==1?0xFFu:0xFFFFu; std::vector<uint8_t> out(static_cast<size_t>(w)*h*ch*bps); ImageView view{out.data(),w,h,ch,bps,static_cast<size_t>(w)*ch*bps}; size_t p=0;
+    for(uint8_t c=0;c<ch;++c)for(uint32_t y=0;y<h;++y){const uint8_t kind=data[p++];if(kind>3)throw std::runtime_error("invalid predictor");for(uint32_t x=0;x<w;++x){uint32_t r=data[p++];if(bps==2)r|=static_cast<uint32_t>(data[p++])<<8;const uint32_t l=x?sample(view,x-1,y,c):0,u=y?sample(view,x,y-1,c):0,ul=x&&y?sample(view,x-1,y-1,c):0,ps[4]={0,l,u,paeth(l,u,ul)},value=(ps[kind]+r)&mask;uint8_t* dst=out.data()+(static_cast<size_t>(y)*w*ch+x*ch+c)*bps;dst[0]=static_cast<uint8_t>(value);if(bps==2)dst[1]=static_cast<uint8_t>(value>>8);}}
     return out;
 }
 
@@ -172,10 +176,10 @@ std::vector<int64_t> wavelet_forward(const uint8_t* data,uint32_t w,uint32_t h,u
 std::vector<uint8_t> wavelet_inverse(const int64_t* coeff,size_t count,uint32_t w,uint32_t h,uint8_t bps,bool rev,unsigned levels,double q){
     if(count!=static_cast<size_t>(w)*h)throw std::invalid_argument("invalid coefficient count");std::vector<double>a(count);for(size_t i=0;i<count;++i)a[i]=static_cast<double>(coeff[i])*q;
     for(int level=static_cast<int>(levels)-1;level>=0;--level){const uint32_t rw=(w+(1u<<level)-1)>>level,rh=(h+(1u<<level)-1)>>level;for(uint32_t x=0;x<rw;++x){std::vector<double>line(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];line=rev?lift53_inverse(line):lift97_inverse(line);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}for(uint32_t y=0;y<rh;++y){std::vector<double>line(a.begin()+y*w,a.begin()+y*w+rw);line=rev?lift53_inverse(line):lift97_inverse(line);std::copy(line.begin(),line.end(),a.begin()+y*w);}}
-    const uint32_t max=bps==1?255u:65535u;std::vector<uint8_t>out(count*bps);for(size_t i=0;i<count;++i){const uint32_t v=static_cast<uint32_t>(std::clamp<int64_t>(std::llround(a[i]),0,max));out[i*bps]=static_cast<uint8_t>(v);if(bps==2)out[i*2+1]=static_cast<uint8_t>(v>>8);}return out;
+    const uint32_t max=bps==1?255u:65535u;std::vector<uint8_t>out(count*bps);for(size_t i=0;i<count;++i){const uint32_t v=static_cast<uint32_t>(std::clamp<int64_t>(std::llround(a[i]),0,max));out[i*bps]=static_cast<uint8_t>(v);if(bps==2)out[i*bps+1]=static_cast<uint8_t>(v>>8);}return out;
 }
 
-uint32_t crc32(const uint8_t* data,size_t size){uint32_t crc=0xffffffffu;for(size_t i=0;i<size;++i){crc^=data[i];for(int k=0;k<8;++k)crc=(crc>>1)^(0xedb88320u&-(static_cast<int32_t>(crc&1)));}return ~crc;}
+uint32_t crc32(const uint8_t* data,size_t size){return simd::crc32_fast(data,size);}
 
 namespace {
 constexpr size_t kHeaderSize = 26, kEntrySize = 32;
@@ -274,7 +278,7 @@ void parallel_for(size_t count, unsigned workers, Function function) {
 }
 
 std::vector<uint8_t> compress_zstd(const std::vector<uint8_t>& input, SearchPreset preset) {
-    const int level = preset == SearchPreset::Fast ? 1 : (preset == SearchPreset::Extreme ? 15 : 6);
+    const int level = preset == SearchPreset::Fast ? 3 : (preset == SearchPreset::Extreme ? 19 : 9);
     std::vector<uint8_t> output(ZSTD_compressBound(input.size()));
     const size_t size = ZSTD_compress(output.data(), output.size(), input.data(), input.size(), level);
     if (ZSTD_isError(size)) throw std::runtime_error(ZSTD_getErrorName(size));
@@ -376,7 +380,8 @@ std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality,
     const uint32_t padded_height = next_power_of_two(tile.height), padded_width = next_power_of_two(tile.width);
     unsigned levels = 0;
     for (uint32_t value = std::min(padded_width, padded_height); value > 1 && levels < 3; value >>= 1) ++levels;
-    const float quantizer = lossless ? 1.0f : std::max(1.0f, static_cast<float>((11 - quality) * 1.5));
+    const float base_q=std::max(1.0f,static_cast<float>((11-quality)*1.5));float quantizer=1.0f;
+    if(!lossless){double energy=0;const uint32_t step=std::max(1u,std::min(tile.width,tile.height)/32u);for(uint32_t sy=0;sy<tile.height;sy+=step)for(uint32_t sx=0;sx<tile.width;sx+=step)for(uint8_t ch=0;ch<tile.channels;++ch){const double val=sample(tile,sx,sy,ch);if(sx>=step){double d=val-sample(tile,sx-step,sy,ch);energy+=d*d;}if(sy>=step){double d=val-sample(tile,sx,sy-step,ch);energy+=d*d;}}energy/=std::max(1.0,static_cast<double>(tile.width/step)*(tile.height/step)*tile.channels);quantizer=std::max(1.0f,base_q*std::clamp(static_cast<float>(std::sqrt(energy)/40.0),0.5f,2.0f));}
     std::vector<uint8_t> output;
     put16(output, static_cast<uint16_t>(padded_height));
     put16(output, static_cast<uint16_t>(padded_width));
@@ -542,7 +547,7 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                 }
                 const double score = options.lossless ? static_cast<double>(payload.size())
                     : payload.size() + distortion * (static_cast<double>(width) * height * image.channels) /
-                      std::max(1, options.quality * 64);
+                      std::max(1.0, static_cast<double>(options.quality) * options.quality * 8.0);
                 if (score < best_score || (score == best_score && payload.size() < best_size) ||
                     (score == best_score && payload.size() == best_size && static_cast<uint8_t>(mode) < static_cast<uint8_t>(best_mode))) {
                     best_score = score; best_size = payload.size(); best_mode = mode;
