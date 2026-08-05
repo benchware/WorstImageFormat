@@ -11,15 +11,16 @@
 **WIMF Version**: 2.2  
 **Native Backend**: C++17, scalar (no AVX2, NEON, or AVX-512)  
 **Threads**: 8  
+**Power Source**: AC adapter (plugged in)  
 **Image**: 8256 × 5504 (45.4 MP), RGB, source: NASA ART002-E-15971.JPG  
 
-**Note**: This system was tested with **ThrottleStop** applied (PL1=25W, PL2=51W, BD PROCHOT disabled, PROCHOT Offset=5°C) in an 18–20°C cold room with external active cooling. Stock Lenovo power limits are significantly more aggressive and would result in lower performance.
+**Note**: This system was tested with **ThrottleStop** applied (PL1=25W, PL2=51W, BD PROCHOT disabled, PROCHOT Offset=5°C) in a cold room (~16°C) with external active cooling. Stock Lenovo power limits are significantly more aggressive and would result in lower performance.
 
 ---
 
 ## Overview
 
-These benchmarks measure the current state of the WIMF encoder on a 10th Gen Comet Lake U-series laptop CPU from 2019. The system runs Windows 11 Pro and was thermally constrained even with ThrottleStop and active cooling. The SIMD path was reported as `scalar`; no platform-specific vector extensions were used.
+These benchmarks measure the current state of the WIMF encoder on a 10th Gen Comet Lake U-series laptop CPU from 2019. The SIMD path was reported as `scalar`; no platform-specific vector extensions were used.
 
 ---
 
@@ -62,7 +63,7 @@ These benchmarks measure the current state of the WIMF encoder on a 10th Gen Com
 
 **Observations**:
 - Throughput is stable at **~17–21 MP/s** across all qualities.
-- Q9 Balanced delivers **76.4 dB PSNR** with a 5.11× compression ratio — visually lossless for most content.
+- Q9 Balanced delivers **76.4 dB PSNR** with a 5.11× compression ratio.
 
 ---
 
@@ -136,6 +137,7 @@ These benchmarks measure the current state of the WIMF encoder on a 10th Gen Com
 | **Storage** | 512 GB NVMe SSD (SK hynix PC611) |
 | **OS** | Windows 11 Pro (Build 26200) |
 | **BIOS** | LENOVO R15ET61W (1.42, 29/07/2024) |
+| **Power Source** | AC adapter (plugged in) |
 
 ---
 
@@ -143,7 +145,7 @@ These benchmarks measure the current state of the WIMF encoder on a 10th Gen Com
 
 - All tests were run with **scalar** code paths. The test CPU does not support AVX2.
 - **ThrottleStop was required** to bypass Lenovo's aggressive power limit throttling. Stock performance would be significantly lower.
-- Even with ThrottleStop + cold room + external fans, the system experienced **73% thermal throttling** during Extreme preset runs.
+- System experienced **73% thermal throttling** during Extreme preset runs.
 - File sizes are still being tuned. The encoder produces correct output, but the compression search logic is not yet fully optimized for all images.
 - These numbers represent one 45 MP photograph. Real-world performance varies with image content, resolution, and available threads.
 
@@ -169,4 +171,4 @@ print(f'{(8256*5504/1e6) / (time.perf_counter()-t0):.1f} MP/s')
 
 ---
 
-**ThrottleStop disclaimer**: Results for the Lenovo L13 Yoga (i5-10210U) were obtained with **ThrottleStop** applied to bypass Lenovo's aggressive power limit throttling. Settings used: PL1=25W, PL2=51W, BD PROCHOT disabled, PROCHOT Offset=5, SpeedShift EPP=0. Ambient temperature was maintained at 18–20°C with active external cooling. These results represent the **maximum achievable performance** under ideal conditions and may not reflect out-of-box stock behavior.
+**ThrottleStop disclaimer**: Results for the Lenovo L13 Yoga (i5-10210U) were obtained with **ThrottleStop** applied. Settings: PL1=25W, PL2=51W, BD PROCHOT disabled, PROCHOT Offset=5, SpeedShift EPP=0. Ambient temperature ~16°C with active external cooling. These results represent the **maximum achievable performance** under ideal conditions and may not reflect out-of-box stock behavior.
