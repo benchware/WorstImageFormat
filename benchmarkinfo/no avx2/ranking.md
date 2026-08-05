@@ -146,11 +146,6 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 
 ## Notes
 
-- All benchmarks run with **scalar** code paths — AVX2/NEON are not yet enabled.
-- **Lenovo** uses ThrottleStop (PL1=25W, PL2=51W) — not out-of-box stock.
-- **Fujitsu systems** run stock power limits — no modifications.
-- All systems plugged into AC power during testing.
-- Ambient temperature ~16°C with AC on maximum for all systems.
 - Performance numbers are hardware-dependent and may vary.
 - Rankings will be updated as new systems are tested.
 - Compression ratios based on Q2 Extreme preset unless otherwise noted.
