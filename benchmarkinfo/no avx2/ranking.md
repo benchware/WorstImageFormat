@@ -11,17 +11,16 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | Rank | System | CPU | Year | Cores/Threads | RAM | OS | Throughput (MP/s) | Encode Time (s) |
 |------|--------|-----|------|---------------|-----|----|------------------|-----------------|
 | 1 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | 2022 | 10C/12T | 32 GB DDR4 | Windows 11 | **50.9** | 0.89 |
-| 2 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | 2022 | 10C/12T | 32 GB DDR4 | Windows 11 | **49.6** | 0.92 |
+| 2 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | 2020 | 4C/8T | 32 GB DDR4 | Windows 11 | **48.0** | 0.95 |
 | 3 | ASUS Vivobook Go E1404FA | AMD Ryzen 3 7320U | 2023 | 4C/8T | 8 GB LPDDR5 | CachyOS Linux | 45.2 | 1.01 |
 | 4 | Custom Desktop | Intel Core i5-8400 | 2017 | 6C/6T | 16 GB DDR4 | Windows 10 | 44.6 | 1.02 |
-| 5 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | 2020 | 4C/8T | 32 GB DDR4 | Windows 11 | 42.0 | 1.08 |
-| 6 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | 2019 | 4C/8T | 16 GB DDR4 | Windows 11 | 42.0 | 1.08 |
-| 7 | Custom Desktop | Intel Core i5-4460 | 2014 | 4C/4T | 32 GB DDR3 | Windows 10 | 26.7 | 1.21 |
-| 8 | HP ProDesk 600 G3 | Intel Core i3-7100T | 2017 | 2C/4T | 16 GB DDR4 | CachyOS Linux | 22.6 | 1.73 |
-| 9 | HP ProBook 640 G3 | Intel Core i5-7200U | 2016 | 2C/4T | 16 GB DDR4 | Windows 10 | 20.1 | 2.26 |
-| 10 | Dell Latitude E6530 | Intel Core i5-3230M | 2012 | 2C/4T | 8 GB DDR3 | Windows 11 | 15.1 | 2.20 |
-| 11 | Intel NUC7i3BNH | Intel Core i3-7100U | 2016 | 2C/4T | 8 GB DDR4 | Proxmox Linux | 13.1 | 2.96 |
-| 12 | Custom Desktop | Intel Core i3-3240 | 2012 | 2C/4T | 16 GB DDR3 | Windows 11 | 7.0 | 4.15 |
+| 5 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | 2019 | 4C/8T | 16 GB DDR4 | Windows 11 | 42.0 | 1.08 |
+| 6 | Custom Desktop | Intel Core i5-4460 | 2014 | 4C/4T | 32 GB DDR3 | Windows 10 | 26.7 | 1.21 |
+| 7 | HP ProDesk 600 G3 | Intel Core i3-7100T | 2017 | 2C/4T | 16 GB DDR4 | CachyOS Linux | 22.6 | 1.73 |
+| 8 | HP ProBook 640 G3 | Intel Core i5-7200U | 2016 | 2C/4T | 16 GB DDR4 | Windows 10 | 20.1 | 2.26 |
+| 9 | Dell Latitude E6530 | Intel Core i5-3230M | 2012 | 2C/4T | 8 GB DDR3 | Windows 11 | 15.1 | 2.20 |
+| 10 | Intel NUC7i3BNH | Intel Core i3-7100U | 2016 | 2C/4T | 8 GB DDR4 | Proxmox Linux | 13.1 | 2.96 |
+| 11 | Custom Desktop | Intel Core i3-3240 | 2012 | 2C/4T | 16 GB DDR3 | Windows 11 | 7.0 | 4.15 |
 
 ---
 
@@ -31,16 +30,15 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 |------|--------|-----|------------------|-----------------|-------------------|
 | 1 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **41.7** | 1.09 | 3.00× |
 | 2 | ASUS Vivobook Go E1404FA | AMD Ryzen 3 7320U | 41.0 | 1.11 | 3.00× |
-| 3 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **40.5** | 1.12 | 3.00× |
-| 4 | Custom Desktop | Intel Core i5-8400 | 22.5 | 2.03 | 5.23× |
-| 5 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | 21.1 | 2.15 | 5.11× |
-| 6 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | 21.1 | 2.15 | 5.11× |
-| 7 | Custom Desktop | Intel Core i5-4460 | 12.4 | 3.67 | 5.23× |
-| 8 | HP ProDesk 600 G3 | Intel Core i3-7100T | 10.2 | 4.51 | 5.23× |
-| 9 | HP ProBook 640 G3 | Intel Core i5-7200U | 7.6 | 5.97 | 5.23× |
-| 10 | Intel NUC7i3BNH | Intel Core i3-7100U | 6.6 | 6.91 | 5.23× |
-| 11 | Dell Latitude E6530 | Intel Core i5-3230M | 5.6 | 8.21 | 5.23× |
-| 12 | Custom Desktop | Intel Core i3-3240 | 3.5 | 14.07 | 5.24× |
+| 3 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | 21.1 | 2.15 | 5.11× |
+| 4 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | 21.1 | 2.15 | 5.11× |
+| 5 | Custom Desktop | Intel Core i5-8400 | 22.5 | 2.03 | 5.23× |
+| 6 | Custom Desktop | Intel Core i5-4460 | 12.4 | 3.67 | 5.23× |
+| 7 | HP ProDesk 600 G3 | Intel Core i3-7100T | 10.2 | 4.51 | 5.23× |
+| 8 | HP ProBook 640 G3 | Intel Core i5-7200U | 7.6 | 5.97 | 5.23× |
+| 9 | Intel NUC7i3BNH | Intel Core i3-7100U | 6.6 | 6.91 | 5.23× |
+| 10 | Dell Latitude E6530 | Intel Core i5-3230M | 5.6 | 8.21 | 5.23× |
+| 11 | Custom Desktop | Intel Core i3-3240 | 3.5 | 14.07 | 5.24× |
 
 ---
 
@@ -48,18 +46,17 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 
 | Rank | System | CPU | Throughput (MP/s) | Encode Time (s) | Compression Ratio |
 |------|--------|-----|------------------|-----------------|-------------------|
-| 1 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **7.2** | 6.30 | 17.31× |
-| 2 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **6.9** | 6.58 | 17.31× |
-| 3 | ASUS Vivobook Go E1404FA | AMD Ryzen 3 7320U | 7.3 | 6.22 | 17.31× |
-| 4 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | 4.5 | 10.04 | 17.31× |
-| 5 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | 4.5 | 10.04 | 17.31× |
-| 6 | Custom Desktop | Intel Core i5-8400 | 5.5 | 8.21 | 17.31× |
-| 7 | Custom Desktop | Intel Core i5-4460 | 3.4 | 13.30 | 17.31× |
-| 8 | HP ProDesk 600 G3 | Intel Core i3-7100T | 3.1 | 14.81 | 17.31× |
-| 9 | Intel NUC7i3BNH | Intel Core i3-7100U | 2.0 | 22.24 | 17.31× |
-| 10 | HP ProBook 640 G3 | Intel Core i5-7200U | 1.7 | 27.10 | 17.31× |
-| 11 | Dell Latitude E6530 | Intel Core i5-3230M | 1.4 | 33.41 | 17.31× |
-| 12 | Custom Desktop | Intel Core i3-3240 | 0.5 | 100.94 | 17.31× |
+| 1 | ASUS Vivobook Go E1404FA | AMD Ryzen 3 7320U | 7.3 | 6.22 | 17.31× |
+| 2 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **7.2** | 6.30 | 17.31× |
+| 3 | Custom Desktop | Intel Core i5-8400 | 5.5 | 8.21 | 17.31× |
+| 4 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | 4.5 | 10.04 | 17.31× |
+| 5 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | 4.5 | 10.04 | 17.31× |
+| 6 | Custom Desktop | Intel Core i5-4460 | 3.4 | 13.30 | 17.31× |
+| 7 | HP ProDesk 600 G3 | Intel Core i3-7100T | 3.1 | 14.81 | 17.31× |
+| 8 | Intel NUC7i3BNH | Intel Core i3-7100U | 2.0 | 22.24 | 17.31× |
+| 9 | HP ProBook 640 G3 | Intel Core i5-7200U | 1.7 | 27.10 | 17.31× |
+| 10 | Dell Latitude E6530 | Intel Core i5-3230M | 1.4 | 33.41 | 17.31× |
+| 11 | Custom Desktop | Intel Core i3-3240 | 0.5 | 100.94 | 17.31× |
 
 ---
 
@@ -68,17 +65,16 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | Rank | System | CPU | Codec | Preset | Throughput (MP/s) | Size (MB) |
 |------|--------|-----|-------|--------|-------------------|-----------|
 | 1 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | Palette | Fast | **50.9** | 44.6 |
-| 2 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | Palette | Fast | **49.6** | 44.6 |
+| 2 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | Palette | Fast | **48.0** | 44.6 |
 | 3 | ASUS Vivobook Go E1404FA | AMD Ryzen 3 7320U | Palette | Fast | 45.2 | 44.6 |
 | 4 | Custom Desktop | Intel Core i5-8400 | Palette | Fast | 44.6 | 44.6 |
-| 5 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | Palette | Fast | 48.0 | 44.6 |
-| 6 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | Auto | Fast | 41.2 | 39.6 |
-| 7 | Custom Desktop | Intel Core i5-4460 | Palette | Fast | 37.7 | 44.6 |
-| 8 | HP ProDesk 600 G3 | Intel Core i3-7100T | Palette | Fast | 26.3 | 44.6 |
-| 9 | HP ProBook 640 G3 | Intel Core i5-7200U | Palette | Fast | 24.0 | 44.6 |
-| 10 | Dell Latitude E6530 | Intel Core i5-3230M | Palette | Fast | 20.6 | 44.6 |
-| 11 | Intel NUC7i3BNH | Intel Core i3-7100U | Palette | Fast | 15.3 | 44.6 |
-| 12 | Custom Desktop | Intel Core i3-3240 | Palette | Fast | 10.9 | 44.6 |
+| 5 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | Auto | Fast | 41.2 | 39.6 |
+| 6 | Custom Desktop | Intel Core i5-4460 | Palette | Fast | 37.7 | 44.6 |
+| 7 | HP ProDesk 600 G3 | Intel Core i3-7100T | Palette | Fast | 26.3 | 44.6 |
+| 8 | HP ProBook 640 G3 | Intel Core i5-7200U | Palette | Fast | 24.0 | 44.6 |
+| 9 | Dell Latitude E6530 | Intel Core i5-3230M | Palette | Fast | 20.6 | 44.6 |
+| 10 | Intel NUC7i3BNH | Intel Core i3-7100U | Palette | Fast | 15.3 | 44.6 |
+| 11 | Custom Desktop | Intel Core i3-3240 | Palette | Fast | 10.9 | 44.6 |
 
 ---
 
@@ -86,24 +82,23 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 
 | Rank | System | CPU | Decode Throughput (MP/s) | Config |
 |------|--------|-----|--------------------------|--------|
-| 1 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **191.9** | Palette Balanced |
-| 2 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **171.2** | Palette Balanced |
-| 3 | ASUS Vivobook Go E1404FA | AMD Ryzen 3 7320U | 231.0 | Palette Balanced |
-| 4 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | 191.9 | Palette Balanced |
+| 1 | ASUS Vivobook Go E1404FA | AMD Ryzen 3 7320U | 231.0 | Palette Balanced |
+| 2 | Fujitsu LIFEBOOK E5412 | Intel Core i7-1255U | **191.9** | Palette Balanced |
+| 3 | Fujitsu LIFEBOOK E5411 | Intel Core i7-1165G7 | **191.9** | Palette Balanced |
+| 4 | Custom Desktop | Intel Core i5-8400 | 157.3 | Palette Balanced |
 | 5 | Lenovo ThinkPad L13 Yoga | Intel Core i5-10210U | 141.3 | Auto Fast |
-| 6 | Custom Desktop | Intel Core i5-8400 | 157.3 | Palette Balanced |
-| 7 | Custom Desktop | Intel Core i5-4460 | 141.2 | Palette Fast |
-| 8 | HP ProDesk 600 G3 | Intel Core i3-7100T | 136.8 | Palette Balanced |
-| 9 | HP ProBook 640 G3 | Intel Core i5-7200U | 93.7 | Palette Extreme |
-| 10 | Intel NUC7i3BNH | Intel Core i3-7100U | 73.1 | Palette Fast |
-| 11 | Custom Desktop | Intel Core i3-3240 | 72.7 | Raw Extreme |
-| 12 | Dell Latitude E6530 | Intel Core i5-3230M | 65.2 | Palette Fast |
+| 6 | Custom Desktop | Intel Core i5-4460 | 141.2 | Palette Fast |
+| 7 | HP ProDesk 600 G3 | Intel Core i3-7100T | 136.8 | Palette Balanced |
+| 8 | HP ProBook 640 G3 | Intel Core i5-7200U | 93.7 | Palette Extreme |
+| 9 | Intel NUC7i3BNH | Intel Core i3-7100U | 73.1 | Palette Fast |
+| 10 | Custom Desktop | Intel Core i3-3240 | 72.7 | Raw Extreme |
+| 11 | Dell Latitude E6530 | Intel Core i5-3230M | 65.2 | Palette Fast |
 
 ---
 
 ## Key Observations
 
-1. **Fujitsu E5412 (i7-1255U) dominates**: Takes #1 and #2 spots across all presets with 10-core hybrid architecture.
+1. **Fujitsu E5412 (i7-1255U) dominates**: Takes #1 spot across all presets with 10-core hybrid architecture.
 2. **Palette codec is fastest**: Consistently achieves the highest throughput on all systems.
 3. **Lenovo vs Fujitsu E5411**: Both i7-1165G7 and i5-10210U tie at 42.0 MP/s — identical performance despite different generations.
 4. **Extreme preset compression is deterministic**: All systems achieve exactly 17.31× at Q2.
@@ -130,6 +125,16 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 | 11 | i3-3240 | i3-3240 | 55W | 7.0 | 0.13 |
 
 **The i7-1255U leads in efficiency, with the i7-1165G7 close behind.**
+
+---
+
+## The Race — Fujitsu vs Lenovo (Same Room, ~16°C)
+
+| Rank | System | CPU | Fastest Encode | Cooling | ThrottleStop |
+|------|--------|-----|----------------|---------|--------------|
+| 🥇 **1st** | **Fujitsu E5412** | i7-1255U (10C/12T) | **50.9 MP/s** | ~16°C AC | ❌ No |
+| 🥈 **2nd** | **Fujitsu E5411** | i7-1165G7 (4C/8T) | **48.0 MP/s** | ~16°C AC | ❌ No |
+| 🥉 **3rd** | **Lenovo L13 Yoga** | i5-10210U (4C/8T) | **42.0 MP/s** | ~16°C AC | ✅ Yes |
 
 ---
 
