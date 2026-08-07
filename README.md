@@ -15,12 +15,6 @@
 
 WIMF is an experimental, versioned image codec with a Python frontend and a portable C++17 backend. New still images use the WIM2 hybrid container: every 128×128 tile independently chooses Raw, Predictive, Palette, or CDF Wavelet coding and records its mode, entropy backend, bounds, size, offset, and checksum.
 
-WIMF 2.2 makes **WIM2 the only recommended authoring format**. It provides hybrid tile coding, ROI decoding, high bit depth, native orchestration, anti-rot recovery, and indexed chrono history. Existing WIMF v1, AWIF, and `ROT!` files remain readable through isolated compatibility paths.
-
-> **Legacy timeline:** WIMF 2.2 warns when legacy writers, the old `.wif` filename alias, or specialist tools are used. WIMF 3.0 removes those writers and the `wimf-convert`/`wimf-meta` entry points, while retaining read-only WIMF v1, AWIF, `ROT!`, and `.wif` input compatibility. Use `.wimf` for new WIM2 files.
-
-WIMF compression is not encryption. Pixels and metadata can be recovered by anyone who can read the file; never store passwords, tokens, or other secrets in metadata.
-
 ## Highlights
 
 - Per-tile hybrid selection with `Fast`, `Balanced`, and `Extreme` search presets.
@@ -207,13 +201,7 @@ Run `wimf <command> --help` for focused options. Metadata uses repeatable `--met
 - `wimf-cat` renders supported images in compatible terminals.
 - `wimf-meta` inspects and edits legacy metadata.
 
-Native C/C++ builds also provide `wimf-native`, a dependency-free process bridge for lossless PGM/PPM ↔ WIMF conversion. It is intentionally narrow; ordinary PNG/JPEG import remains in the Python CLI through Pillow.
-
-### WIMF Studio and corruption experiments
-
-WIMF Studio uses four focused panels: Encode & Compare, Inspect, Protection & History, and Codec Lab. Long-running encoding runs outside the Tk event loop and native tile progress can be cancelled between tiles.
-
-The Codec Lab never disables normal checksum validation. Its unsafe preview decodes only checksum-valid independent tiles and replaces rejected tiles with an obvious checkerboard. Text encodings are transport representations; they are not new compression modes.
+Native C/C++ builds also provide `wimf-native`, a dependency-free process bridge for lossless PGM/PPM ↔ WIMF conversion.
 
 ## Tested feature matrix
 
@@ -249,8 +237,6 @@ The visual report separately exercises synthetic mixed content, a credited natur
 | Wavelet watermark creation | Planned | v1 only |
 
 See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](docs/legacy-migration.md), [native embedding guide](docs/native-core.md), [desktop/application integrations](docs/integrations.md), [adoption roadmap](docs/roadmap.md), and [release checklist](docs/release-checklist.md).
-
-Official Windows native releases follow the project [code signing policy](CODE_SIGNING.md). CI artifacts are unsigned unless the corresponding release explicitly records a successful SignPath request.
 
 ## Verification and roadmap
 
