@@ -20,7 +20,7 @@ jobs:
     runs-on: windows-latest
     environment: signpath
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
       - name: Validate release tag and project version
