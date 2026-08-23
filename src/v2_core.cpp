@@ -529,6 +529,15 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
             size_t best_size = std::numeric_limits<size_t>::max();
             TileMode best_mode = TileMode::Raw;
             std::vector<uint8_t> best_raw, best_payload;
+            // Known-flaw B2: scoring every candidate at Extreme's Zstandard level
+            // 19 wastes most of the effort. Rank candidates with the cheaper
+            // Balanced level, then ship the winner recompressed at full preset
+            // strength. Selection stays deterministic; lossless and non-Extreme
+            // paths are untouched.
+            const SearchPreset scoring_preset =
+                (!options.lossless && options.preset == SearchPreset::Extreme)
+                    ? SearchPreset::Balanced
+                    : options.preset;
             for (const TileMode mode : candidate_modes(tile, options)) {
                 std::vector<uint8_t> raw, reconstructed;
                 if (mode == TileMode::Raw) raw = pixels;
@@ -538,7 +547,7 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                     if (raw.empty()) continue;
                 } else raw = encode_wavelet_tile(tile, options.quality, options.lossless,
                                                   options.lossless ? nullptr : &reconstructed);
-                auto payload = mode == TileMode::Raw ? raw : compress_zstd(raw, options.preset);
+                auto payload = mode == TileMode::Raw ? raw : compress_zstd(raw, scoring_preset);
                 double distortion = 0;
                 if (!options.lossless && mode == TileMode::Wavelet) {
                     for (size_t i = 0; i < pixels.size(); i += image.bytes_per_sample) {
@@ -558,6 +567,11 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                     best_raw = std::move(raw); best_payload = std::move(payload);
                 }
             }
+            // Ship the winner at the full preset strength (see scoring_preset).
+            if (best_mode != TileMode::Raw)
+                best_payload = compress_zstd(best_raw, options.preset);
+            else
+                best_payload = best_raw;
             TileRecord record{};
             record.x = static_cast<uint16_t>(x); record.y = static_cast<uint16_t>(y);
             record.width = static_cast<uint16_t>(width); record.height = static_cast<uint16_t>(height);

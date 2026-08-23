@@ -28,6 +28,11 @@ All notable WIMF changes are recorded here. The project follows semantic version
   `WIMF_BUILD_BENCHMARKS`) that times scalar/AVX2/NEON filter and CRC-32
   kernels plus a synthetic-image lossless round trip, emitting Markdown for CI
   job summaries; CI publishes per-OS reports on every run.
+- Reduced Extreme preset encode cost by ranking tile candidates at the cheaper
+  Balanced Zstandard level and recompressing only the winning tile at full
+  strength (shipped files keep full-level compression).
+- CI job summaries now render human-readable benchmark tables instead of raw
+  JSON, with per-runner hardware caveats stated inline.
 
 ## 2.1.0 - 2026-08-03
 

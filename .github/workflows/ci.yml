@@ -151,6 +151,10 @@ jobs:
             {
               echo "## SIMD kernel benchmark (${{ runner.os }})"
               echo ""
+              echo "Rates in MB/s, higher is better. The scalar baseline is included so the"
+              echo "speedup table is meaningful; compare backends within this table only, since"
+              echo "each runner is different hardware. Full methodology: docs/simd-benchmarks.md"
+              echo ""
               cat simd-bench.md
               echo ""
             } >> "$GITHUB_STEP_SUMMARY"
@@ -292,11 +296,7 @@ jobs:
         shell: bash
         run: |
           python benchmarks/bench_codecs.py --still-size 512 > codec-benchmark.json
-          cat codec-benchmark.json
-          echo "## Python vs C++ codec benchmark — ${{ runner.os }}" >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat codec-benchmark.json >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          python benchmarks/codec_summary.py codec-benchmark.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: codec-benchmark-${{ matrix.os }}

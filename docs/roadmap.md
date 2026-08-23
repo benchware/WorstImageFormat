@@ -112,10 +112,11 @@ section 5b target the largest one - compressed file size - first.
   explicit flag, never from quality or preset; documented in native-core and
   pinned by a native conformance test (the flag must flip the wavelet coding
   path, and explicit-lossless roundtrips stay bit-exact).
-- [ ] Reduce Extreme-preset scoring overhead: all four candidate tile modes are
-  Zstandard level 19-compressed per tile for scoring, and wavelet candidates add
-  a full inverse transform; Auto Extreme costs about 2× Predictive Extreme even
-  on Zen 2 (7.08 s versus 3.27 s for 45 MP).
+- [ ] Finish Extreme-preset scoring overhead reduction: candidates are now ranked
+  with the cheaper Balanced Zstandard level and the winner is shipped at full
+  strength; the remaining cost is the wavelet inverse still required for lossy
+  distortion estimation (Auto Extreme was ~2× Predictive Extreme on Zen 2,
+  ~13× on Ivy Bridge).
 - [ ] Subband-aware coefficient scanning for improved entropy coding.
 - [ ] Tile-size adaptation based on image content.
 
