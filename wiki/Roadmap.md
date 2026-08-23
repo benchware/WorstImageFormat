@@ -83,9 +83,9 @@ section 5b target the largest one - compressed file size - first.
 - [ ] High-bit-depth predictive SIMD
   - Filter kernels cover 8-bit rows only; 10/16-bit images run the predictive
     path fully scalar even though mobile sensors commonly capture 10-bit.
-- [ ] Reuse Zstandard compression contexts across tile scoring; ZSTD_compress
-  constructs and frees a fresh context on every call, thousands of times per
-  large image.
+- [x] Reuse Zstandard compression contexts across tile scoring: thread-local
+  CCtx/DCtx via ZSTD_compressCCtx / ZSTD_decompressDCtx replace per-call
+  construction; output stays byte-identical.
 - [ ] AVX-512
   - Deferred until AVX2/NEON paths are measured and hardware
     support is widespread enough to justify the maintenance cost.
@@ -108,9 +108,10 @@ section 5b target the largest one - compressed file size - first.
   system, so lower quality currently produces larger files.
 - [ ] Optional lossy chroma decimation for photographic tiers, reconstructed
   during decode without changing the WIM2 container.
-- [ ] Pin down and document the quality=10 contract per preset: submitted
-  reports show Fast Q10 remains lossy (~67.6 dB) while Balanced/Extreme Q10
-  came out bit-exact; add a conformance test for whichever rule is chosen.
+- [x] Pin down the quality=10 contract: losslessness comes only from the
+  explicit flag, never from quality or preset; documented in native-core and
+  pinned by a native conformance test (the flag must flip the wavelet coding
+  path, and explicit-lossless roundtrips stay bit-exact).
 - [ ] Reduce Extreme-preset scoring overhead: all four candidate tile modes are
   Zstandard level 19-compressed per tile for scoring, and wavelet candidates add
   a full inverse transform; Auto Extreme costs about 2× Predictive Extreme even

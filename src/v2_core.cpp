@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include <memory>
 #include <atomic>
 #include <exception>
 #include <mutex>
@@ -274,16 +275,24 @@ void parallel_for(size_t count, unsigned workers, Function function) {
 
 std::vector<uint8_t> compress_zstd(const std::vector<uint8_t>& input, SearchPreset preset) {
     const int level = preset == SearchPreset::Fast ? 3 : (preset == SearchPreset::Extreme ? 19 : 9);
+    struct CctxCloser { void operator()(ZSTD_CCtx* context) const noexcept { ZSTD_freeCCtx(context); } };
+    thread_local std::unique_ptr<ZSTD_CCtx, CctxCloser> context{ZSTD_createCCtx()};
+    if (!context) throw std::bad_alloc();
     std::vector<uint8_t> output(ZSTD_compressBound(input.size()));
-    const size_t size = ZSTD_compress(output.data(), output.size(), input.data(), input.size(), level);
+    const size_t size = ZSTD_compressCCtx(context.get(), output.data(), output.size(),
+                                          input.data(), input.size(), level);
     if (ZSTD_isError(size)) throw std::runtime_error(ZSTD_getErrorName(size));
     output.resize(size);
     return output;
 }
 
 std::vector<uint8_t> decompress_zstd(const uint8_t* input, size_t size, size_t expected) {
+    struct DctxCloser { void operator()(ZSTD_DCtx* context) const noexcept { ZSTD_freeDCtx(context); } };
+    thread_local std::unique_ptr<ZSTD_DCtx, DctxCloser> context{ZSTD_createDCtx()};
+    if (!context) throw std::bad_alloc();
     std::vector<uint8_t> output(expected);
-    const size_t actual = ZSTD_decompress(output.data(), output.size(), input, size);
+    const size_t actual =
+        ZSTD_decompressDCtx(context.get(), output.data(), output.size(), input, size);
     if (ZSTD_isError(actual) || actual != expected) throw std::runtime_error("invalid zstd tile payload");
     return output;
 }

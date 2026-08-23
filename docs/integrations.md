@@ -38,3 +38,13 @@ FFmpeg has no third-party runtime codec plugin ABI, so registration requires an
 upstream codec ID, configure/Makefile entries, FATE samples, and FFmpeg review.
 The included README lists those changes. Until accepted upstream, this is a
 maintained integration source kit rather than support in stock FFmpeg binaries.
+
+## Android (Termux)
+
+AArch64 builds get NEON and the ARM CRC-32 extension automatically through
+runtime dispatch; no extra build flags are needed. Build with the standard
+`pip install -e . --no-build-isolation` inside Termux using its clang
+toolchain. One known native-build caveat: Android Bionic lacks `qsort_r`,
+which the bundled Zstandard sources reference; patch or shim that symbol when
+building natively on Android (see issue #31 for a worked example). Wheels for
+Android are not yet published; guidance tracks the roadmap.

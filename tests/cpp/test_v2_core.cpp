@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cstdint>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 #include <vector>
 
@@ -78,6 +79,47 @@ void test_reversible_wavelet() {
     const auto coefficients = wimf::v2::wavelet_forward(pixels.data(), width, height, 1, true, 3, 1.0);
     const auto decoded = wimf::v2::wavelet_inverse(coefficients.data(), coefficients.size(), width, height, 1, true, 3, 1.0);
     require(decoded == pixels, "CDF 5/3 roundtrip failed");
+}
+
+void test_quality10_contract() {
+    // Contract: losslessness comes only from the explicit flag - quality never
+    // implies it. The flag must flip the wavelet coder onto its reversible
+    // pipeline, so the two payloads differ structurally (the reversible byte
+    // in every wavelet tile header), and the explicit-lossless payload must
+    // decode back bit-exactly.
+    constexpr uint32_t width = 96, height = 80;
+    constexpr uint8_t channels = 3;
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * channels);
+    std::mt19937 rng(20260826);
+    for (auto& byte : pixels) byte = static_cast<uint8_t>(rng());
+
+    wimf::v2::EncodeOptions options;
+    options.quality = 10;
+    options.codec = wimf::v2::CodecMode::Wavelet;
+    options.preset = wimf::v2::SearchPreset::Fast;
+    options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+
+    std::vector<uint8_t> lossy_encoded;
+    require(static_cast<bool>(wimf::v2::encode_image(view(pixels, width, height, channels),
+                                                     options, lossy_encoded)),
+            "quality=10 wavelet encode failed");
+
+    options.lossless = true;
+    std::vector<uint8_t> lossless_encoded;
+    require(static_cast<bool>(wimf::v2::encode_image(view(pixels, width, height, channels),
+                                                     options, lossless_encoded)),
+            "lossless wavelet encode failed");
+    require(lossy_encoded != lossless_encoded,
+            "the lossless flag did not select a different wavelet coding path");
+
+    wimf::v2::DecodeResult decoded;
+    wimf::v2::DecodeOptions decode_options;
+    decode_options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+    require(static_cast<bool>(wimf::v2::decode_image(lossless_encoded.data(),
+                                                     lossless_encoded.size(), decode_options,
+                                                     decoded)),
+            "explicit-lossless wavelet decode failed");
+    require(decoded.pixels == pixels, "explicit lossless roundtrip changed pixels");
 }
 
 void test_crc_and_rejection() {
@@ -278,6 +320,7 @@ int main() {
         test_predictive_16bit_roundtrip();
         test_palette_roundtrip();
         test_reversible_wavelet();
+        test_quality10_contract();
         test_crc_and_rejection();
         test_container_roundtrip();
         test_image_pipeline();

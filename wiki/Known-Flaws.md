@@ -42,7 +42,7 @@ determinism, corruption rejection, and memory guards all audited clean
   for distortion estimation. Auto Extreme ≈ 2× Predictive Extreme on Zen 2,
   ≈ 13× on Ivy Bridge.
 - **[P1] B3 Zstd context churn.** `ZSTD_compress` constructs and frees a fresh
-  context on every call; thousands of calls per large image across candidates.
+  context on every call; thousands of calls per large image across candidates. Fixed: thread-local reused contexts landed on the acceleration branch.
 - **[P2] B4 High-bit-depth paths bypass SIMD.** Filter kernels are 8-bit only;
   10/16-bit predictive runs fully scalar despite mobile sensors capturing
   10-bit.
