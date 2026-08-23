@@ -9,7 +9,7 @@
 // Methodology: deterministic PRNG inputs, one warmup pass, then the minimum
 // wall time of several repetitions (steady_clock); checksum sinks are printed
 // so compilers cannot elide the measured work. Rates from different machines
-// are NOT comparable — compare backends only within a single run/report.
+// are NOT comparable - compare backends only within a single run/report.
 
 #include "v2_core.hpp"
 #include "v2_simd.hpp"

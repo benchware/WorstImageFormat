@@ -21,8 +21,8 @@ as the `simd-bench-<os>` artifacts.
 
 | Section | Meaning |
 |---|---|
-| Predictive left filter — Cost | Wrapped-absolute-residual cost scan over 32k rows × 256 B |
-| Predictive left filter — Emit | Residual emission over the same rows |
+| Predictive left filter - Cost | Wrapped-absolute-residual cost scan over 32k rows × 256 B |
+| Predictive left filter - Emit | Residual emission over the same rows |
 | CRC-32 | Table (scalar), ARM hardware extension when present, and the dispatched path the codec actually uses |
 | Synthetic sample image | End-to-end lossless encode/decode of a deterministic 512×320×3 gradient+noise image through the public `encode_image` / `decode_image` API |
 

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 // WIMF v2 SIMD acceleration â€” internal header.
 //
 // Instruction-set-specific kernels are isolated in dedicated translation

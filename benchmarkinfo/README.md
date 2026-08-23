@@ -20,7 +20,7 @@ When submitting new results:
   (`avx2`, `neon`, or `scalar`) in the report header.
 - Place post-acceleration runs in a sibling folder such as `avx2-neon/`
   so scalar-era baselines stay comparable.
-- The 2–3× projections in `no avx2/ranking.md` are estimates only; record
+- The 2-3× projections in `no avx2/ranking.md` are estimates only; record
   what you actually measure.
 
 Windows wheels built with setuptools remain scalar by design (MSVC cannot

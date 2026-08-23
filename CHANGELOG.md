@@ -2,7 +2,7 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
-## 2.2.0 — Unreleased
+## 2.2.0 - Unreleased
 
 - Made WIM2 the sole recommended authoring format.
 - Deprecated WIMF v1, the `.wif` filename alias, AWIF/v1 chrono, `ROT!`, watermark, legacy mip/depth,
@@ -29,7 +29,7 @@ All notable WIMF changes are recorded here. The project follows semantic version
   kernels plus a synthetic-image lossless round trip, emitting Markdown for CI
   job summaries; CI publishes per-OS reports on every run.
 
-## 2.1.0 — 2026-08-03
+## 2.1.0 - 2026-08-03
 
 ### Added
 
@@ -50,7 +50,7 @@ All notable WIMF changes are recorded here. The project follows semantic version
 - The desktop viewer now has file, fit, actual-size, and metadata controls plus a graphical file picker.
 - `wimf-view` now opens Studio while remaining a compatible command; headless CLI tools do not import Tkinter.
 
-## 2.0.0 — 2026-08-03
+## 2.0.0 - 2026-08-03
 
 ### Added
 
