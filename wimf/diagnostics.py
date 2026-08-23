@@ -19,6 +19,7 @@ from .hybrid import (
     _predictive_decode,
     _wavelet_decode,
     parse_v2,
+    undo_channel_decorrelation,
 )
 
 AREAS = ("header", "metadata", "index", "payload", "extension", "parity")
@@ -155,4 +156,5 @@ def unsafe_preview(data):
             checker = np.where(((xx // 8 + yy // 8) & 1)[..., None], maximum, 0).astype(dtype)
             output[y : y + height, x : x + width] = checker
             failed.append({"x": x, "y": y, "error": str(error)})
+    output = undo_channel_decorrelation(output, info["channels"], info["bit_depth"], info["flags"])
     return output, failed

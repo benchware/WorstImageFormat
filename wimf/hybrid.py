@@ -582,6 +582,21 @@ def parse_v2(data):
     }
 
 
+def undo_channel_decorrelation(image, channels, bit_depth, flags):
+    """Invert container flags bit 1: (G, R-G, B-G) planes back to RGB(A).
+
+    Pure mod-256 arithmetic on uint8 planes, so the transform is exactly
+    reversible and safe to apply to any pixel region, including ROI crops.
+    """
+    if bit_depth != 8 or channels < 3 or not (flags & 2):
+        return image
+    image = image.copy()
+    green = image[..., 1]
+    image[..., 0] += green  # numpy uint8 arithmetic wraps modulo 256
+    image[..., 2] += green
+    return image
+
+
 def decode_v2(data, roi=None, target_layer=2, operation_token=None):
     if native is not None and hasattr(native, "decode_image"):
         try:
@@ -624,4 +639,5 @@ def decode_v2(data, roi=None, target_layer=2, operation_token=None):
         sx0, sy0 = max(rx, x), max(ry, y)
         sx1, sy1 = min(rx + rw, x + tw), min(ry + rh, y + th)
         out[sy0 - ry : sy1 - ry, sx0 - rx : sx1 - rx] = tile[sy0 - y : sy1 - y, sx0 - x : sx1 - x]
+        out = undo_channel_decorrelation(out, info["channels"], info["bit_depth"], info["flags"])
     return out.tobytes(), info
