@@ -4,6 +4,10 @@ WIM2 codec correctness and native CPU performance come first. The next major
 goal is adoption: making the decoder straightforward for other applications to
 embed without depending on Python.
 
+A consolidated audit of every significant open flaw lives in
+`docs/known-flaws.md` (wiki mirror: *Known-Flaws*). Rate-distortion items in
+section 5b target the largest one - compressed file size - first.
+
 ## 1. Integration foundation
 
 - [x] Freeze the implemented WIM2 revision-2 base-container specification.
@@ -33,6 +37,11 @@ embed without depending on Python.
 - [x] Native Windows Explorer thumbnail and preview-pane providers.
 - [ ] GraphicsMagick-specific coder and upstream FFmpeg registration.
 - [ ] macOS Quick Look support.
+- [ ] Native Android build support (Termux/NDK): runtime dispatch already
+  resolves the inactive-NEON report in issue #31; document the Android Bionic
+  Zstandard `qsort_r` build note for native builds.
+- [ ] Resolve progressive-layer design: either implement multi-layer coding or
+  publish the reservation rationale in the WIM2 specification.
 
 ## 3. Web and languages
 
@@ -46,26 +55,71 @@ embed without depending on Python.
 - [ ] Maintain a public benchmark corpus against PNG, WebP, AVIF, JPEG, and JPEG XL.
 - [ ] Publish reproducible throughput, memory, compression, corruption, platform,
   and compiler measurements.
+- [x] Run automated SIMD kernel benchmarks (wimf-simd-bench) on every CI push,
+  publishing per-OS job-summary reports and downloadable artifacts.
 - [ ] Keep fuzzing, sanitizers, malformed-input tests, and cross-platform decoder
   conformance blocking for releases.
 - [ ] Provide minimal examples and an upstreaming checklist for each integration.
 
 ## 5. Performance optimization
 
-- [ ] AVX2 (x86_64)
-  - Benchmark targets: 2.5-3× speedup on Intel Haswell+ / AMD Zen+
-  - Measured baseline: i5-4460 (Haswell, scalar): 26.7 MP/s (Fast preset),
-    9.1 MP/s (Wavelet Balanced), 3.4 MP/s (Extreme Q2)
-  - Implementation deferred until profiling confirms real-world gain
-- [ ] NEON (ARMv8+)
-  - Benchmark targets: 2.5-3× speedup on ARMv8+ (Apple M1/M2, Raspberry Pi 4/5,
-    Android, ChromeOS)
-  - Minimum acceptable Raspberry Pi 5 target: 25+ MP/s (Fast), 10+ MP/s
-    (Wavelet Balanced), 5+ MP/s (Extreme)
+- [x] AVX2 (x86_64)
+  - CRC-32 lookup-table acceleration and predictive left-filter vectorization.
+  - Runtime-dispatched: AVX2 kernels are compiled into the binary and enabled
+    via CPUID/XGETBV, so one build serves every x86-64 host. MSVC wheels that
+    cannot scope per-file flags fall back to scalar automatically.
+  - Benchmark targets: 2.5-3× speedup on Intel Haswell+ / AMD Zen+.
+- [x] NEON (ARMv8+)
+  - CRC-32 hardware acceleration (ARM CRC extension) and predictive left-filter vectorization.
+  - Always enabled on aarch64 targets; no additional build flags required.
+  - The optional CRC extension is probed at runtime (`getauxval(AT_HWCAP)`)
+    and falls back to the scalar table when absent.
+  - Benchmark targets: 2.5-3× speedup on Apple M1/M2, Raspberry Pi 4/5.
+- [ ] Wavelet lifting optimization
+  - Scalar-era reports show the double-precision lifting path with per-row and
+    per-column heap allocations dominating Extreme encodes AND decodes:
+    187 s encode and up to 213 s decode for 45 MP on an Ivy Bridge dual-core,
+    versus 6 s for predictive-only encoding on the same machine.
+- [ ] High-bit-depth predictive SIMD
+  - Filter kernels cover 8-bit rows only; 10/16-bit images run the predictive
+    path fully scalar even though mobile sensors commonly capture 10-bit.
+- [x] Reuse Zstandard compression contexts across tile scoring: thread-local
+  CCtx/DCtx via ZSTD_compressCCtx / ZSTD_decompressDCtx replace per-call
+  construction; output stays byte-identical.
 - [ ] AVX-512
-  - Experimental; deferred until AVX2/NEON paths are stable and hardware
+  - Deferred until AVX2/NEON paths are measured and hardware
     support is widespread enough to justify the maintenance cost.
-  - Thermal and performance-regression risks documented.
+
+## 5b. Compression tuning
+
+- [x] Content-adaptive wavelet quantization scaled by local tile energy.
+- [x] Improved Zstandard compression levels (Fast 3, Balanced 9, Extreme 19).
+- [x] Quadratic rate-distortion scoring for lossy tile selection.
+- [x] Relaxed wavelet classification thresholds for smooth-gradient content.
+- [x] Bitwise masking replacing modular arithmetic in the predictive codec.
+- [ ] Land color decorrelation (reversible mod-256 green differencing behind
+  container flags bit 1): implementation exists in v2_core but is DISABLED
+  pending diagnosis of the cross-platform pytest failures it triggered (run
+  #180); Python-reference mirror and YCoCg variant also open.
+- [ ] Introduce context-modeled entropy coding tuned to prediction residuals
+  and wavelet subbands; generic Zstd payloads are the main structural size gap
+  versus modern image codecs.
+- [ ] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve;
+  today Extreme records 6.89× at Q1 versus 17.31× at Q2 across every tested
+  system, so lower quality currently produces larger files.
+- [ ] Optional lossy chroma decimation for photographic tiers, reconstructed
+  during decode without changing the WIM2 container.
+- [x] Pin down the quality=10 contract: losslessness comes only from the
+  explicit flag, never from quality or preset; documented in native-core and
+  pinned by a native conformance test (the flag must flip the wavelet coding
+  path, and explicit-lossless roundtrips stay bit-exact).
+- [ ] Finish Extreme-preset scoring overhead reduction: candidates are now ranked
+  with the cheaper Balanced Zstandard level and the winner is shipped at full
+  strength; the remaining cost is the wavelet inverse still required for lossy
+  distortion estimation (Auto Extreme was ~2× Predictive Extreme on Zen 2,
+  ~13× on Ivy Bridge).
+- [ ] Subband-aware coefficient scanning for improved entropy coding.
+- [ ] Tile-size adaptation based on image content.
 
 ## 6. Quality-of-life improvements
 
@@ -88,9 +142,14 @@ embed without depending on Python.
 
 - [ ] Complete and publish benchmarks for:
   - x86_64 scalar baseline (completed: i5-4460, 2014)
-  - x86_64 AVX2 on Kaby Lake or newer
-  - ARM NEON on Apple M1/M2
+  - x86_64 AVX2 on Kaby Lake or newer (kernel-level CI reports via wimf-simd-bench)
+  - ARM NEON on Apple M1/M2 (kernel-level CI reports via wimf-simd-bench)
   - ARM NEON on Raspberry Pi 5
+  - ARM NEON on Android/Termux (Snapdragon class); runtime dispatch resolves
+    issue #31, native build guidance pending
+- [ ] Ship SIMD-enabled Windows wheels: setuptools cannot scope `/arch:AVX2`
+  per translation unit today; evaluate a clang-cl helper object or split-
+  extension linkage so the largest install base gets acceleration.
 - [ ] Maintain decoder conformance across all supported platforms.
 - [ ] Document minimal hardware requirements and expected performance tiers.
 

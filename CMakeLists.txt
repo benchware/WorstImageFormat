@@ -4,7 +4,9 @@ project(wimf VERSION 2.2.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-add_library(wimf src/wimf_c.cpp src/v2_core.cpp third_party/zstd/zstd.c)
+add_library(wimf src/wimf_c.cpp src/v2_core.cpp
+    src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp
+    third_party/zstd/zstd.c)
 add_library(WIMF::wimf ALIAS wimf)
 target_compile_features(wimf PUBLIC cxx_std_17)
 target_include_directories(wimf
@@ -20,6 +22,38 @@ set_target_properties(wimf PROPERTIES
     SOVERSION 1)
 if(BUILD_SHARED_LIBS)
     target_compile_definitions(wimf PRIVATE WIMF_C_BUILDING_DLL PUBLIC WIMF_C_SHARED)
+endif()
+# SIMD kernels are runtime-dispatched: ISA-specific code lives in dedicated
+# translation units and is selected at run time (CPUID/XGETBV on x86-64,
+# getauxval(AT_HWCAP) for the ARM CRC extension). The WIMF_SIMD_ENABLE_AVX2
+# switch is defined target-wide so every translation unit that includes
+# v2_simd.hpp agrees on whether kernels exist, while compiler flags that
+# enable an instruction set stay scoped to the individual kernel source
+# files, keeping the rest of the library baseline-portable on every host CPU.
+include(CheckCXXCompilerFlag)
+set(WIMF_TARGET_X86 FALSE)
+if(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64|i[3-6]86|x86)$")
+    set(WIMF_TARGET_X86 TRUE)
+    if(MSVC)
+        target_compile_definitions(wimf PRIVATE WIMF_SIMD_ENABLE_AVX2)
+        set_source_files_properties(src/v2_simd_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        # GCC/Clang also enable AVX2 in-source via '#pragma GCC target'; the
+        # flag below is belt-and-braces for toolchains with partial support.
+        target_compile_definitions(wimf PRIVATE WIMF_SIMD_ENABLE_AVX2)
+        check_cxx_compiler_flag("-mavx2" WIMF_COMPILER_HAS_MAVX2)
+        if(WIMF_COMPILER_HAS_MAVX2)
+            set_property(SOURCE src/v2_simd_avx2.cpp APPEND PROPERTY COMPILE_OPTIONS "-mavx2")
+        endif()
+    endif()
+elseif(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|ARM64|arm64)$")
+    if(NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        check_cxx_compiler_flag("-march=armv8-a+crc" WIMF_COMPILER_HAS_ARM_CRC)
+        if(WIMF_COMPILER_HAS_ARM_CRC)
+            set_source_files_properties(src/v2_simd_crc.cpp PROPERTIES
+                COMPILE_OPTIONS "-march=armv8-a+crc")
+        endif()
+    endif()
 endif()
 if(WIN32)
     set(WIMF_RESOURCE_FILE_TYPE VFT_DLL)
@@ -64,11 +98,46 @@ if(WIN32 AND WIMF_BUILD_WINDOWS_SHELL)
                   integrations/windows/unregister-thumbnail.ps1
             DESTINATION ${CMAKE_INSTALL_DATADIR}/wimf/windows)
 endif()
+option(WIMF_BUILD_BENCHMARKS "Build the native SIMD kernel benchmark tool" OFF)
+if(WIMF_BUILD_BENCHMARKS)
+    # Links the internal kernel translation units directly (they are hidden
+    # inside the shared library) plus the public core for end-to-end timings.
+    add_executable(wimf_simd_bench tools/wimf_simd_bench.cpp src/v2_core.cpp
+        src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp
+        third_party/zstd/zstd.c)
+    set_target_properties(wimf_simd_bench PROPERTIES OUTPUT_NAME wimf-simd-bench)
+    target_include_directories(wimf_simd_bench PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zstd)
+    target_compile_features(wimf_simd_bench PRIVATE cxx_std_17)
+    if(WIMF_TARGET_X86)
+        target_compile_definitions(wimf_simd_bench PRIVATE WIMF_SIMD_ENABLE_AVX2)
+    endif()
+endif()
 if(WIMF_BUILD_TESTS)
     enable_testing()
     add_executable(wimf_c_api_test tests/cpp/test_c_api.c)
     target_link_libraries(wimf_c_api_test PRIVATE WIMF::wimf)
     add_test(NAME wimf_c_api_roundtrip COMMAND wimf_c_api_test)
+    # SIMD kernels are internal to the shared library (hidden visibility), so
+    # these tests compile the kernel translation units directly instead of
+    # linking WIMF::wimf. Two variants run on every platform: one built exactly
+    # like the accelerated library (runtime-dispatched AVX2 where supported)
+    # and one with the AVX2 kernels compiled out, covering the pure-scalar
+    # configuration that Windows wheels and WASM ship.
+    add_executable(wimf_simd_test tests/cpp/test_v2_simd.cpp
+        src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp)
+    target_include_directories(wimf_simd_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(wimf_simd_test PRIVATE cxx_std_17)
+    if(WIMF_TARGET_X86)
+        target_compile_definitions(wimf_simd_test PRIVATE WIMF_SIMD_ENABLE_AVX2)
+    endif()
+    add_test(NAME wimf_simd_kernels COMMAND wimf_simd_test)
+
+    add_executable(wimf_simd_scalar_test tests/cpp/test_v2_simd.cpp
+        src/v2_simd.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp)
+    target_include_directories(wimf_simd_scalar_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_features(wimf_simd_scalar_test PRIVATE cxx_std_17)
+    add_test(NAME wimf_simd_scalar_kernels COMMAND wimf_simd_scalar_test)
     if(WIMF_BUILD_TOOLS)
         add_test(NAME wimf_native_version COMMAND wimf_native --version)
         add_test(NAME wimf_native_ppm_roundtrip

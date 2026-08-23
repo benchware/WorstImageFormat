@@ -133,4 +133,9 @@ Rankings based on 45.4 MP (8256×5504) NASA test image, using WIMF 2.2 native C+
 
 - Performance numbers are hardware-dependent and may vary.
 - Rankings will be updated as new systems are tested.
+- Compression ratios are based on Q2 Extreme preset unless otherwise noted.
+- **Update 2026-08-23**: runtime-dispatched AVX2/NEON acceleration has since
+  landed. These tables remain valid as scalar-era baselines; post-acceleration
+  runs belong in a sibling folder (see `benchmarkinfo/README.md`). The
+  projections above are estimates and have not been re-measured yet.
 - Compression ratios based on Q2 Extreme preset unless otherwise noted.

@@ -23,3 +23,8 @@ For integrations that cannot link a library yet, CMake also builds the small
 from `.wimf` using only the public C ABI. This keeps the bridge portable and
 gives other languages an immediate integration path without making filesystem
 or image-format dependencies part of the codec core.
+
+Losslessness contract: decoded pixels are bit-exact if and only if the encoder
+was given the explicit lossless flag. Quality never implies losslessness -
+quality=10 stays a lossy tier on every preset - and the flag switches the
+wavelet coder onto its reversible pipeline, so the two payloads always differ.
