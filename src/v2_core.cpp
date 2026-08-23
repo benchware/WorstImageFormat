@@ -500,6 +500,27 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
             options.tile_size < 16 || options.tile_size > 256 || image.width > 65535 || image.height > 65535 ||
             options.metadata.size() > 16u * 1024u * 1024u)
             throw std::invalid_argument("invalid encode options");
+        // Known-flaw A2: channels were entropy-coded independently. Apply the
+        // reversible mod-256 green differencing (G kept, R-G / B-G residual
+        // planes) so chroma planes become near-flat and compress far better.
+        // Pixel-wise and exactly invertible, so tiling/ROI/threading are
+        // unaffected. Signaled by container flags bit 1.
+        const bool color_decorrelated =
+            (image.channels == 3 || image.channels == 4) && image.bytes_per_sample == 1;
+        std::vector<uint8_t> color_work;
+        if (color_decorrelated) {
+            color_work.assign(image.data,
+                              image.data + static_cast<size_t>(image.width) * image.height * image.channels);
+            for (size_t i = 0; i < color_work.size(); i += image.channels) {
+                const uint8_t green = color_work[i + 1];
+                color_work[i] = static_cast<uint8_t>(color_work[i] - green);
+                color_work[i + 2] = static_cast<uint8_t>(color_work[i + 2] - green);
+            }
+        }
+        const ImageView source = color_decorrelated
+            ? ImageView{color_work.data(), image.width, image.height, image.channels,
+                        image.bytes_per_sample, image.row_stride}
+            : image;
         const uint32_t columns = (image.width + options.tile_size - 1) / options.tile_size;
         const uint32_t rows = (image.height + options.tile_size - 1) / options.tile_size;
         const size_t count = static_cast<size_t>(columns) * rows;
@@ -507,6 +528,7 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
         report_progress(options.control, "encode", 0, count);
         ContainerInfo container{};
         container.flags = options.lossless ? 1 : 0;
+        if (color_decorrelated) container.flags |= 0x2;
         container.bit_depth = options.bit_depth;
         container.channels = image.channels;
         container.width = image.width;
@@ -522,9 +544,9 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
             const uint32_t y = static_cast<uint32_t>(index / columns) * options.tile_size;
             const uint32_t width = std::min<uint32_t>(options.tile_size, image.width - x);
             const uint32_t height = std::min<uint32_t>(options.tile_size, image.height - y);
-            auto pixels = copy_tile(image, x, y, width, height);
-            const ImageView tile{pixels.data(), width, height, image.channels, image.bytes_per_sample,
-                                 static_cast<size_t>(width) * image.channels * image.bytes_per_sample};
+            auto pixels = copy_tile(source, x, y, width, height);
+            const ImageView tile{pixels.data(), width, height, source.channels, source.bytes_per_sample,
+                                 static_cast<size_t>(width) * source.channels * source.bytes_per_sample};
             double best_score = std::numeric_limits<double>::infinity();
             size_t best_size = std::numeric_limits<size_t>::max();
             TileMode best_mode = TileMode::Raw;
@@ -653,6 +675,18 @@ Status decode_image(const uint8_t* data, size_t size, const DecodeOptions& optio
             }
             report_progress(options.control, "decode", completed.fetch_add(1) + 1, selected.size());
         });
+        // Undo channel decorrelation when present (flags bit 1). Restricted to
+        // 8-bit RGB/RGBA at encode time; stale bits on hostile input degrade
+        // gracefully by skipping the pass.
+        if ((container.flags & 0x2) != 0 && container.bit_depth == 8 && container.channels >= 3) {
+            const size_t total = decoded.pixels.size();
+            const uint8_t stride = container.channels;
+            for (size_t i = 0; i < total; i += stride) {
+                const uint8_t green = decoded.pixels[i + 1];
+                decoded.pixels[i] = static_cast<uint8_t>(decoded.pixels[i] + green);
+                decoded.pixels[i + 2] = static_cast<uint8_t>(decoded.pixels[i + 2] + green);
+            }
+        }
         decoded.stats.effective_threads = workers;
         for (const size_t index : selected) count_mode(decoded.stats, container.tiles[index].mode);
         return {};

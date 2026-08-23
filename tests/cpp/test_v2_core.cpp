@@ -122,6 +122,57 @@ void test_quality10_contract() {
     require(decoded.pixels == pixels, "explicit lossless roundtrip changed pixels");
 }
 
+void test_channel_decorrelation() {
+    // Flags bit 1 stores (G, R-G, B-G) planes for 8-bit RGB/RGBA; the codec
+    // must undo that transparently on decode for any codec choice.
+    std::mt19937 rng(20260827);
+    for (const uint8_t channels : {static_cast<uint8_t>(3), static_cast<uint8_t>(4)}) {
+        constexpr uint32_t width = 61, height = 47;
+        std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * channels);
+        for (auto& byte : pixels) byte = static_cast<uint8_t>(rng());
+
+        wimf::v2::EncodeOptions options;
+        options.lossless = true;
+        options.codec = wimf::v2::CodecMode::Predictive;
+        options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+        std::vector<uint8_t> encoded;
+        require(static_cast<bool>(wimf::v2::encode_image(view(pixels, width, height, channels),
+                                                         options, encoded)),
+                "decorrelated encode failed");
+
+        wimf::v2::DecodeResult decoded;
+        wimf::v2::DecodeOptions decode_options;
+        decode_options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+        require(static_cast<bool>(wimf::v2::decode_image(encoded.data(), encoded.size(),
+                                                         decode_options, decoded)),
+                "decorrelated decode failed");
+        require(decoded.pixels == pixels, "channel decorrelation changed pixels");
+    }
+
+    // 16-bit images must bypass the transform entirely and still roundtrip.
+    constexpr uint32_t width = 33, height = 29;
+    std::vector<uint8_t> high(static_cast<size_t>(width) * height * 3 * 2);
+    for (size_t i = 0; i < high.size() / 2; ++i) {
+        const uint16_t value = static_cast<uint16_t>((i * 613) & 65535);
+        high[i * 2] = static_cast<uint8_t>(value);
+        high[i * 2 + 1] = static_cast<uint8_t>(value >> 8);
+    }
+    wimf::v2::EncodeOptions options;
+    options.lossless = true;
+    options.bit_depth = 16;
+    options.codec = wimf::v2::CodecMode::Predictive;
+    options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+    std::vector<uint8_t> encoded;
+    require(static_cast<bool>(wimf::v2::encode_image(view(high, width, height, 3, 2), options, encoded)),
+            "16-bit encode failed");
+    wimf::v2::DecodeResult decoded;
+    wimf::v2::DecodeOptions decode_options;
+    decode_options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+    require(static_cast<bool>(wimf::v2::decode_image(encoded.data(), encoded.size(), decode_options, decoded)),
+            "16-bit decode failed");
+    require(decoded.bit_depth == 16 && decoded.pixels == high, "16-bit roundtrip changed pixels");
+}
+
 void test_crc_and_rejection() {
     const std::vector<uint8_t> value{'1', '2', '3', '4', '5', '6', '7', '8', '9'};
     require(wimf::v2::crc32(value.data(), value.size()) == 0xcbf43926u, "CRC32 reference vector failed");
@@ -321,6 +372,7 @@ int main() {
         test_palette_roundtrip();
         test_reversible_wavelet();
         test_quality10_contract();
+        test_channel_decorrelation();
         test_crc_and_rejection();
         test_container_roundtrip();
         test_image_pipeline();

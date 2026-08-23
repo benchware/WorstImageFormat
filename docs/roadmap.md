@@ -97,9 +97,11 @@ section 5b target the largest one - compressed file size - first.
 - [x] Quadratic rate-distortion scoring for lossy tile selection.
 - [x] Relaxed wavelet classification thresholds for smooth-gradient content.
 - [x] Bitwise masking replacing modular arithmetic in the predictive codec.
-- [ ] Apply a reversible RGB→YCoCg color transform before tile coding; channels
-  are currently entropy-coded independently, leaving chroma correlation
-  unexploited on every photographic image.
+- [x] Decorrelate color before tile coding: reversible mod-256 green
+  differencing (G kept; R-G / B-G residual planes) ships behind container flags
+  bit 1 for 8-bit RGB/RGBA, native side.
+- [ ] Extend color decorrelation: YCoCg-with-offsets variant and the Python
+  reference-codec mirror are still open.
 - [ ] Introduce context-modeled entropy coding tuned to prediction residuals
   and wavelet subbands; generic Zstd payloads are the main structural size gap
   versus modern image codecs.
