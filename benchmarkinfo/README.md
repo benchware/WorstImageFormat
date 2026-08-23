@@ -1,0 +1,27 @@
+# WIMF benchmark information
+
+Community-submitted throughput records for the WIMF native backend, all using
+the 45.4 MP (8256×5504) NASA reference image unless noted otherwise.
+
+## Folder convention
+
+| Folder | Meaning |
+|--------|---------|
+| `no avx2/` | Scalar-era baselines captured before SIMD acceleration landed (WIMF 2.2 pre-acceleration wheels). Kept verbatim for history; do not edit. |
+
+## Recording new runs
+
+Since runtime CPU dispatch landed, a single build serves every host: AVX2
+kernels activate automatically on capable x86-64 CPUs and NEON on AArch64.
+When submitting new results:
+
+- Note the reported SIMD backend from `wimf.runtime_info()["simd"]`
+  (`avx2`, `neon`, or `scalar`) in the report header.
+- Place post-acceleration runs in a sibling folder such as `avx2-neon/`
+  so scalar-era baselines stay comparable.
+- The 2–3× projections in `no avx2/ranking.md` are estimates only; record
+  what you actually measure.
+
+Windows wheels built with setuptools remain scalar by design (MSVC cannot
+scope `/arch:AVX2` to one translation unit); use a CMake or GCC/Clang build
+to exercise accelerated paths there.

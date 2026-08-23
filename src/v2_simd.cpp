@@ -18,7 +18,8 @@ namespace wimf::v2::simd {
 namespace {
 
 constexpr uint32_t crc_entry(uint32_t index) {
-    for (int bit = 0; bit < 8; ++bit) index = (index >> 1) ^ (0xEDB88320u & -(index & 1u));
+    for (int bit = 0; bit < 8; ++bit)
+        index = (index >> 1) ^ ((index & 1u) ? 0xEDB88320u : 0u);
     return index;
 }
 
