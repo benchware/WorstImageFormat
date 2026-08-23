@@ -24,6 +24,10 @@ All notable WIMF changes are recorded here. The project follows semantic version
 - Removed the `WIMF_ENABLE_AVX2` CMake option; AVX2 is now always available to
   capable CPUs without rebuilding (MSVC builds scope `/arch:AVX2` to the kernel
   translation unit only).
+- Added a native SIMD kernel benchmark (`tools/wimf_simd_bench.cpp`,
+  `WIMF_BUILD_BENCHMARKS`) that times scalar/AVX2/NEON filter and CRC-32
+  kernels plus a synthetic-image lossless round trip, emitting Markdown for CI
+  job summaries; CI publishes per-OS reports on every run.
 
 ## 2.1.0 — 2026-08-03
 

@@ -256,7 +256,7 @@ Official Windows native releases follow the project [code signing policy](CODE_S
 
 CI separates Python quality, cross-platform API/feature tests, legacy decode compatibility, standalone C++, sanitizers, packaging, visual evidence, and non-blocking performance measurements. Python-versus-C++ benchmarks cover current WIM2 still images on Windows, Linux, and macOS. The active roadmap is:
 
-- Measure AVX2 and NEON SIMD acceleration across reference hardware (CRC-32 and predictive filter paths are implemented; wavelet lifting is scalar).
+- Measure AVX2 and NEON SIMD acceleration across reference hardware (CRC-32 and predictive filter paths are implemented; wavelet lifting is scalar). Run `tools/wimf_simd_bench.cpp` locally or read CI job summaries — see `docs/simd-benchmarks.md`.
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
 - Validate the memory-only synchronous core with Emscripten on the future web branch without changing the WIM2 bitstream.
 - Publish signed standalone C/C++ development archives for the versioned ABI and conformance pack.

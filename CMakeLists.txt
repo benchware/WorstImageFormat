@@ -98,6 +98,21 @@ if(WIN32 AND WIMF_BUILD_WINDOWS_SHELL)
                   integrations/windows/unregister-thumbnail.ps1
             DESTINATION ${CMAKE_INSTALL_DATADIR}/wimf/windows)
 endif()
+option(WIMF_BUILD_BENCHMARKS "Build the native SIMD kernel benchmark tool" OFF)
+if(WIMF_BUILD_BENCHMARKS)
+    # Links the internal kernel translation units directly (they are hidden
+    # inside the shared library) plus the public core for end-to-end timings.
+    add_executable(wimf_simd_bench tools/wimf_simd_bench.cpp src/v2_core.cpp
+        src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp
+        third_party/zstd/zstd.c)
+    set_target_properties(wimf_simd_bench PROPERTIES OUTPUT_NAME wimf-simd-bench)
+    target_include_directories(wimf_simd_bench PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zstd)
+    target_compile_features(wimf_simd_bench PRIVATE cxx_std_17)
+    if(WIMF_TARGET_X86)
+        target_compile_definitions(wimf_simd_bench PRIVATE WIMF_SIMD_ENABLE_AVX2)
+    endif()
+endif()
 if(WIMF_BUILD_TESTS)
     enable_testing()
     add_executable(wimf_c_api_test tests/cpp/test_c_api.c)
