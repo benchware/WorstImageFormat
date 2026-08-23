@@ -4,7 +4,9 @@ project(wimf VERSION 2.2.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-add_library(wimf src/wimf_c.cpp src/v2_core.cpp third_party/zstd/zstd.c)
+add_library(wimf src/wimf_c.cpp src/v2_core.cpp
+    src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp
+    third_party/zstd/zstd.c)
 add_library(WIMF::wimf ALIAS wimf)
 target_compile_features(wimf PUBLIC cxx_std_17)
 target_include_directories(wimf
@@ -21,12 +23,34 @@ set_target_properties(wimf PROPERTIES
 if(BUILD_SHARED_LIBS)
     target_compile_definitions(wimf PRIVATE WIMF_C_BUILDING_DLL PUBLIC WIMF_C_SHARED)
 endif()
-option(WIMF_ENABLE_AVX2 "Enable AVX2 SIMD acceleration (requires AVX2-capable CPU)" OFF)
-if(WIMF_ENABLE_AVX2)
+# SIMD kernels are runtime-dispatched: ISA-specific code lives in dedicated
+# translation units and is selected at run time (CPUID/XGETBV on x86-64,
+# getauxval(AT_HWCAP) for the ARM CRC extension). Any compiler flags that
+# enable an instruction set are therefore scoped to individual source files,
+# keeping the rest of the library baseline-portable on every host CPU.
+include(CheckCXXCompilerFlag)
+if(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64|i[3-6]86|x86)$")
     if(MSVC)
-        target_compile_options(wimf PRIVATE /arch:AVX2)
+        set_source_files_properties(src/v2_simd_avx2.cpp PROPERTIES
+            COMPILE_OPTIONS "/arch:AVX2"
+            COMPILE_DEFINITIONS "WIMF_SIMD_ENABLE_AVX2")
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(wimf PRIVATE -mavx2)
+        # GCC/Clang also enable AVX2 in-source via '#pragma GCC target'; the
+        # flag below is belt-and-braces for toolchains with partial support.
+        set_source_files_properties(src/v2_simd_avx2.cpp PROPERTIES
+            COMPILE_DEFINITIONS "WIMF_SIMD_ENABLE_AVX2")
+        check_cxx_compiler_flag("-mavx2" WIMF_COMPILER_HAS_MAVX2)
+        if(WIMF_COMPILER_HAS_MAVX2)
+            set_property(SOURCE src/v2_simd_avx2.cpp APPEND PROPERTY COMPILE_OPTIONS "-mavx2")
+        endif()
+    endif()
+elseif(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|ARM64|arm64)$")
+    if(NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        check_cxx_compiler_flag("-march=armv8-a+crc" WIMF_COMPILER_HAS_ARM_CRC)
+        if(WIMF_COMPILER_HAS_ARM_CRC)
+            set_source_files_properties(src/v2_simd_crc.cpp PROPERTIES
+                COMPILE_OPTIONS "-march=armv8-a+crc")
+        endif()
     endif()
 endif()
 if(WIN32)
@@ -77,6 +101,10 @@ if(WIMF_BUILD_TESTS)
     add_executable(wimf_c_api_test tests/cpp/test_c_api.c)
     target_link_libraries(wimf_c_api_test PRIVATE WIMF::wimf)
     add_test(NAME wimf_c_api_roundtrip COMMAND wimf_c_api_test)
+    add_executable(wimf_simd_test tests/cpp/test_v2_simd.cpp)
+    target_link_libraries(wimf_simd_test PRIVATE WIMF::wimf)
+    target_compile_features(wimf_simd_test PRIVATE cxx_std_17)
+    add_test(NAME wimf_simd_kernels COMMAND wimf_simd_test)
     if(WIMF_BUILD_TOOLS)
         add_test(NAME wimf_native_version COMMAND wimf_native --version)
         add_test(NAME wimf_native_ppm_roundtrip

@@ -101,20 +101,35 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cl /nologo /O2 /c /Ithird_party/zstd third_party/zstd/zstd.c /Fo:zstd.obj
-          cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd.obj /Fe:v2_core_tests.exe
+          cl /nologo /std:c++17 /EHsc /O2 /arch:AVX2 /DWIMF_SIMD_ENABLE_AVX2 /Isrc /c src/v2_simd_avx2.cpp /Fo:v2_simd_avx2.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /c src/v2_simd.cpp /Fo:v2_simd.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /c src/v2_simd_neon.cpp /Fo:v2_simd_neon.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /c src/v2_simd_crc.cpp /Fo:v2_simd_crc.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd /c src/v2_core.cpp /Fo:v2_core.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd /c tests/cpp/test_v2_core.cpp /Fo:test_v2_core.obj
+          link /nologo test_v2_core.obj v2_core.obj v2_simd.obj v2_simd_avx2.obj v2_simd_neon.obj v2_simd_crc.obj zstd.obj /OUT:v2_core_tests.exe
           .\v2_core_tests.exe
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /c tests/cpp/test_v2_simd.cpp /Fo:test_v2_simd.obj
+          link /nologo test_v2_simd.obj v2_simd.obj v2_simd_avx2.obj v2_simd_neon.obj v2_simd_crc.obj /OUT:v2_simd_tests.exe
+          .\v2_simd_tests.exe
           cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd /c src/wimf_c.cpp /Fo:wimf_c.obj
           cl /nologo /O2 /Isrc /c tests/cpp/test_c_api.c /Fo:test_c_api.obj
-          link /nologo test_c_api.obj wimf_c.obj v2_core.obj zstd.obj /OUT:c_api_tests.exe
+          link /nologo test_c_api.obj wimf_c.obj v2_core.obj v2_simd.obj v2_simd_avx2.obj v2_simd_neon.obj v2_simd_crc.obj zstd.obj /OUT:c_api_tests.exe
           .\c_api_tests.exe
       - name: Build and test with the system C++ compiler
         if: runner.os != 'Windows'
         run: |
           cc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd.o
-          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd.o -pthread -o v2_core_tests
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd.cpp -o v2_simd.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DWIMF_SIMD_ENABLE_AVX2 -Isrc -c src/v2_simd_avx2.cpp -o v2_simd_avx2.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd_neon.cpp -o v2_simd_neon.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd_crc.cpp -o v2_simd_crc.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o zstd.o -pthread -o v2_core_tests
           ./v2_core_tests
+          c++ -std=c++17 -O2 -Wall -Wextra -Isrc tests/cpp/test_v2_simd.cpp v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o -o v2_simd_tests
+          ./v2_simd_tests
           cc -std=c11 -O2 -Wall -Wextra -Isrc -c tests/cpp/test_c_api.c -o test_c_api.o
-          c++ -std=c++17 -O2 -Wall -Wextra -Isrc -Ithird_party/zstd test_c_api.o src/wimf_c.cpp src/v2_core.cpp zstd.o -pthread -o c_api_tests
+          c++ -std=c++17 -O2 -Wall -Wextra -Isrc -Ithird_party/zstd test_c_api.o src/wimf_c.cpp src/v2_core.cpp v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o zstd.o -pthread -o c_api_tests
           ./c_api_tests
       - name: Build, install, and consume the shared C ABI with CMake
         shell: bash

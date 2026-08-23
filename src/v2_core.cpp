@@ -106,12 +106,7 @@ RuntimeInfo runtime_info() {
 #if defined(__aarch64__) || defined(_M_ARM64)
     const char* arch="arm64"; const char* simd="neon";
 #elif defined(__x86_64__) || defined(_M_X64)
-    const char* arch="x86_64";
-#if defined(__AVX2__)
-    const char* simd="avx2";
-#else
-    const char* simd="scalar";
-#endif
+    const char* arch="x86_64"; const char* simd=simd::has_avx2()?"avx2":"scalar";
 #else
     const char* arch="unknown"; const char* simd="scalar";
 #endif
@@ -179,7 +174,7 @@ std::vector<uint8_t> wavelet_inverse(const int64_t* coeff,size_t count,uint32_t 
     const uint32_t max=bps==1?255u:65535u;std::vector<uint8_t>out(count*bps);for(size_t i=0;i<count;++i){const uint32_t v=static_cast<uint32_t>(std::clamp<int64_t>(std::llround(a[i]),0,max));out[i*bps]=static_cast<uint8_t>(v);if(bps==2)out[i*bps+1]=static_cast<uint8_t>(v>>8);}return out;
 }
 
-uint32_t crc32(const uint8_t* data,size_t size){return simd::crc32_fast(data,size);}
+uint32_t crc32(const uint8_t* data,size_t size){return simd::crc32(data,size);}
 
 namespace {
 constexpr size_t kHeaderSize = 26, kEntrySize = 32;

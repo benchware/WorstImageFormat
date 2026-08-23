@@ -1,3 +1,4 @@
+import platform
 import sys
 
 from setuptools import Extension, setup
@@ -17,18 +18,45 @@ class Pybind11BuildExt(build_ext):
         super().build_extensions()
 
 
+def configure_simd(extension):
+    """Opt the v2 core into runtime-dispatched AVX2 kernels.
+
+    GCC and Clang scope the instruction set in-source via '#pragma GCC
+    target', so no compiler flag is needed. MSVC requires '/arch:AVX2',
+    which setuptools cannot apply per file; Windows wheels therefore keep
+    the portable scalar paths (kernels compiled out, results identical).
+    """
+    posix_x86_64 = (
+        sys.platform not in {"win32", "cygwin", "emscripten"}
+        and platform.machine().lower() in {"amd64", "x86_64"}
+    )
+    if posix_x86_64:
+        extension.define_macros.append(("WIMF_SIMD_ENABLE_AVX2", None))
+
+
+v2_extension = Extension(
+    "wimf.wimf_v2_cpp",
+    [
+        "src/v2_core.cpp",
+        "src/v2_bindings.cpp",
+        "src/v2_simd.cpp",
+        "src/v2_simd_avx2.cpp",
+        "src/v2_simd_neon.cpp",
+        "src/v2_simd_crc.cpp",
+        "src/zstd_vendor.cpp",
+    ],
+    include_dirs=["third_party/zstd"],
+    language="c++",
+)
+configure_simd(v2_extension)
+
 ext_modules = [
     Extension(
         "wimf.wimf_cpp",
         ["src/main.cpp"],
         language="c++",
     ),
-    Extension(
-        "wimf.wimf_v2_cpp",
-        ["src/v2_core.cpp", "src/v2_bindings.cpp", "src/zstd_vendor.cpp"],
-        include_dirs=["third_party/zstd"],
-        language="c++",
-    ),
+    v2_extension,
 ]
 
 setup(

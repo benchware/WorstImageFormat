@@ -16,7 +16,14 @@ All notable WIMF changes are recorded here. The project follows semantic version
 - Improved lossy tile selection with quadratic rate-distortion scoring.
 - Relaxed wavelet tile classification thresholds for better compression of smooth content.
 - Replaced modular-arithmetic operations with bitwise masking in the predictive codec.
-- Added `WIMF_ENABLE_AVX2` CMake option for opt-in AVX2 builds.
+- Reworked SIMD acceleration around runtime CPU dispatch: AVX2 (x86-64) and NEON
+  (ARMv8) kernels are compiled into dedicated translation units and selected per
+  host via CPUID/XGETBV or `getauxval`, with scalar fallbacks when a feature is
+  absent, so a single binary runs safely everywhere. The ARM CRC-32 extension is
+  probed through `getauxval(AT_HWCAP)` instead of requiring a compile-time target.
+- Removed the `WIMF_ENABLE_AVX2` CMake option; AVX2 is now always available to
+  capable CPUs without rebuilding (MSVC builds scope `/arch:AVX2` to the kernel
+  translation unit only).
 
 ## 2.1.0 — 2026-08-03
 

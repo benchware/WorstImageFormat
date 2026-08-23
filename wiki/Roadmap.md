@@ -54,11 +54,15 @@ embed without depending on Python.
 
 - [x] AVX2 (x86_64)
   - CRC-32 lookup-table acceleration and predictive left-filter vectorization.
-  - Opt-in via `WIMF_ENABLE_AVX2` CMake flag or `-mavx2` compiler option.
+  - Runtime-dispatched: AVX2 kernels are compiled into the binary and enabled
+    via CPUID/XGETBV, so one build serves every x86-64 host. MSVC wheels that
+    cannot scope per-file flags fall back to scalar automatically.
   - Benchmark targets: 2.5-3× speedup on Intel Haswell+ / AMD Zen+.
 - [x] NEON (ARMv8+)
   - CRC-32 hardware acceleration (ARM CRC extension) and predictive left-filter vectorization.
   - Always enabled on aarch64 targets; no additional build flags required.
+  - The optional CRC extension is probed at runtime (`getauxval(AT_HWCAP)`)
+    and falls back to the scalar table when absent.
   - Benchmark targets: 2.5-3× speedup on Apple M1/M2, Raspberry Pi 4/5.
 - [ ] AVX-512
   - Deferred until AVX2/NEON paths are measured and hardware
