@@ -505,9 +505,14 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
         // planes) so chroma planes become near-flat and compress far better.
         // Pixel-wise and exactly invertible, so tiling/ROI/threading are
         // unaffected. Signaled by container flags bit 1.
-        const bool color_decorrelated =
-            (image.channels == 3 || image.channels == 4) && image.bytes_per_sample == 1;
+        // TEMPORARY: channel decorrelation disabled pending diagnosis of the
+        // cross-platform pytest failures in run #180; re-enable the condition
+        // after root-causing. The decode-side inverse stays defensive-safe.
+        constexpr bool kDecorrelateEnabled = false;
         std::vector<uint8_t> color_work;
+        const bool color_decorrelated =
+            kDecorrelateEnabled && (image.channels == 3 || image.channels == 4)
+                && image.bytes_per_sample == 1;
         if (color_decorrelated) {
             color_work.assign(image.data,
                               image.data + static_cast<size_t>(image.width) * image.height * image.channels);
