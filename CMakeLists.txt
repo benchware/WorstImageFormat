@@ -101,8 +101,13 @@ if(WIMF_BUILD_TESTS)
     add_executable(wimf_c_api_test tests/cpp/test_c_api.c)
     target_link_libraries(wimf_c_api_test PRIVATE WIMF::wimf)
     add_test(NAME wimf_c_api_roundtrip COMMAND wimf_c_api_test)
-    add_executable(wimf_simd_test tests/cpp/test_v2_simd.cpp)
-    target_link_libraries(wimf_simd_test PRIVATE WIMF::wimf)
+    # The SIMD kernels are internal to the shared library (hidden visibility),
+    # so this test compiles the kernel translation units directly instead of
+    # linking WIMF::wimf. Source-file ISA properties apply per path and are
+    # picked up automatically.
+    add_executable(wimf_simd_test tests/cpp/test_v2_simd.cpp
+        src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp)
+    target_include_directories(wimf_simd_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(wimf_simd_test PRIVATE cxx_std_17)
     add_test(NAME wimf_simd_kernels COMMAND wimf_simd_test)
     if(WIMF_BUILD_TOOLS)

@@ -169,7 +169,11 @@ jobs:
       - name: Build and run the synchronous codec as WebAssembly
         run: |
           emcc -O2 -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd-wasm.o
-          em++ -std=c++17 -O2 -fexceptions -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp zstd-wasm.o -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1 -sENVIRONMENT=node -sWASM_ASYNC_COMPILATION=0 -sALLOW_MEMORY_GROWTH=1 -o wimf-wasm-tests.js
+          em++ -std=c++17 -O2 -fexceptions -Isrc -c src/v2_simd.cpp -o v2_simd-wasm.o
+          em++ -std=c++17 -O2 -fexceptions -Isrc -c src/v2_simd_avx2.cpp -o v2_simd_avx2-wasm.o
+          em++ -std=c++17 -O2 -fexceptions -Isrc -c src/v2_simd_neon.cpp -o v2_simd_neon-wasm.o
+          em++ -std=c++17 -O2 -fexceptions -Isrc -c src/v2_simd_crc.cpp -o v2_simd_crc-wasm.o
+          em++ -std=c++17 -O2 -fexceptions -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp v2_simd-wasm.o v2_simd_avx2-wasm.o v2_simd_neon-wasm.o v2_simd_crc-wasm.o zstd-wasm.o -sDISABLE_EXCEPTION_CATCHING=0 -sEXIT_RUNTIME=1 -sENVIRONMENT=node -sWASM_ASYNC_COMPILATION=0 -sALLOW_MEMORY_GROWTH=1 -o wimf-wasm-tests.js
           node wimf-wasm-tests.js
 
   visual-report:
@@ -224,8 +228,16 @@ jobs:
         run: |
           cc -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -Ithird_party/zstd -c third_party/zstd/zstd.c -o zstd.o
           c++ -std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined \
+            -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd.cpp -o v2_simd.o
+          c++ -std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined \
+            -Wall -Wextra -DWIMF_SIMD_ENABLE_AVX2 -Isrc -c src/v2_simd_avx2.cpp -o v2_simd_avx2.o
+          c++ -std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined \
+            -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd_neon.cpp -o v2_simd_neon.o
+          c++ -std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined \
+            -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd_crc.cpp -o v2_simd_crc.o
+          c++ -std=c++17 -O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined \
             -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd \
-            tests/cpp/fuzz_v2_parser.cpp src/v2_core.cpp zstd.o -pthread -o fuzz_v2_parser
+            tests/cpp/fuzz_v2_parser.cpp src/v2_core.cpp v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o zstd.o -pthread -o fuzz_v2_parser
       - run: ./fuzz_v2_parser
 
   codec-benchmark:

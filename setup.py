@@ -26,11 +26,9 @@ def configure_simd(extension):
     which setuptools cannot apply per file; Windows wheels therefore keep
     the portable scalar paths (kernels compiled out, results identical).
     """
-    posix_x86_64 = (
-        sys.platform not in {"win32", "cygwin", "emscripten"}
-        and platform.machine().lower() in {"amd64", "x86_64"}
-    )
-    if posix_x86_64:
+    non_windows_platform = sys.platform not in {"win32", "cygwin", "emscripten"}
+    x86_64_machine = platform.machine().lower() in {"amd64", "x86_64"}
+    if non_windows_platform and x86_64_machine:
         extension.define_macros.append(("WIMF_SIMD_ENABLE_AVX2", None))
 
 
