@@ -289,13 +289,45 @@ def _varints_decode(data, count):
     return values
 
 
+def _reorder_subbands(coeff, pw, ph, levels):
+    """Raster-order DWT coefficients into dyadic subband sequence (mirrors native)."""
+    plane = coeff.reshape(ph, pw)
+    blocks = [plane[0 : ph >> levels, 0 : pw >> levels]]
+    for level in range(levels, 0, -1):
+        sh, sw = ph >> level, pw >> level
+        blocks.append(plane[0:sh, sw : 2 * sw])
+        blocks.append(plane[sh : 2 * sh, 0:sw])
+        blocks.append(plane[sh : 2 * sh, sw : 2 * sw])
+    return np.concatenate([block.ravel() for block in blocks])
+
+
+def _restore_subbands(flat, pw, ph, levels):
+    """Undo _reorder_subbands: scatter subband sequence back to raster order."""
+    plane = np.empty((ph, pw), dtype=flat.dtype)
+    pos = 0
+    hh, hw = ph >> levels, pw >> levels
+    count = hh * hw
+    plane[0:hh, 0:hw] = flat[pos : pos + count].reshape(hh, hw)
+    pos += count
+    for level in range(levels, 0, -1):
+        sh, sw = ph >> level, pw >> level
+        count = sh * sw
+        plane[0:sh, sw : 2 * sw] = flat[pos : pos + count].reshape(sh, sw)
+        pos += count
+        plane[sh : 2 * sh, 0:sw] = flat[pos : pos + count].reshape(sh, sw)
+        pos += count
+        plane[sh : 2 * sh, sw : 2 * sw] = flat[pos : pos + count].reshape(sh, sw)
+        pos += count
+    return plane.ravel()
+
+
 def _wavelet_encode(tile, quality, lossless):
     h, w, channels = tile.shape
     ph = 1 << int(np.ceil(np.log2(max(2, h))))
     pw = 1 << int(np.ceil(np.log2(max(2, w))))
     levels = min(3, int(np.log2(min(ph, pw))))
     q = 1.0 if lossless else max(1.0, (11 - quality) * 1.5)
-    chunks = [struct.pack("<HHBBf", ph, pw, levels, int(lossless), q)]
+    chunks = [struct.pack("<HHBBf", ph, pw, levels | 0x80, int(lossless), q)]
     for c in range(channels):
         padded = np.pad(tile[..., c], ((0, ph - h), (0, pw - w)), mode="symmetric")
         if native is not None:
@@ -304,7 +336,7 @@ def _wavelet_encode(tile, quality, lossless):
             )
         else:
             coeff = np.rint(_wavelet_forward_2d(padded, levels, lossless) / q).astype(np.int64)
-        packed = _varints_encode(coeff.ravel())
+        packed = _varints_encode(_reorder_subbands(coeff.ravel(), pw, ph, levels))
         chunks.append(struct.pack("<I", len(packed)))
         chunks.append(packed)
     return b"".join(chunks)
@@ -314,6 +346,8 @@ def _wavelet_decode(data, h, w, channels, dtype):
     if len(data) < 10:
         raise ValueError("truncated wavelet tile")
     ph, pw, levels, reversible, q = struct.unpack_from("<HHBBf", data)
+    subband = bool(levels & 0x80)
+    levels &= 0x7F
     if (
         ph > 256
         or pw > 256
@@ -335,7 +369,10 @@ def _wavelet_decode(data, h, w, channels, dtype):
         pos += 4
         if pos + size > len(data):
             raise ValueError("truncated wavelet coefficients")
-        coeff = _varints_decode(data[pos : pos + size], ph * pw).reshape(ph, pw)
+        coeff = _varints_decode(data[pos : pos + size], ph * pw)
+        if subband:
+            coeff = _restore_subbands(coeff, pw, ph, levels)
+        coeff = coeff.reshape(ph, pw)
         pos += size
         if native is not None:
             decoded = native.wavelet_inverse(
@@ -469,7 +506,7 @@ def encode_v2(
             packed = raw if mode == MODE_RAW else _compress(raw, preset)
             reconstructed = tile if lossless or mode != MODE_WAVELET else _wavelet_decode(raw, *tile.shape, dtype)
             distortion = float(np.mean((tile.astype(np.float64) - reconstructed.astype(np.float64)) ** 2))
-            score = len(packed) if lossless else len(packed) + distortion * tile.size / max(1, quality * 64)
+            score = len(packed) if lossless else len(packed) + distortion * tile.size / max(1, (11 - quality) ** 2 * 64)
             candidates.append((score, len(packed), mode, raw, packed))
         _, _, mode, raw, packed = min(candidates)
         entropy = ENTROPY_NONE if mode == MODE_RAW else ENTROPY_ZSTD

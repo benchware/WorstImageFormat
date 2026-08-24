@@ -1,0 +1,145 @@
+// WIMF rate-distortion sweep tool.
+//
+// Encodes a deterministic synthetic corpus (smooth gradient, gradient+noise,
+// high-frequency detail) at every quality 1-10 across all presets, decodes,
+// and reports size + PSNR per combination as a Markdown table. Built for the
+// tuning workflow: different -DWIMF_LADDER_SCALE / -DWIMF_SCORING_DIVISOR
+// compile definitions produce comparable tables for side-by-side review.
+
+#include "v2_core.hpp"
+
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <random>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#ifndef WIMF_LADDER_SCALE
+#define WIMF_LADDER_SCALE 1.5f
+#endif
+#ifndef WIMF_SCORING_DIVISOR
+#define WIMF_SCORING_DIVISOR 8.0
+#endif
+
+#define WIMF_STR2(x) #x
+#define WIMF_STR(x) WIMF_STR2(x)
+
+namespace {
+
+using Clock = std::chrono::steady_clock;
+
+constexpr uint32_t kWidth = 256, kHeight = 256, kChannels = 3;
+
+enum class Pattern { Smooth, GradientNoise, Detail };
+
+std::vector<uint8_t> make_image(Pattern pattern, uint32_t seed) {
+    std::mt19937 rng(seed);
+    std::vector<uint8_t> image(static_cast<size_t>(kWidth) * kHeight * kChannels);
+    for (uint32_t y = 0; y < kHeight; ++y) {
+        for (uint32_t x = 0; x < kWidth; ++x) {
+            for (uint8_t c = 0; c < kChannels; ++c) {
+                const uint8_t gradient = static_cast<uint8_t>((x * 255u / (kWidth - 1u) + y * 255u / (kHeight - 1u)) / 2u);
+                uint8_t value = gradient;
+                if (pattern == Pattern::GradientNoise) {
+                    const int noise = static_cast<int>(rng() % 33) - 16;
+                    const int mixed = static_cast<int>(gradient) + noise;
+                    value = static_cast<uint8_t>(mixed < 0 ? 0 : (mixed > 255 ? 255 : mixed));
+                } else if (pattern == Pattern::Detail) {
+                    value = static_cast<uint8_t>(((x * 7 + y * 13 + c * 61) ^ (x * 3 + y * 5)) & 255);
+                }
+                image[(static_cast<size_t>(y) * kWidth + x) * kChannels + c] = value;
+            }
+        }
+    }
+    return image;
+}
+
+double psnr(const std::vector<uint8_t>& original, const std::vector<uint8_t>& decoded) {
+    if (original.size() != decoded.size() || original.empty()) return 0.0;
+    double squared = 0.0;
+    for (size_t i = 0; i < original.size(); ++i) {
+        const double delta = static_cast<double>(original[i]) - static_cast<double>(decoded[i]);
+        squared += delta * delta;
+    }
+    const double mse = squared / static_cast<double>(original.size());
+    if (mse <= 0.0) return std::numeric_limits<double>::infinity();
+    return 10.0 * std::log10(255.0 * 255.0 / mse);
+}
+
+const char* pattern_name(Pattern pattern) {
+    switch (pattern) {
+        case Pattern::Smooth: return "smooth";
+        case Pattern::GradientNoise: return "gradient+noise";
+        case Pattern::Detail: return "high-detail";
+    }
+    return "?";
+}
+
+}  // namespace
+
+int main() {
+    try {
+        const char* ladder = WIMF_STR(WIMF_LADDER_SCALE);
+        const char* divisor = WIMF_STR(WIMF_SCORING_DIVISOR);
+        std::cout << "## RD sweep - ladder scale " << ladder << ", scoring divisor " << divisor << "\n\n";
+
+        const wimf::v2::SearchPreset presets[] = {
+            wimf::v2::SearchPreset::Fast, wimf::v2::SearchPreset::Balanced, wimf::v2::SearchPreset::Extreme};
+        const char* preset_names[] = {"Fast", "Balanced", "Extreme"};
+
+        std::cout << "| Image | Preset | Q | Size (KB) | PSNR (dB) | Encode (ms) |\n";
+        std::cout << "|---|---|---:|---:|---:|---:|\n";
+        std::cout << std::fixed << std::setprecision(2);
+
+        for (auto pattern : {Pattern::Smooth, Pattern::GradientNoise, Pattern::Detail}) {
+            const std::vector<uint8_t> image = make_image(pattern, 20260823 + static_cast<uint32_t>(pattern));
+            const wimf::v2::ImageView view{image.data(), kWidth, kHeight, kChannels, 1,
+                                           static_cast<size_t>(kWidth) * kChannels};
+
+            for (int preset_index = 0; preset_index < 3; ++preset_index) {
+                for (int quality = 1; quality <= 10; ++quality) {
+                    wimf::v2::EncodeOptions options;
+                    options.quality = quality;
+                    options.preset = presets[preset_index];
+                    options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+                    options.codec = wimf::v2::CodecMode::Auto;
+
+                    std::vector<uint8_t> encoded;
+                    const Clock::time_point start = Clock::now();
+                    const wimf::v2::Status status = wimf::v2::encode_image(view, options, encoded);
+                    const Clock::time_point stop = Clock::now();
+                    if (!status) throw std::runtime_error(std::string("encode failed: ") + status.message);
+
+                    wimf::v2::DecodeResult decoded;
+                    wimf::v2::DecodeOptions decode_options;
+                    decode_options.execution = wimf::v2::ExecutionPolicy::Synchronous;
+                    const wimf::v2::Status decode_status = wimf::v2::decode_image(
+                        encoded.data(), encoded.size(), decode_options, decoded);
+                    if (!decode_status)
+                        throw std::runtime_error(std::string("decode failed: ") + decode_status.message);
+
+                    const double milliseconds =
+                        std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(stop - start).count();
+                    const double quality_psnr = psnr(image, decoded.pixels);
+
+                    std::cout << "| " << pattern_name(pattern) << " | " << preset_names[preset_index] << " | "
+                              << quality << " | " << static_cast<double>(encoded.size()) / 1024.0 << " | ";
+                    if (std::isinf(quality_psnr))
+                        std::cout << "inf";
+                    else
+                        std::cout << quality_psnr;
+                    std::cout << " | " << milliseconds << " |\n";
+                }
+            }
+        }
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << "RD sweep failed: " << error.what() << '\n';
+        return 1;
+    }
+}

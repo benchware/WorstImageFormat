@@ -18,6 +18,15 @@
 #include "zstd.h"
 #include "v2_simd.hpp"
 
+// Tunable codec constants (defaults reproduce the historical behavior exactly).
+// The tuning workflow overrides these via -D flags to sweep candidate curves.
+#ifndef WIMF_LADDER_SCALE
+#define WIMF_LADDER_SCALE 1.5f
+#endif
+#ifndef WIMF_SCORING_DIVISOR
+#define WIMF_SCORING_DIVISOR 8.0
+#endif
+
 namespace wimf::v2 {
 namespace {
 
@@ -343,10 +352,7 @@ std::vector<uint8_t> pack_coefficients(const std::vector<int64_t>& coefficients)
         const uint64_t zigzag = (static_cast<uint64_t>(value) << 1) ^ static_cast<uint64_t>(value >> 63);
         append_varint(output, zigzag);
     }
-    if (run) {
-        output.push_back(0);
-        append_varint(output, run);
-    }
+    // Trailing zero-run is omitted: the decoder zero-fills the remainder.
     return output;
 }
 
@@ -354,7 +360,8 @@ std::vector<int64_t> unpack_coefficients(const uint8_t* data, size_t size, size_
     std::vector<int64_t> output(count);
     size_t position = 0, index = 0;
     while (index < count) {
-        if (position >= size || data[position++] != 0) throw std::runtime_error("invalid coefficient marker");
+        if (position >= size) break; // stream ended, remaining coefficients are zero
+        if (data[position++] != 0) throw std::runtime_error("invalid coefficient marker");
         const uint64_t run = read_varint(data, size, position);
         if (run > count - index) throw std::runtime_error("coefficient zero run exceeds tile");
         index += static_cast<size_t>(run);
@@ -379,17 +386,68 @@ uint32_t symmetric_index(uint32_t index, uint32_t length) {
     return folded < length ? folded : period - folded - 1;
 }
 
+// Known-flaw A3, stage 1: subband-aware coefficient scanning. Reorders the
+// raster-order DWT coefficients into dyadic subband sequence (LL, then
+// HL/LH/HH per level, coarsest first) so quantized zeros and similar
+// magnitudes cluster, producing longer zero-runs and flatter statistics for
+// the entropy stage. Exactly invertible; padded dimensions are powers of two.
+std::vector<int64_t> reorder_subbands(const std::vector<int64_t>& coefficients, uint32_t width,
+                                      uint32_t height, unsigned levels) {
+    std::vector<int64_t> ordered(coefficients.size());
+    const uint32_t low_width = width >> levels, low_height = height >> levels;
+    for (uint32_t y = 0; y < low_height; ++y)
+        for (uint32_t x = 0; x < low_width; ++x)
+            ordered[y * low_width + x] = coefficients[y * width + x];
+    size_t position = static_cast<size_t>(low_width) * low_height;
+    for (int level = static_cast<int>(levels); level >= 1; --level) {
+        const uint32_t sw = width >> level, sh = height >> level;
+        for (uint32_t y = 0; y < sh; ++y)
+            for (uint32_t x = sw; x < 2 * sw; ++x)
+                ordered[position++] = coefficients[y * width + x];
+        for (uint32_t y = sh; y < 2 * sh; ++y)
+            for (uint32_t x = 0; x < sw; ++x)
+                ordered[position++] = coefficients[y * width + x];
+        for (uint32_t y = sh; y < 2 * sh; ++y)
+            for (uint32_t x = sw; x < 2 * sw; ++x)
+                ordered[position++] = coefficients[y * width + x];
+    }
+    return ordered;
+}
+
+std::vector<int64_t> restore_raster_order(const std::vector<int64_t>& ordered, uint32_t width,
+                                          uint32_t height, unsigned levels) {
+    std::vector<int64_t> coefficients(ordered.size());
+    const uint32_t low_width = width >> levels, low_height = height >> levels;
+    for (uint32_t y = 0; y < low_height; ++y)
+        for (uint32_t x = 0; x < low_width; ++x)
+            coefficients[y * width + x] = ordered[y * low_width + x];
+    size_t position = static_cast<size_t>(low_width) * low_height;
+    for (int level = static_cast<int>(levels); level >= 1; --level) {
+        const uint32_t sw = width >> level, sh = height >> level;
+        for (uint32_t y = 0; y < sh; ++y)
+            for (uint32_t x = sw; x < 2 * sw; ++x)
+                coefficients[y * width + x] = ordered[position++];
+        for (uint32_t y = sh; y < 2 * sh; ++y)
+            for (uint32_t x = 0; x < sw; ++x)
+                coefficients[y * width + x] = ordered[position++];
+        for (uint32_t y = sh; y < 2 * sh; ++y)
+            for (uint32_t x = sw; x < 2 * sw; ++x)
+                coefficients[y * width + x] = ordered[position++];
+    }
+    return coefficients;
+}
+
 std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality, bool lossless,
                                          std::vector<uint8_t>* reconstructed) {
     const uint32_t padded_height = next_power_of_two(tile.height), padded_width = next_power_of_two(tile.width);
     unsigned levels = 0;
     for (uint32_t value = std::min(padded_width, padded_height); value > 1 && levels < 3; value >>= 1) ++levels;
-    const float base_q=std::max(1.0f,static_cast<float>((11-quality)*1.5));float quantizer=1.0f;
+    const float base_q=std::max(1.0f,static_cast<float>((11-quality)*WIMF_LADDER_SCALE));float quantizer=1.0f;
     if(!lossless){double energy=0;const uint32_t step=std::max(1u,std::min(tile.width,tile.height)/32u);for(uint32_t sy=0;sy<tile.height;sy+=step)for(uint32_t sx=0;sx<tile.width;sx+=step)for(uint8_t ch=0;ch<tile.channels;++ch){const double val=sample(tile,sx,sy,ch);if(sx>=step){double d=val-sample(tile,sx-step,sy,ch);energy+=d*d;}if(sy>=step){double d=val-sample(tile,sx,sy-step,ch);energy+=d*d;}}energy/=std::max(1.0,static_cast<double>(tile.width/step)*(tile.height/step)*tile.channels);quantizer=std::max(1.0f,base_q*std::clamp(static_cast<float>(std::sqrt(energy)/40.0),0.5f,2.0f));}
     std::vector<uint8_t> output;
     put16(output, static_cast<uint16_t>(padded_height));
     put16(output, static_cast<uint16_t>(padded_width));
-    output.push_back(static_cast<uint8_t>(levels));
+    output.push_back(static_cast<uint8_t>(levels | 0x80));
     output.push_back(lossless ? 1 : 0);
     append_float(output, quantizer);
     if (reconstructed) reconstructed->assign(static_cast<size_t>(tile.width) * tile.height * tile.channels * tile.bytes_per_sample, 0);
@@ -404,7 +462,7 @@ std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality,
         }
         const auto coefficients = wavelet_forward(plane.data(), padded_width, padded_height,
                                                   tile.bytes_per_sample, lossless, levels, quantizer);
-        const auto packed = pack_coefficients(coefficients);
+        const auto packed = pack_coefficients(reorder_subbands(coefficients, padded_width, padded_height, levels));
         put32(output, static_cast<uint32_t>(packed.size()));
         output.insert(output.end(), packed.begin(), packed.end());
         if (reconstructed) {
@@ -424,7 +482,8 @@ std::vector<uint8_t> decode_wavelet_tile(const uint8_t* data, size_t size, uint3
                                          uint32_t height, uint8_t channels, uint8_t bytes_per_sample) {
     if (size < 10) throw std::runtime_error("truncated wavelet tile");
     const uint32_t padded_height = read16(data), padded_width = read16(data + 2);
-    const uint8_t levels = data[4], reversible = data[5];
+    const bool subband = (data[4] & 0x80) != 0;
+    const uint8_t levels = data[4] & 0x7F, reversible = data[5];
     const float quantizer = read_float(data + 6);
     if (padded_width > 256 || padded_height > 256 || padded_width < width || padded_height < height ||
         levels > 8 || reversible > 1 || !std::isfinite(quantizer) || quantizer <= 0)
@@ -436,8 +495,9 @@ std::vector<uint8_t> decode_wavelet_tile(const uint8_t* data, size_t size, uint3
         const uint32_t packed_size = read32(data + position);
         position += 4;
         if (packed_size > size - position) throw std::runtime_error("truncated wavelet coefficients");
-        const auto coefficients = unpack_coefficients(data + position, packed_size,
-                                                      static_cast<size_t>(padded_width) * padded_height);
+        auto coefficients = unpack_coefficients(data + position, packed_size,
+                                                static_cast<size_t>(padded_width) * padded_height);
+        if (subband) coefficients = restore_raster_order(std::move(coefficients), padded_width, padded_height, levels);
         position += packed_size;
         const auto plane = wavelet_inverse(coefficients.data(), coefficients.size(), padded_width,
                                            padded_height, bytes_per_sample, reversible != 0, levels, quantizer);
@@ -587,7 +647,8 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                 }
                 const double score = options.lossless ? static_cast<double>(payload.size())
                     : payload.size() + distortion * (static_cast<double>(width) * height * image.channels) /
-                      std::max(1.0, static_cast<double>(options.quality) * options.quality * 8.0);
+                      std::max(1.0, static_cast<double>((11 - options.quality) * (11 - options.quality))
+                                        * WIMF_SCORING_DIVISOR);
                 if (score < best_score || (score == best_score && payload.size() < best_size) ||
                     (score == best_score && payload.size() == best_size && static_cast<uint8_t>(mode) < static_cast<uint8_t>(best_mode))) {
                     best_score = score; best_size = payload.size(); best_mode = mode;

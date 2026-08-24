@@ -88,7 +88,7 @@ decoded = wimf.open("photo.wimf")
 decoded.pil.save("decoded.png")
 
 # Memory-only applications can use bytes directly.
-payload = wimf.encode(image, lossless=True, metadata={"author": "Bee"})
+payload = wimf.encode(image, lossless=True, metadata={"author": "Arrow"})
 decoded = wimf.decode(payload)
 details = wimf.inspect(payload)
 ```
@@ -135,7 +135,7 @@ WIM2 extensions are appended after the base tile payload. Existing WIM2 files re
 ### Metadata without recompression
 
 ```python
-updated = wimf.rewrite_metadata(payload, {"author": "Bee", "license": "CC0"})
+updated = wimf.rewrite_metadata(payload, {"author": "Arrow", "license": "CC0"})
 ```
 
 WIM2 tile payloads remain byte-for-byte identical. Tile offsets and checksums are recalculated, history is retained, and anti-rot protection is regenerated when present.
@@ -153,7 +153,7 @@ url = wimf.to_data_url(payload)
 assert wimf.from_data_url(url) == payload
 ```
 
-These helpers use strict RFC 4648 parsing, bounded input sizes, and whitespace-tolerant decoding. Data URLs use Base64 and the `image/x-wimf` MIME type. Base16, Base32, and Base64 are transport encodings—not compression—and expand data by roughly 100%, 60%, and 33%, respectively.
+These helpers use strict RFC 4648 parsing, bounded input sizes, and whitespace-tolerant decoding. Data URLs use Base64 and the `image/x-wimf` MIME type. Base16, Base32, and Base64 are transport encodings-not compression-and expand data by roughly 100%, 60%, and 33%, respectively.
 
 ### Runtime diagnostics
 
@@ -242,7 +242,7 @@ See the [WIM2 format overview](docs/wim2-format.md), [legacy migration guide](do
 
 CI separates Python quality, cross-platform API/feature tests, legacy decode compatibility, standalone C++, sanitizers, packaging, visual evidence, and non-blocking performance measurements. Python-versus-C++ benchmarks cover current WIM2 still images on Windows, Linux, and macOS. The active roadmap is:
 
-- Measure AVX2 and NEON SIMD acceleration across reference hardware (CRC-32 and predictive filter paths are implemented; wavelet lifting is scalar). Run `tools/wimf_simd_bench.cpp` locally or read CI job summaries — see `docs/simd-benchmarks.md`.
+- Measure AVX2 and NEON SIMD acceleration across reference hardware (CRC-32 and predictive filter paths are implemented; wavelet lifting is scalar). Run `tools/wimf_simd_bench.cpp` locally or read CI job summaries - see `docs/simd-benchmarks.md`.
 - Verify Linux ARM64 and Windows ARM64 wheels on dedicated native runners.
 - Validate the memory-only synchronous core with Emscripten on the future web branch without changing the WIM2 bitstream.
 - Publish signed standalone C/C++ development archives for the versioned ABI and conformance pack.

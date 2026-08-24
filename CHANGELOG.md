@@ -37,6 +37,12 @@ All notable WIMF changes are recorded here. The project follows semantic version
   (reversible green differencing stored via container flags bit 1), shrinking
   photographic payloads. The Python reference decoder understands the flag too;
   decoding such files requires this release or newer.
+- Fixed the rate-distortion scoring curve: the distortion penalty now scales
+  monotonically with quality, eliminating the Extreme-preset cliff where Q1
+  produced larger files than Q2.
+- Wavelet coefficients are reordered into dyadic subband sequence (levels-byte
+  bit 7) before entropy coding, clustering zeros for measurably smaller wavelet
+  tiles; Python decoder mirrored. Requires this release or newer.
 
 ## 2.1.0 - 2026-08-03
 

@@ -1,0 +1,58 @@
+name: RD tuning sweep
+
+# Manual tuning harness for known-flaws A3/A4. Dispatch builds the codec twice
+# with different WIMF_LADDER_SCALE / WIMF_SCORING_DIVISOR constants (baseline vs
+# candidate), sweeps quality 1-10 across all presets over a deterministic
+# synthetic corpus, and publishes rate-distortion tables to the job summary and
+# artifacts. Compare the two tables to pick winning constants; stock values are
+# 1.5 and 8.0.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ladder_scale:
+        description: "WIMF_LADDER_SCALE candidate (stock: 1.5)"
+        default: "1.5"
+        required: true
+      scoring_divisor:
+        description: "WIMF_SCORING_DIVISOR candidate (stock: 8.0)"
+        default: "8.0"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Baseline (stock ladder)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and sweep
+        shell: bash
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DWIMF_SIMD_ENABLE_AVX2 -Isrc -Ithird_party/zstd tools/wimf_rd_sweep.cpp src/v2_core.cpp src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp third_party/zstd/zstd.c -pthread -o rd-sweep-baseline
+          ./rd-sweep-baseline > rd-baseline.md
+          cat rd-baseline.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rd-sweep-baseline
+          path: rd-baseline.md
+          retention-days: 30
+
+  candidate:
+    name: Candidate (scale ${{ inputs.ladder_scale }}, divisor ${{ inputs.scoring_divisor }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and sweep
+        shell: bash
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DWIMF_SIMD_ENABLE_AVX2 "-DWIMF_LADDER_SCALE=${{ inputs.ladder_scale }}" "-DWIMF_SCORING_DIVISOR=${{ inputs.scoring_divisor }}" -Isrc -Ithird_party/zstd tools/wimf_rd_sweep.cpp src/v2_core.cpp src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp third_party/zstd/zstd.c -pthread -o rd-sweep-candidate
+          ./rd-sweep-candidate > rd-candidate.md
+          cat rd-candidate.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rd-sweep-candidate-${{ inputs.ladder_scale }}-${{ inputs.scoring_divisor }}
+          path: rd-candidate.md
+          retention-days: 30

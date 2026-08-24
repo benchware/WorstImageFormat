@@ -118,7 +118,10 @@ section 5b target the largest one - compressed file size - first.
   strength; the remaining cost is the wavelet inverse still required for lossy
   distortion estimation (Auto Extreme was ~2× Predictive Extreme on Zen 2,
   ~13× on Ivy Bridge).
-- [ ] Subband-aware coefficient scanning for improved entropy coding.
+- [x] Subband-aware coefficient scanning for improved entropy coding: wavelet
+  coefficients are reordered into dyadic subband sequence (LL, then HL/LH/HH
+  per level) behind the levels-byte bit 7, clustering zeros for longer runs;
+  Python decoder mirrored.
 - [ ] Tile-size adaptation based on image content.
 
 ## 6. Quality-of-life improvements
