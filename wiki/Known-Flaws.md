@@ -13,7 +13,7 @@ determinism, corruption rejection, and memory guards all audited clean
 
 ## A. Rate-distortion (file size) - the headline flaw
 
-- **[P0] A1 Whole-ladder size gap.** Photographic 45 MP results: Auto Fast
+- **[P0] A1 Whole-ladder size gap.** Improved: monotonic RD scoring (A4) and subband-aware wavelet coefficient ordering (A3 stage 1) landed; remaining gap is the context-modeled entropy stage. Photographic 45 MP results: Auto Fast
   39.6 MB (3.36x), best lossless 24.6 MB (5.41x), Wavelet Balanced ~13.5 MB
   (9.9x), best-case Extreme 7.7 MB (17.31x) at minutes of encode cost. Even
   the Extreme optimum is far above what modern codecs reach at comparable
