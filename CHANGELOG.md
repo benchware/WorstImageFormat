@@ -33,9 +33,10 @@ All notable WIMF changes are recorded here. The project follows semantic version
   strength (shipped files keep full-level compression).
 - CI job summaries now render human-readable benchmark tables instead of raw
   JSON, with per-runner hardware caveats stated inline.
-- Work-in-progress: reversible channel decorrelation for 8-bit RGB/RGBA
-  (container flags bit 1) is implemented in the native core but temporarily
-  disabled pending CI failure diagnosis.
+- Native WIM2 encodes of 8-bit RGB/RGBA now decorrelate color before tile coding
+  (reversible green differencing stored via container flags bit 1), shrinking
+  photographic payloads. The Python reference decoder understands the flag too;
+  decoding such files requires this release or newer.
 
 ## 2.1.0 - 2026-08-03
 

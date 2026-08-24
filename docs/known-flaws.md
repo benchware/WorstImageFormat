@@ -21,7 +21,7 @@ determinism, corruption rejection, and memory guards all audited clean
 - **[P0] A2 No color decorrelation.** RGB channels are entropy-coded
   independently (`encode_predictive` loops channels; wavelet planes are built
   per channel). A reversible RGB→YCoCg transform is the standard first win on
-  photographic content. Status: implementation exists behind container flags bit 1 but is DISABLED pending diagnosis of the pytest failures it triggered (run #180).
+  photographic content. Landed: native encoder/decoder plus the Python decoder mirror (the mirror was exactly what run #180s failures exposed). YCoCg-with-offsets refinement pending.
 - **[P0] A3 Generic entropy stage.** Tile payloads are Zstandard bytes of raw
   prediction residuals or zigzag varint coefficients. No context modeling of
   residuals/subbands - the structural advantage modern image codecs exploit.

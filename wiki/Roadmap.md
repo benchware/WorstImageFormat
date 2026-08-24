@@ -97,10 +97,10 @@ section 5b target the largest one - compressed file size - first.
 - [x] Quadratic rate-distortion scoring for lossy tile selection.
 - [x] Relaxed wavelet classification thresholds for smooth-gradient content.
 - [x] Bitwise masking replacing modular arithmetic in the predictive codec.
-- [ ] Land color decorrelation (reversible mod-256 green differencing behind
-  container flags bit 1): implementation exists in v2_core but is DISABLED
-  pending diagnosis of the cross-platform pytest failures it triggered (run
-  #180); Python-reference mirror and YCoCg variant also open.
+- [x] Land color decorrelation: reversible mod-256 green differencing behind
+  container flags bit 1 for 8-bit RGB/RGBA, with the Python decoder mirror
+  added after run #180's failures pinpointed the missing inverse.
+- [ ] YCoCg-with-offsets refinement of the color transform remains open.
 - [ ] Introduce context-modeled entropy coding tuned to prediction residuals
   and wavelet subbands; generic Zstd payloads are the main structural size gap
   versus modern image codecs.
