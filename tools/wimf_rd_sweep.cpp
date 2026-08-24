@@ -24,7 +24,7 @@
 #define WIMF_LADDER_SCALE 1.5f
 #endif
 #ifndef WIMF_SCORING_DIVISOR
-#define WIMF_SCORING_DIVISOR 8.0
+#define WIMF_SCORING_DIVISOR 16.0
 #endif
 
 #define WIMF_STR2(x) #x

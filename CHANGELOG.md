@@ -4,6 +4,13 @@ All notable WIMF changes are recorded here. The project follows semantic version
 
 ## 2.2.0 - Unreleased
 
+- Retuned the lossy rate-distortion scoring divisor default from 8.0 to 16.0
+  after an RD sweep on mixed-frequency content: the quality ladder gains
+  intermediate lossy steps (notably Q4) with no regressions on any corpus
+  pattern. Lossless output is bit-identical.
+- Added a photo-like mixed-frequency pattern to the RD sweep corpus
+  (`tools/wimf_rd_sweep.cpp`) and refreshed the tuning workflow matrix around
+  the new default.
 - Made WIM2 the sole recommended authoring format.
 - Deprecated WIMF v1, the `.wif` filename alias, AWIF/v1 chrono, `ROT!`, watermark, legacy mip/depth,
   `wimf-convert`, and `wimf-meta` authoring surfaces ahead of WIMF 3.0.

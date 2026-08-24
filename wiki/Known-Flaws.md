@@ -13,7 +13,11 @@ determinism, corruption rejection, and memory guards all audited clean
 
 ## A. Rate-distortion (file size) - the headline flaw
 
-- **[P0] A1 Whole-ladder size gap.** Improved: monotonic RD scoring (A4) and subband-aware wavelet coefficient ordering (A3 stage 1) landed; remaining gap is the context-modeled entropy stage. Photographic 45 MP results: Auto Fast
+- **[P0] A1 Whole-ladder size gap.** Improved: monotonic RD scoring (A4),
+  subband-aware wavelet coefficient ordering (A3 stage 1), channel
+  decorrelation (A2), and the scoring divisor retune (8.0→16.0, adds
+  intermediate lossy ladder steps) all landed; remaining gap is the
+  context-modeled entropy stage. Photographic 45 MP results: Auto Fast
   39.6 MB (3.36x), best lossless 24.6 MB (5.41x), Wavelet Balanced ~13.5 MB
   (9.9x), best-case Extreme 7.7 MB (17.31x) at minutes of encode cost. Even
   the Extreme optimum is far above what modern codecs reach at comparable
@@ -25,9 +29,12 @@ determinism, corruption rejection, and memory guards all audited clean
 - **[P0] A3 Generic entropy stage.** Tile payloads are Zstandard bytes of raw
   prediction residuals or zigzag varint coefficients. No context modeling of
   residuals/subbands - the structural advantage modern image codecs exploit.
-- **[P1] A4 Coarse, non-monotonic quantizer ladder.** `(11-quality)*1.5` mapping
-  yields 6.89x at Q1 versus 17.31x at Q2 on every tested system: lower quality
-  currently produces larger files.
+- **[P1] A4 Coarse quantizer dead zone.** Monotonic scoring (A4) and the
+  divisor retune 8.0→16.0 fixed the old non-monotonicity and added intermediate
+  lossy steps; the photo-pattern sweep still shows a 34-43 dB gap where no
+  quality setting lands. Cause: the adaptive quantizer (`sqrt(energy)/40`,
+  clamped 0.5-2.0) is bimodal between heavy and light regimes. Fix requires
+  continuous quantizer interpolation in code, not constant tuning.
 - **[P2] A5 Per-tile framing overhead.** Default 128 px tiles give ~2.8k
   independent Zstd frames per 45 MP encode (per scored mode), with no
   cross-tile context or dictionaries.
