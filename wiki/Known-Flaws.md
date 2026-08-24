@@ -29,12 +29,11 @@ determinism, corruption rejection, and memory guards all audited clean
 - **[P0] A3 Generic entropy stage.** Tile payloads are Zstandard bytes of raw
   prediction residuals or zigzag varint coefficients. No context modeling of
   residuals/subbands - the structural advantage modern image codecs exploit.
-- **[P1] A4 Coarse quantizer dead zone.** Monotonic scoring (A4) and the
-  divisor retune 8.0→16.0 fixed the old non-monotonicity and added intermediate
-  lossy steps; the photo-pattern sweep still shows a 34-43 dB gap where no
-  quality setting lands. Cause: the adaptive quantizer (`sqrt(energy)/40`,
-  clamped 0.5-2.0) is bimodal between heavy and light regimes. Fix requires
-  continuous quantizer interpolation in code, not constant tuning.
+- **[P1] A4 Coarse quantizer dead zone.** Largely fixed: monotonic scoring
+  (A4), the divisor retune 8.0→16.0, and the 0.9x quantizer sub-step in tile
+  scoring removed the non-monotonicity and the one-ladder-notch gap that showed
+  as a 34-43 dB jump on the photo pattern. Remaining coarseness is minor; the
+  structural win left is the context-modeled entropy stage (A3).
 - **[P2] A5 Per-tile framing overhead.** Default 128 px tiles give ~2.8k
   independent Zstd frames per 45 MP encode (per scored mode), with no
   cross-tile context or dictionaries.

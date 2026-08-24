@@ -4,6 +4,13 @@ All notable WIMF changes are recorded here. The project follows semantic version
 
 ## 2.2.0 - Unreleased
 
+- Filled the lossy quality dead zone: tile scoring now evaluates a second
+  wavelet candidate at 0.9x quantizer scale. Each payload stores its own
+  quantizer, so no format change is needed and the decoder is untouched; the
+  extra sub-step lands between ladder rungs that previously jumped ~10 dB.
+  Lossless encodes are unchanged and bit-identical.
+- Added a natural-image pattern (three octaves of 1/f-spectrum value noise) to
+  the RD sweep corpus as the closest deterministic proxy for real photographs.
 - Retuned the lossy rate-distortion scoring divisor default from 8.0 to 16.0
   after an RD sweep on mixed-frequency content: the quality ladder gains
   intermediate lossy steps (notably Q4) with no regressions on any corpus

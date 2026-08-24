@@ -1,14 +1,15 @@
 // WIMF rate-distortion sweep tool.
 //
 // Encodes a deterministic synthetic corpus (smooth gradient, gradient+noise,
-// high-frequency detail, mixed-frequency photo-like scene) at every quality
-// 1-10 across all presets, decodes, and reports size + PSNR per combination
-// as a Markdown table. Built for the tuning workflow: different
-// -DWIMF_LADDER_SCALE / -DWIMF_SCORING_DIVISOR compile definitions produce
-// comparable tables for side-by-side review.
+// high-frequency detail, mixed-frequency photo-like scene, natural 1/f-spectrum
+// value noise) at every quality 1-10 across all presets, decodes, and reports
+// size + PSNR per combination as a Markdown table. Built for the tuning
+// workflow: different -DWIMF_LADDER_SCALE / -DWIMF_SCORING_DIVISOR compile
+// definitions produce comparable tables for side-by-side review.
 
 #include "v2_core.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -36,11 +37,40 @@ using Clock = std::chrono::steady_clock;
 
 constexpr uint32_t kWidth = 256, kHeight = 256, kChannels = 3;
 
-enum class Pattern { Smooth, GradientNoise, Detail, Photo };
+enum class Pattern { Smooth, GradientNoise, Detail, Photo, Natural };
+
+// Bilinear value-noise octave: a coarse random grid smoothly interpolated up
+// to full resolution. Summing octaves at 1/16, 1/4, and 1 pixel pitch with
+// geometrically falling amplitudes approximates the 1/f power spectrum of
+// natural photographs - the closest deterministic proxy we can ship in-repo.
+double noise_octave(const std::vector<double>& grid, uint32_t grid_size, uint32_t x, uint32_t y) {
+    const double fx = static_cast<double>(x) * (grid_size - 1) / static_cast<double>(kWidth - 1);
+    const double fy = static_cast<double>(y) * (grid_size - 1) / static_cast<double>(kHeight - 1);
+    const uint32_t x0 = static_cast<uint32_t>(fx), y0 = static_cast<uint32_t>(fy);
+    const uint32_t x1 = std::min(x0 + 1, grid_size - 1), y1 = std::min(y0 + 1, grid_size - 1);
+    const double tx = fx - x0, ty = fy - y0;
+    const double top = grid[y0 * grid_size + x0] * (1 - tx) + grid[y0 * grid_size + x1] * tx;
+    const double bottom = grid[y1 * grid_size + x0] * (1 - tx) + grid[y1 * grid_size + x1] * tx;
+    return top * (1 - ty) + bottom * ty;
+}
 
 std::vector<uint8_t> make_image(Pattern pattern, uint32_t seed) {
     std::mt19937 rng(seed);
     std::vector<uint8_t> image(static_cast<size_t>(kWidth) * kHeight * kChannels);
+    // Natural pattern: pre-generate the value-noise grids once, per channel
+    // and octave, so the per-pixel loop only does bilinear interpolation.
+    std::vector<double> natural_grids[3][3];
+    if (pattern == Pattern::Natural) {
+        const uint32_t sizes[3] = {17, 65, 257};
+        for (uint8_t c = 0; c < kChannels; ++c) {
+            std::mt19937 channel_rng(seed + c * 7919u);
+            for (int octave = 0; octave < 3; ++octave) {
+                natural_grids[c][octave].resize(static_cast<size_t>(sizes[octave]) * sizes[octave]);
+                for (double& g : natural_grids[c][octave])
+                    g = static_cast<double>(channel_rng() % 2000) / 1000.0 - 1.0;
+            }
+        }
+    }
     for (uint32_t y = 0; y < kHeight; ++y) {
         for (uint32_t x = 0; x < kWidth; ++x) {
             for (uint8_t c = 0; c < kChannels; ++c) {
@@ -52,6 +82,18 @@ std::vector<uint8_t> make_image(Pattern pattern, uint32_t seed) {
                     value = static_cast<uint8_t>(mixed < 0 ? 0 : (mixed > 255 ? 255 : mixed));
                 } else if (pattern == Pattern::Detail) {
                     value = static_cast<uint8_t>(((x * 7 + y * 13 + c * 61) ^ (x * 3 + y * 5)) & 255);
+                } else if (pattern == Pattern::Natural) {
+                    // Three octaves of smooth value noise over a gentle
+                    // gradient: coarse structure, mid detail, fine grain.
+                    // Grids were generated once below; per-pixel work here is
+                    // three bilinear lookups.
+                    const uint32_t sizes[3] = {17, 65, 257};
+                    const double amps[3] = {42.0, 18.0, 7.0};
+                    double sample = 118.0 + (static_cast<int>(x * 30 / (kWidth - 1)) + static_cast<int>(y * 20 / (kHeight - 1)));
+                    for (int octave = 0; octave < 3; ++octave)
+                        sample += amps[octave] * noise_octave(natural_grids[c][octave], sizes[octave], x, y);
+                    sample += static_cast<double>(c) * 3.0;
+                    value = static_cast<uint8_t>(sample < 0.0 ? 0 : (sample > 255.0 ? 255 : sample));
                 } else if (pattern == Pattern::Photo) {
                     const double fx = static_cast<double>(x) / static_cast<double>(kWidth - 1);
                     const double fy = static_cast<double>(y) / static_cast<double>(kHeight - 1);
@@ -101,6 +143,7 @@ const char* pattern_name(Pattern pattern) {
         case Pattern::GradientNoise: return "gradient+noise";
         case Pattern::Detail: return "high-detail";
         case Pattern::Photo: return "photo";
+        case Pattern::Natural: return "natural";
     }
     return "?";
 }
@@ -121,7 +164,8 @@ int main() {
         std::cout << "|---|---|---:|---:|---:|---:|\n";
         std::cout << std::fixed << std::setprecision(2);
 
-        for (auto pattern : {Pattern::Smooth, Pattern::GradientNoise, Pattern::Detail, Pattern::Photo}) {
+        for (auto pattern : {Pattern::Smooth, Pattern::GradientNoise, Pattern::Detail, Pattern::Photo,
+                             Pattern::Natural}) {
             const std::vector<uint8_t> image = make_image(pattern, 20260823 + static_cast<uint32_t>(pattern));
             const wimf::v2::ImageView view{image.data(), kWidth, kHeight, kChannels, 1,
                                            static_cast<size_t>(kWidth) * kChannels};
