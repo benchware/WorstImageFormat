@@ -1,4 +1,4 @@
-# WIMF — Worst IMage Format
+# WIMF - Worst IMage Format
 
 [![PyPI](https://img.shields.io/pypi/v/wimf.svg)](https://pypi.org/project/wimf/)
 [![Python](https://img.shields.io/pypi/pyversions/wimf.svg)](https://pypi.org/project/wimf/)
