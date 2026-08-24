@@ -1,58 +1,73 @@
 name: RD tuning sweep
 
-# Manual tuning harness for known-flaws A3/A4. Dispatch builds the codec twice
-# with different WIMF_LADDER_SCALE / WIMF_SCORING_DIVISOR constants (baseline vs
-# candidate), sweeps quality 1-10 across all presets over a deterministic
-# synthetic corpus, and publishes rate-distortion tables to the job summary and
-# artifacts. Compare the two tables to pick winning constants; stock values are
-# 1.5 and 8.0.
+# Parallel parameter sweep for known-flaws A3/A4. Dispatch builds the codec
+# with 8 different ladder/divisor combinations simultaneously. Each job
+# produces an RD table in the step summary. Compare all tables to pick
+# winning constants, then bake them into v2_core.cpp as the new defaults.
+# Stock values: scale=1.5, divisor=8.0.
 
 on:
   workflow_dispatch:
-    inputs:
-      ladder_scale:
-        description: "WIMF_LADDER_SCALE candidate (stock: 1.5)"
-        default: "1.5"
-        required: true
-      scoring_divisor:
-        description: "WIMF_SCORING_DIVISOR candidate (stock: 8.0)"
-        default: "8.0"
-        required: true
 
 permissions:
   contents: read
 
 jobs:
-  baseline:
-    name: Baseline (stock ladder)
+  sweep:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: stock
+            scale: "1.5"
+            divisor: "8.0"
+          - label: steep-ladder
+            scale: "2.5"
+            divisor: "8.0"
+          - label: flat-ladder
+            scale: "1.0"
+            divisor: "8.0"
+          - label: wide-range
+            scale: "3.0"
+            divisor: "8.0"
+          - label: size-biased
+            scale: "2.0"
+            divisor: "32.0"
+          - label: quality-biased
+            scale: "1.0"
+            divisor: "2.0"
+          - label: gentle-divisor
+            scale: "1.5"
+            divisor: "4.0"
+          - label: aggressive-divisor
+            scale: "1.5"
+            divisor: "16.0"
     steps:
       - uses: actions/checkout@v6
       - name: Build and sweep
         shell: bash
         run: |
-          g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DWIMF_SIMD_ENABLE_AVX2 -Isrc -Ithird_party/zstd tools/wimf_rd_sweep.cpp src/v2_core.cpp src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp third_party/zstd/zstd.c -pthread -o rd-sweep-baseline
-          ./rd-sweep-baseline > rd-baseline.md
-          cat rd-baseline.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: rd-sweep-baseline
-          path: rd-baseline.md
-          retention-days: 30
-
-  candidate:
-    name: Candidate (scale ${{ inputs.ladder_scale }}, divisor ${{ inputs.scoring_divisor }})
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Build and sweep
+          g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation \
+            -DWIMF_SIMD_ENABLE_AVX2 \
+            "-DWIMF_LADDER_SCALE=${{ matrix.scale }}" \
+            "-DWIMF_SCORING_DIVISOR=${{ matrix.divisor }}" \
+            -Isrc -Ithird_party/zstd \
+            tools/wimf_rd_sweep.cpp src/v2_core.cpp \
+            src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp \
+            third_party/zstd/zstd.c -pthread -o rd-sweep
+          ./rd-sweep > rd-table.md
+      - name: Publish to summary
         shell: bash
         run: |
-          g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DWIMF_SIMD_ENABLE_AVX2 "-DWIMF_LADDER_SCALE=${{ inputs.ladder_scale }}" "-DWIMF_SCORING_DIVISOR=${{ inputs.scoring_divisor }}" -Isrc -Ithird_party/zstd tools/wimf_rd_sweep.cpp src/v2_core.cpp src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp third_party/zstd/zstd.c -pthread -o rd-sweep-candidate
-          ./rd-sweep-candidate > rd-candidate.md
-          cat rd-candidate.md >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## ${{ matrix.label }} (scale=${{ matrix.scale }}, divisor=${{ matrix.divisor }})"
+            echo ""
+            cat rd-table.md
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
-          name: rd-sweep-candidate-${{ inputs.ladder_scale }}-${{ inputs.scoring_divisor }}
-          path: rd-candidate.md
+          name: rd-${{ matrix.label }}
+          path: rd-table.md
           retention-days: 30
