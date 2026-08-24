@@ -1,10 +1,11 @@
 // WIMF rate-distortion sweep tool.
 //
 // Encodes a deterministic synthetic corpus (smooth gradient, gradient+noise,
-// high-frequency detail) at every quality 1-10 across all presets, decodes,
-// and reports size + PSNR per combination as a Markdown table. Built for the
-// tuning workflow: different -DWIMF_LADDER_SCALE / -DWIMF_SCORING_DIVISOR
-// compile definitions produce comparable tables for side-by-side review.
+// high-frequency detail, mixed-frequency photo-like scene) at every quality
+// 1-10 across all presets, decodes, and reports size + PSNR per combination
+// as a Markdown table. Built for the tuning workflow: different
+// -DWIMF_LADDER_SCALE / -DWIMF_SCORING_DIVISOR compile definitions produce
+// comparable tables for side-by-side review.
 
 #include "v2_core.hpp"
 
@@ -35,7 +36,7 @@ using Clock = std::chrono::steady_clock;
 
 constexpr uint32_t kWidth = 256, kHeight = 256, kChannels = 3;
 
-enum class Pattern { Smooth, GradientNoise, Detail };
+enum class Pattern { Smooth, GradientNoise, Detail, Photo };
 
 std::vector<uint8_t> make_image(Pattern pattern, uint32_t seed) {
     std::mt19937 rng(seed);
@@ -51,6 +52,29 @@ std::vector<uint8_t> make_image(Pattern pattern, uint32_t seed) {
                     value = static_cast<uint8_t>(mixed < 0 ? 0 : (mixed > 255 ? 255 : mixed));
                 } else if (pattern == Pattern::Detail) {
                     value = static_cast<uint8_t>(((x * 7 + y * 13 + c * 61) ^ (x * 3 + y * 5)) & 255);
+                } else if (pattern == Pattern::Photo) {
+                    const double fx = static_cast<double>(x) / static_cast<double>(kWidth - 1);
+                    const double fy = static_cast<double>(y) / static_cast<double>(kHeight - 1);
+                    double sample;
+                    if (fy < 0.45) {
+                        // sky: smooth vertical falloff with faint grain
+                        sample = 205.0 - fy * 130.0 + static_cast<int>(rng() % 5) - 2;
+                    } else if (fy < 0.5) {
+                        // horizon band: dark strip with a slow ripple
+                        sample = 78.0 + 18.0 * std::sin(fx * 40.0 * 3.14159265358979);
+                    } else {
+                        // ground: medium-frequency texture plus moderate grain
+                        sample = 92.0 +
+                                 34.0 * std::sin(fx * 25.0 * 3.14159265358979 + std::sin(fy * 60.0)) +
+                                 static_cast<int>(rng() % 17) - 8;
+                    }
+                    // round object straddling the horizon: sharp edges, flat interior
+                    const double dx = fx - 0.62;
+                    const double dy = fy - 0.42;
+                    if (dx * dx + dy * dy < 0.006) sample = 30.0;
+                    // per-channel offset so chroma decorrelation has something to model
+                    sample += static_cast<double>(c) * 4.0;
+                    value = static_cast<uint8_t>(sample < 0.0 ? 0 : (sample > 255.0 ? 255 : sample));
                 }
                 image[(static_cast<size_t>(y) * kWidth + x) * kChannels + c] = value;
             }
@@ -76,6 +100,7 @@ const char* pattern_name(Pattern pattern) {
         case Pattern::Smooth: return "smooth";
         case Pattern::GradientNoise: return "gradient+noise";
         case Pattern::Detail: return "high-detail";
+        case Pattern::Photo: return "photo";
     }
     return "?";
 }
@@ -96,7 +121,7 @@ int main() {
         std::cout << "|---|---|---:|---:|---:|---:|\n";
         std::cout << std::fixed << std::setprecision(2);
 
-        for (auto pattern : {Pattern::Smooth, Pattern::GradientNoise, Pattern::Detail}) {
+        for (auto pattern : {Pattern::Smooth, Pattern::GradientNoise, Pattern::Detail, Pattern::Photo}) {
             const std::vector<uint8_t> image = make_image(pattern, 20260823 + static_cast<uint32_t>(pattern));
             const wimf::v2::ImageView view{image.data(), kWidth, kHeight, kChannels, 1,
                                            static_cast<size_t>(kWidth) * kChannels};
