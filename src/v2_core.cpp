@@ -352,10 +352,7 @@ std::vector<uint8_t> pack_coefficients(const std::vector<int64_t>& coefficients)
         const uint64_t zigzag = (static_cast<uint64_t>(value) << 1) ^ static_cast<uint64_t>(value >> 63);
         append_varint(output, zigzag);
     }
-    if (run) {
-        output.push_back(0);
-        append_varint(output, run);
-    }
+    // Trailing zero-run is omitted: the decoder zero-fills the remainder.
     return output;
 }
 
@@ -363,7 +360,8 @@ std::vector<int64_t> unpack_coefficients(const uint8_t* data, size_t size, size_
     std::vector<int64_t> output(count);
     size_t position = 0, index = 0;
     while (index < count) {
-        if (position >= size || data[position++] != 0) throw std::runtime_error("invalid coefficient marker");
+        if (position >= size) break; // stream ended, remaining coefficients are zero
+        if (data[position++] != 0) throw std::runtime_error("invalid coefficient marker");
         const uint64_t run = read_varint(data, size, position);
         if (run > count - index) throw std::runtime_error("coefficient zero run exceeds tile");
         index += static_cast<size_t>(run);
