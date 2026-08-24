@@ -18,6 +18,15 @@
 #include "zstd.h"
 #include "v2_simd.hpp"
 
+// Tunable codec constants (defaults reproduce the historical behavior exactly).
+// The tuning workflow overrides these via -D flags to sweep candidate curves.
+#ifndef WIMF_LADDER_SCALE
+#define WIMF_LADDER_SCALE 1.5f
+#endif
+#ifndef WIMF_SCORING_DIVISOR
+#define WIMF_SCORING_DIVISOR 8.0
+#endif
+
 namespace wimf::v2 {
 namespace {
 
@@ -384,7 +393,7 @@ std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality,
     const uint32_t padded_height = next_power_of_two(tile.height), padded_width = next_power_of_two(tile.width);
     unsigned levels = 0;
     for (uint32_t value = std::min(padded_width, padded_height); value > 1 && levels < 3; value >>= 1) ++levels;
-    const float base_q=std::max(1.0f,static_cast<float>((11-quality)*1.5));float quantizer=1.0f;
+    const float base_q=std::max(1.0f,static_cast<float>((11-quality)*WIMF_LADDER_SCALE));float quantizer=1.0f;
     if(!lossless){double energy=0;const uint32_t step=std::max(1u,std::min(tile.width,tile.height)/32u);for(uint32_t sy=0;sy<tile.height;sy+=step)for(uint32_t sx=0;sx<tile.width;sx+=step)for(uint8_t ch=0;ch<tile.channels;++ch){const double val=sample(tile,sx,sy,ch);if(sx>=step){double d=val-sample(tile,sx-step,sy,ch);energy+=d*d;}if(sy>=step){double d=val-sample(tile,sx,sy-step,ch);energy+=d*d;}}energy/=std::max(1.0,static_cast<double>(tile.width/step)*(tile.height/step)*tile.channels);quantizer=std::max(1.0f,base_q*std::clamp(static_cast<float>(std::sqrt(energy)/40.0),0.5f,2.0f));}
     std::vector<uint8_t> output;
     put16(output, static_cast<uint16_t>(padded_height));
@@ -587,7 +596,7 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                 }
                 const double score = options.lossless ? static_cast<double>(payload.size())
                     : payload.size() + distortion * (static_cast<double>(width) * height * image.channels) /
-                      std::max(1.0, static_cast<double>(options.quality) * options.quality * 8.0);
+                      std::max(1.0, static_cast<double>(options.quality) * options.quality * WIMF_SCORING_DIVISOR);
                 if (score < best_score || (score == best_score && payload.size() < best_size) ||
                     (score == best_score && payload.size() == best_size && static_cast<uint8_t>(mode) < static_cast<uint8_t>(best_mode))) {
                     best_score = score; best_size = payload.size(); best_mode = mode;
