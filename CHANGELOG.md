@@ -2,6 +2,13 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
+## 2.2.3 - 2026-08-25
+
+- Fixed the root cause of the chroma artifacts reported in 2.2.2:
+  green-differencing decorrelation is now restricted to lossless mode.
+  Quantization errors in the mod-256 residual planes were being
+  amplified by the undo pass in dark areas, producing blue/red/cyan
+  pixel artifacts. Lossy tiles code raw RGB directly.
 ## 2.2.2 - 2026-08-25
 
 - Reverted the default quality ladder scale from 2.5 to 1.5 (divisor stays

@@ -18,7 +18,7 @@ from .transport import (
 
 _register_pillow_plugin()
 
-__version__ = "2.2.2"
+__version__ = "2.2.3"
 __all__ = [
     "WIMFImage",
     "WIMFDecoder",
