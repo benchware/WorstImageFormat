@@ -18,13 +18,15 @@
 #include "zstd.h"
 #include "v2_simd.hpp"
 
-// Tunable codec constants (defaults reproduce the historical behavior exactly).
+// Tunable codec constants. The ladder scale reproduces the historical quality
+// ladder; the scoring divisor default was retuned from 8.0 to 16.0 after an
+// RD sweep showed it adds intermediate lossy ladder steps with no regressions.
 // The tuning workflow overrides these via -D flags to sweep candidate curves.
 #ifndef WIMF_LADDER_SCALE
 #define WIMF_LADDER_SCALE 1.5f
 #endif
 #ifndef WIMF_SCORING_DIVISOR
-#define WIMF_SCORING_DIVISOR 8.0
+#define WIMF_SCORING_DIVISOR 16.0
 #endif
 
 namespace wimf::v2 {
@@ -438,11 +440,12 @@ std::vector<int64_t> restore_raster_order(const std::vector<int64_t>& ordered, u
 }
 
 std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality, bool lossless,
-                                         std::vector<uint8_t>* reconstructed) {
+                                         std::vector<uint8_t>* reconstructed,
+                                         float quantizer_scale = 1.0f) {
     const uint32_t padded_height = next_power_of_two(tile.height), padded_width = next_power_of_two(tile.width);
     unsigned levels = 0;
     for (uint32_t value = std::min(padded_width, padded_height); value > 1 && levels < 3; value >>= 1) ++levels;
-    const float base_q=std::max(1.0f,static_cast<float>((11-quality)*WIMF_LADDER_SCALE));float quantizer=1.0f;
+    const float base_q=std::max(1.0f,static_cast<float>((11-quality)*WIMF_LADDER_SCALE)*quantizer_scale);float quantizer=1.0f;
     if(!lossless){double energy=0;const uint32_t step=std::max(1u,std::min(tile.width,tile.height)/32u);for(uint32_t sy=0;sy<tile.height;sy+=step)for(uint32_t sx=0;sx<tile.width;sx+=step)for(uint8_t ch=0;ch<tile.channels;++ch){const double val=sample(tile,sx,sy,ch);if(sx>=step){double d=val-sample(tile,sx-step,sy,ch);energy+=d*d;}if(sy>=step){double d=val-sample(tile,sx,sy-step,ch);energy+=d*d;}}energy/=std::max(1.0,static_cast<double>(tile.width/step)*(tile.height/step)*tile.channels);quantizer=std::max(1.0f,base_q*std::clamp(static_cast<float>(std::sqrt(energy)/40.0),0.5f,2.0f));}
     std::vector<uint8_t> output;
     put16(output, static_cast<uint16_t>(padded_height));
@@ -625,21 +628,18 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                 (!options.lossless && options.preset == SearchPreset::Extreme)
                     ? SearchPreset::Balanced
                     : options.preset;
-            for (const TileMode mode : candidate_modes(tile, options)) {
-                std::vector<uint8_t> raw, reconstructed;
-                if (mode == TileMode::Raw) raw = pixels;
-                else if (mode == TileMode::Predictive) raw = encode_predictive(tile);
-                else if (mode == TileMode::Palette) {
-                    raw = encode_palette(tile);
-                    if (raw.empty()) continue;
-                } else raw = encode_wavelet_tile(tile, options.quality, options.lossless,
-                                                  options.lossless ? nullptr : &reconstructed);
+            // Rate-distortion consideration for one candidate payload. The
+            // wavelet path scores two quantizer sub-steps (scale 1.0 and 0.9):
+            // the stored per-tile quantizer makes both decodable, and the 0.9
+            // step fills the one-ladder-notch gap that showed up as the
+            // 34-43 dB dead zone in the photo-pattern RD sweep.
+            auto consider = [&](TileMode mode, std::vector<uint8_t> raw, const std::vector<uint8_t>* reconstructed) {
                 auto payload = mode == TileMode::Raw ? raw : compress_zstd(raw, scoring_preset);
                 double distortion = 0;
-                if (!options.lossless && mode == TileMode::Wavelet) {
+                if (!options.lossless && mode == TileMode::Wavelet && reconstructed) {
                     for (size_t i = 0; i < pixels.size(); i += image.bytes_per_sample) {
                         const uint32_t a = image.bytes_per_sample == 1 ? pixels[i] : pixels[i] | static_cast<uint32_t>(pixels[i + 1]) << 8;
-                        const uint32_t b = image.bytes_per_sample == 1 ? reconstructed[i] : reconstructed[i] | static_cast<uint32_t>(reconstructed[i + 1]) << 8;
+                        const uint32_t b = image.bytes_per_sample == 1 ? (*reconstructed)[i] : (*reconstructed)[i] | static_cast<uint32_t>((*reconstructed)[i + 1]) << 8;
                         const double delta = static_cast<double>(a) - b;
                         distortion += delta * delta;
                     }
@@ -653,6 +653,24 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                     (score == best_score && payload.size() == best_size && static_cast<uint8_t>(mode) < static_cast<uint8_t>(best_mode))) {
                     best_score = score; best_size = payload.size(); best_mode = mode;
                     best_raw = std::move(raw); best_payload = std::move(payload);
+                }
+            };
+            for (const TileMode mode : candidate_modes(tile, options)) {
+                if (mode == TileMode::Raw) consider(mode, pixels, nullptr);
+                else if (mode == TileMode::Predictive) consider(mode, encode_predictive(tile), nullptr);
+                else if (mode == TileMode::Palette) {
+                    std::vector<uint8_t> raw = encode_palette(tile);
+                    if (!raw.empty()) consider(mode, std::move(raw), nullptr);
+                } else {
+                    // Lossless ignores the quantizer, so a single call suffices.
+                    const float scales[] = {1.0f, 0.9f};
+                    const int scale_count = options.lossless ? 1 : 2;
+                    for (int s = 0; s < scale_count; ++s) {
+                        std::vector<uint8_t> reconstructed;
+                        std::vector<uint8_t> raw = encode_wavelet_tile(tile, options.quality, options.lossless,
+                                                                       options.lossless ? nullptr : &reconstructed, scales[s]);
+                        consider(mode, std::move(raw), options.lossless ? nullptr : &reconstructed);
+                    }
                 }
             }
             // Ship the winner at the full preset strength (see scoring_preset).
