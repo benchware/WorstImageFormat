@@ -4,9 +4,9 @@ name: RD tuning sweep
 # with 9 different ladder/divisor combinations simultaneously. Each job
 # produces an RD table in the step summary. Compare all tables to pick
 # winning constants, then bake them into v2_core.cpp as the new defaults.
-# Stock values: scale=2.5, divisor=16.0 (retuned after the photo-pattern RD
-# sweeps; divisor 16 adds intermediate lossy ladder steps and scale 2.5 yields
-# the finest usable ladder - nine lossy steps on natural content).
+# Stock values: scale=1.5, divisor=16.0. Scale 2.5 was tried and reverted
+# (issue #44: visible chroma artifacts at medium quality). Divisor 16 adds
+# intermediate lossy ladder steps with no quality regression.
 
 on:
   workflow_dispatch:
@@ -22,14 +22,11 @@ jobs:
       matrix:
         include:
           - label: stock
-            scale: "2.5"
-            divisor: "16.0"
-          - label: legacy-ladder
             scale: "1.5"
             divisor: "16.0"
           - label: steep-ladder
             scale: "2.5"
-            divisor: "8.0"
+            divisor: "16.0"
           - label: flat-ladder
             scale: "1.0"
             divisor: "8.0"

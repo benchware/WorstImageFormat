@@ -18,14 +18,14 @@
 #include "zstd.h"
 #include "v2_simd.hpp"
 
-// Tunable codec constants. The scoring divisor and ladder scale were retuned
-// from the historical 8.0/1.5 after photo-pattern RD sweeps: divisor 16 adds
-// intermediate lossy ladder steps, and scale 2.5 yields the finest usable
-// ladder (nine lossy steps on natural content, smaller files at every quality
-// index). The tuning workflow overrides these via -D flags to sweep candidate
-// curves.
+// Tunable codec constants. The scoring divisor was retuned from 8.0 to 16.0
+// after RD sweeps showed it adds intermediate lossy ladder steps with no
+// quality regression. The ladder scale stays at the historical 1.5: the
+// 2.5 experiment produced smaller files but visible chroma artifacts at
+// medium quality (issue #44). The tuning workflow overrides these via -D
+// flags to sweep candidate curves.
 #ifndef WIMF_LADDER_SCALE
-#define WIMF_LADDER_SCALE 2.5f
+#define WIMF_LADDER_SCALE 1.5f
 #endif
 #ifndef WIMF_SCORING_DIVISOR
 #define WIMF_SCORING_DIVISOR 16.0
@@ -425,6 +425,108 @@ std::vector<int64_t> unpack_coefficients_v2(const uint8_t* data, size_t size, si
     }
     if (position != size) throw std::runtime_error("trailing coefficient data");
     return output;
+}
+
+// ---- A3 stage 2: adaptive binary range coder for wavelet coefficients ----
+// Replaces varint+zstd with a single-pass context-modeled arithmetic coder.
+// Structure adapted from LZMA's range coder (public domain) with adaptive
+// 11-bit probability models (shift-5 counter update).
+
+struct RangeEncoder {
+    uint64_t low = 0;
+    uint32_t range = 0xFFFFFFFFu;
+    uint8_t cache = 0;
+    uint64_t cache_size = 1;
+    std::vector<uint8_t> output;
+    void shift_low() {
+        if ((low >> 32) != 0 || low < 0xFF000000ull) {
+            const uint8_t carry = static_cast<uint8_t>((low >> 32) & 1);
+            output.push_back(cache + carry);
+            for (; cache_size > 1; --cache_size) output.push_back(0xFF + carry);
+            cache = static_cast<uint8_t>((low >> 24) & 0xFF);
+        } else { ++cache_size; }
+        low = (low & 0x00FFFFFF) << 8;
+    }
+    void encode(int bit, uint16_t prob) {
+        const uint32_t bound = (range >> 11) * prob;
+        if (!bit) { range = bound; } else { low += bound; range -= bound; }
+        while (range < (1u << 24)) { shift_low(); range <<= 8; }
+    }
+    void flush() { for (int i = 0; i < 5; ++i) shift_low(); }
+};
+
+struct RangeDecoder {
+    uint32_t range = 0xFFFFFFFFu;
+    uint32_t code = 0;
+    const uint8_t* data;
+    size_t pos;
+    RangeDecoder(const uint8_t* d, size_t offset) : data(d), pos(offset + 1) {
+        for (int i = 0; i < 4; ++i) code = (code << 8) | data[pos++];
+    }
+    int decode(uint16_t prob) {
+        const uint32_t bound = (range >> 11) * prob;
+        int bit;
+        if (code < bound) { range = bound; bit = 0; } else { code -= bound; range -= bound; bit = 1; }
+        while (range < (1u << 24)) { code = (code << 8) | data[pos++]; range <<= 8; }
+        return bit;
+    }
+};
+
+struct BitModel {
+    uint16_t prob = 1024;
+    void update(int bit) { if (bit) prob -= prob >> 5; else prob += (2048 - prob) >> 5; }
+};
+
+struct WaveletRCModels {
+    BitModel is_zero[2];   // [previous coefficient was zero]
+    BitModel is_gt[8];     // magnitude > (1<<level)-1
+    BitModel sign;
+};
+
+// Adapted from PHP crc32_x86.c pattern: encode each quantized coefficient as
+// binary decisions with adaptive context models.
+[[maybe_unused]] void encode_coef_rc(RangeEncoder& re, WaveletRCModels& m, int& prev_zero, int64_t c) {
+    const int is_zero = c == 0 ? 1 : 0;
+    re.encode(is_zero, m.is_zero[prev_zero].prob);
+    m.is_zero[prev_zero].update(is_zero);
+    prev_zero = is_zero;
+    if (is_zero) return;
+    const uint64_t mag = c < 0 ? static_cast<uint64_t>(-c) : static_cast<uint64_t>(c);
+    int level = 0;
+    while (level < 8 && mag > ((uint64_t)1 << (level + 1)) - 1) {
+        re.encode(1, m.is_gt[level].prob);
+        m.is_gt[level].update(1);
+        ++level;
+    }
+    if (level < 8) {
+        re.encode(0, m.is_gt[level].prob);
+        m.is_gt[level].update(0);
+    }
+    for (int i = level - 1; i >= 0; --i)
+        re.encode(static_cast<int>((mag >> i) & 1), 1024);
+    const int sign = c < 0 ? 1 : 0;
+    re.encode(sign, m.sign.prob);
+    m.sign.update(sign);
+}
+
+[[maybe_unused]] int64_t decode_coef_rc(RangeDecoder& rd, WaveletRCModels& m, int& prev_zero) {
+    const int is_zero = rd.decode(m.is_zero[prev_zero].prob);
+    m.is_zero[prev_zero].update(is_zero);
+    prev_zero = is_zero;
+    if (is_zero) return 0;
+    int level = 0;
+    while (level < 8) {
+        const int b = rd.decode(m.is_gt[level].prob);
+        m.is_gt[level].update(b);
+        if (!b) break;
+        ++level;
+    }
+    uint64_t mag = level > 0 ? (uint64_t)1 << level : 1;
+    for (int i = level - 1; i >= 0; --i)
+        mag |= static_cast<uint64_t>(rd.decode(1024)) << i;
+    const int sign = rd.decode(m.sign.prob);
+    m.sign.update(sign);
+    return sign ? -static_cast<int64_t>(mag) : static_cast<int64_t>(mag);
 }
 
 uint32_t next_power_of_two(uint32_t value) {
