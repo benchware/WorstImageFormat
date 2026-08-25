@@ -31,6 +31,7 @@ namespace wimf::v2::simd {
 // CPU supports the instruction set.
 bool has_avx2() noexcept;
 bool has_hardware_crc32() noexcept;
+bool has_pclmul() noexcept;
 
 // Scalar reference kernels; also the universal fallback.
 namespace scalar {
@@ -40,12 +41,18 @@ void left_filter_emit(const uint8_t* row, uint8_t* out, size_t width) noexcept;
 
 // Lookup-table CRC-32 (IEEE 802.3, reflected, init/final XOR 0xFFFFFFFF).
 uint32_t crc32_table(const uint8_t* data, size_t size) noexcept;
+// Chaining variant: continues from an internal-state crc (pre-final-XOR).
+uint32_t crc32_table_update(uint32_t crc, const uint8_t* data, size_t size) noexcept;
 
 #if defined(WIMF_AVX2_KERNELS)
 // Requires has_avx2() to be true before use.
 namespace avx2 {
 uint64_t left_filter_cost(const uint8_t* row, size_t width) noexcept;
 void left_filter_emit(const uint8_t* row, uint8_t* out, size_t width) noexcept;
+// PCLMULQDQ folded CRC-32 (IEEE 802.3, reflected). Requires has_avx2() and
+// has_pclmul(); processes floor(size/16)*16 bytes and returns how many were
+// consumed - chain the remainder through crc32_table_update.
+size_t crc32_pclmul(uint32_t* crc, const uint8_t* data, size_t size) noexcept;
 }  // namespace avx2
 #endif
 
