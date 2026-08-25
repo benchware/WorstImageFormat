@@ -626,18 +626,15 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
             options.tile_size < 16 || options.tile_size > 256 || image.width > 65535 || image.height > 65535 ||
             options.metadata.size() > 16u * 1024u * 1024u)
             throw std::invalid_argument("invalid encode options");
-        // Known-flaw A2: channels were entropy-coded independently. Apply the
-        // reversible mod-256 green differencing (G kept, R-G / B-G residual
-        // planes) so chroma planes become near-flat and compress far better.
-        // Pixel-wise and exactly invertible, so tiling/ROI/threading are
-        // unaffected. Signaled by container flags bit 1.
-        // Channel decorrelation (known-flaw A2): reversible mod-256 green
-        // differencing, signaled by container flags bit 1 and mirrored by the
-        // Python reference decoder.
+        // Known-flaw A2: reversible mod-256 green differencing for 8-bit
+        // RGB/RGBA. Lossless ONLY: quantization errors in the residual
+        // planes are amplified by the mod-256 undo in dark areas (issue
+        // #44), producing chroma artifacts. Lossy tiles code raw RGB.
         constexpr bool kDecorrelateEnabled = true;
         std::vector<uint8_t> color_work;
         const bool color_decorrelated =
-            kDecorrelateEnabled && (image.channels == 3 || image.channels == 4)
+            kDecorrelateEnabled && options.lossless
+                && (image.channels == 3 || image.channels == 4)
                 && image.bytes_per_sample == 1;
         if (color_decorrelated) {
             color_work.assign(image.data,
