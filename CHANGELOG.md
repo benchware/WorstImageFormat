@@ -2,7 +2,7 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
-## 2.2.0 - Unreleased
+## 2.2.1 - 2026-08-25
 
 - Retuned the default quality ladder from scale 1.5 to 2.5 (divisor stays 16)
   based on the photo/natural RD sweeps: the lossy ladder gains a ninth usable
@@ -37,12 +37,6 @@ All notable WIMF changes are recorded here. The project follows semantic version
 - Added a photo-like mixed-frequency pattern to the RD sweep corpus
   (`tools/wimf_rd_sweep.cpp`) and refreshed the tuning workflow matrix around
   the new default.
-- Made WIM2 the sole recommended authoring format.
-- Deprecated WIMF v1, the `.wif` filename alias, AWIF/v1 chrono, `ROT!`, watermark, legacy mip/depth,
-  `wimf-convert`, and `wimf-meta` authoring surfaces ahead of WIMF 3.0.
-- Retained read-only compatibility and added a committed AWIF-era decode fixture.
-- Limited CodeQL to first-party production code and documented bundled Zstandard 1.5.7 provenance.
-- Unified public native/Python option validation and removed AWIF from performance benchmarks.
 - Added NEON (ARMv8) and AVX2 (x86-64) SIMD acceleration for CRC-32 checksums and predictive filter encoding.
 - Added content-adaptive wavelet quantization that scales with local tile detail.
 - Improved Zstandard compression levels for all search presets (Fast 1→3, Balanced 6→9, Extreme 15→19).
@@ -76,6 +70,15 @@ All notable WIMF changes are recorded here. The project follows semantic version
 - Wavelet coefficients are reordered into dyadic subband sequence (levels-byte
   bit 7) before entropy coding, clustering zeros for measurably smaller wavelet
   tiles; Python decoder mirrored. Requires this release or newer.
+
+## 2.2.0 - 2026-08-04
+
+- Made WIM2 the sole recommended authoring format.
+- Deprecated WIMF v1, the `.wif` filename alias, AWIF/v1 chrono, `ROT!`, watermark, legacy mip/depth,
+  `wimf-convert`, and `wimf-meta` authoring surfaces ahead of WIMF 3.0.
+- Retained read-only compatibility and added a committed AWIF-era decode fixture.
+- Limited CodeQL to first-party production code and documented bundled Zstandard 1.5.7 provenance.
+- Unified public native/Python option validation and removed AWIF from performance benchmarks.
 
 ## 2.1.0 - 2026-08-03
 
