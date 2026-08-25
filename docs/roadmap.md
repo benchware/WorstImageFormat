@@ -107,9 +107,10 @@ section 5b target the largest one - compressed file size - first.
   1.58x @ 25.48 dB to 2.31x @ 45.46 dB. Legacy unpackers retained for old files.
 - [ ] Extend context-modeled entropy coding to prediction residuals;
   predictive and palette tiles still use generic Zstd payloads.
-- [ ] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve;
-  today Extreme records 6.89× at Q1 versus 17.31× at Q2 across every tested
-  system, so lower quality currently produces larger files.
+- [x] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve.
+  The 2.1/2.2 retunes eliminated the inversion (Extreme Q1 once recorded
+  6.89x versus 17.31x at Q2); verified rate-monotonic across flat, gradient,
+  and noisy content by `test_lossy_size_monotonic_in_quality`.
 - [ ] Optional lossy chroma decimation for photographic tiers, reconstructed
   during decode without changing the WIM2 container.
 - [x] Pin down the quality=10 contract: losslessness comes only from the
