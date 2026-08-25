@@ -2,6 +2,19 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
+## 2.2.2 - 2026-08-25
+
+- Reverted the default quality ladder scale from 2.5 to 1.5 (divisor stays
+  16): the more aggressive quantizer caused visible chroma artifacts on
+  detailed content at medium quality (issue #44). The divisor retune from
+  8 to 16 is kept - it adds intermediate lossy steps without quality loss.
+- Enabled AVX2 on Windows wheels: v2_simd_avx2.cpp is now compiled
+  separately with /arch:AVX2 on MSVC and linked into the extension
+  (issue #45). Runtime dispatch still selects scalar on non-AVX2 CPUs.
+- Fixed potential unsigned overflow in wavelet indexing (CodeQL high
+  severity): y*width multiplications now cast to size_t before use as
+  vector indices.
+
 ## 2.2.1 - 2026-08-25
 
 - Eliminated per-line heap allocations in the wavelet lifting loops (known-flaw
