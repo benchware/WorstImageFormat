@@ -22,6 +22,20 @@ def test_all_lossy_quality_and_preset_combinations(quality, preset):
     assert info["width"] == 40 and info["height"] == 24
 
 
+def test_varints_decode_v2_marker_free_pairs():
+    """reversible == 2 wavelet tiles use strict (run, zigzag) varint pairs.
+
+    Vector: [0, 0, 5, -3] encodes as run=2, zigzag(5)=10, run=0, zigzag(-3)=5;
+    the decoder zero-fills the trailing remainder."""
+    stream = bytes([2, 10, 0, 5])
+    assert list(hybrid._varints_decode_v2(stream, 5)) == [0, 0, 5, -3, 0]
+    assert list(hybrid._varints_decode_v2(b"", 3)) == [0, 0, 0]
+    with pytest.raises(ValueError):
+        hybrid._varints_decode_v2(bytes([9, 1]), 3)
+    with pytest.raises(ValueError):
+        hybrid._varints_decode_v2(bytes([1]), 3)
+
+
 def test_v2_lossless_rgb_odd_dimensions(tmp_path):
     arr = np.random.default_rng(1).integers(0, 256, (133, 259, 3), dtype=np.uint8)
     path = tmp_path / "odd.wimf"

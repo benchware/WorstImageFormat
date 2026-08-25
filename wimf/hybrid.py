@@ -289,6 +289,30 @@ def _varints_decode(data, count):
     return values
 
 
+def _varints_decode_v2(data, count):
+    """Marker-free (run, zigzag) token pairs - mirrors native unpack_coefficients_v2.
+
+    Used for lossy wavelet tiles flagged with reversible == 2; the legacy
+    decoder handles reversible == 0/1 streams unchanged."""
+    values = np.zeros(count, dtype=np.int64)
+    pos = index = 0
+    while index < count:
+        if pos >= len(data):
+            break
+        run, pos = _read_varint(data, pos)
+        if run > count - index:
+            raise ValueError("coefficient zero run exceeds tile")
+        index += run
+        if index == count:
+            break
+        zz, pos = _read_varint(data, pos)
+        values[index] = (zz >> 1) ^ -(zz & 1)
+        index += 1
+    if pos != len(data):
+        raise ValueError("trailing coefficient data")
+    return values
+
+
 def _reorder_subbands(coeff, pw, ph, levels):
     """Raster-order DWT coefficients into dyadic subband sequence (mirrors native)."""
     plane = coeff.reshape(ph, pw)
@@ -322,6 +346,9 @@ def _restore_subbands(flat, pw, ph, levels):
 
 
 def _wavelet_encode(tile, quality, lossless):
+    # The Python encoder intentionally keeps the legacy reversible == 0/1
+    # packing; native encoders emit reversible == 2 (marker-free pairs) for
+    # lossy tiles and both decoders accept every layout.
     h, w, channels = tile.shape
     ph = 1 << int(np.ceil(np.log2(max(2, h))))
     pw = 1 << int(np.ceil(np.log2(max(2, w))))
@@ -354,7 +381,7 @@ def _wavelet_decode(data, h, w, channels, dtype):
         or ph < h
         or pw < w
         or not 0 <= levels <= 8
-        or reversible not in (0, 1)
+        or reversible not in (0, 1, 2)
         or not np.isfinite(q)
         or q <= 0
     ):
@@ -369,18 +396,21 @@ def _wavelet_decode(data, h, w, channels, dtype):
         pos += 4
         if pos + size > len(data):
             raise ValueError("truncated wavelet coefficients")
-        coeff = _varints_decode(data[pos : pos + size], ph * pw)
+        if reversible == 2:
+            coeff = _varints_decode_v2(data[pos : pos + size], ph * pw)
+        else:
+            coeff = _varints_decode(data[pos : pos + size], ph * pw)
         if subband:
             coeff = _restore_subbands(coeff, pw, ph, levels)
         coeff = coeff.reshape(ph, pw)
         pos += size
         if native is not None:
             decoded = native.wavelet_inverse(
-                np.ascontiguousarray(coeff), pw, ph, np.dtype(dtype).itemsize, bool(reversible), levels, q
+                np.ascontiguousarray(coeff), pw, ph, np.dtype(dtype).itemsize, reversible == 1, levels, q
             )
             plane = np.frombuffer(decoded, dtype=dtype).reshape(ph, pw)[:h, :w]
         else:
-            plane = _wavelet_inverse_2d(coeff * q, levels, bool(reversible))[:h, :w]
+            plane = _wavelet_inverse_2d(coeff * q, levels, reversible == 1)[:h, :w]
         planes.append(np.clip(np.rint(plane), 0, max_value).astype(dtype))
     if pos != len(data):
         raise ValueError("trailing wavelet tile data")
