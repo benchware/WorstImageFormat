@@ -1,6 +1,6 @@
+import os
 import platform
 import sys
-import os
 
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
