@@ -6,6 +6,8 @@
 
 #include "v2_simd.hpp"
 
+#include <cstring>
+
 #if defined(WIMF_AVX2_KERNELS) && defined(_MSC_VER) && !defined(__clang__)
 #include <immintrin.h>
 #include <intrin.h>
@@ -30,6 +32,24 @@ struct CrcTable {
     }
 };
 constexpr CrcTable kCrcTable{};
+
+// Slice-by-8 tables: entry [k][i] is the CRC after consuming byte i followed
+// by k zero bytes, derived entirely from the polynomial at compile time.
+// Processing eight bytes per iteration removes most of the serial dependency
+// chain of the classic one-byte table loop (typically 4-6x throughput).
+struct CrcSlices {
+    uint32_t entries[8][256];
+    constexpr CrcSlices() : entries{} {
+        for (uint32_t i = 0; i < 256; ++i) {
+            entries[0][i] = crc_entry(i);
+            for (int k = 1; k < 8; ++k) {
+                const uint32_t previous = entries[k - 1][i];
+                entries[k][i] = (previous >> 8) ^ crc_entry(previous & 0xFFu);
+            }
+        }
+    }
+};
+constexpr CrcSlices kCrcSlices{};
 
 struct Features {
     bool avx2 = false;
@@ -83,6 +103,21 @@ bool has_hardware_crc32() noexcept { return features().hardware_crc32; }
 
 uint32_t crc32_table(const uint8_t* data, size_t size) noexcept {
     uint32_t crc = 0xFFFFFFFFu;
+    // Slice-by-8 main loop: fold eight bytes per iteration through the
+    // precomputed slice tables. Byte order matches the little-endian load of
+    // the first four bytes into the running CRC.
+    while (size >= 8) {
+        uint32_t low, high;
+        std::memcpy(&low, data, sizeof(low));
+        std::memcpy(&high, data + 4, sizeof(high));
+        low ^= crc;
+        crc = kCrcSlices.entries[7][low & 0xFFu] ^ kCrcSlices.entries[6][(low >> 8) & 0xFFu] ^
+              kCrcSlices.entries[5][(low >> 16) & 0xFFu] ^ kCrcSlices.entries[4][low >> 24] ^
+              kCrcSlices.entries[3][high & 0xFFu] ^ kCrcSlices.entries[2][(high >> 8) & 0xFFu] ^
+              kCrcSlices.entries[1][(high >> 16) & 0xFFu] ^ kCrcSlices.entries[0][high >> 24];
+        data += 8;
+        size -= 8;
+    }
     for (size_t i = 0; i < size; ++i)
         crc = (crc >> 8) ^ kCrcTable.entries[(crc ^ data[i]) & 0xFFu];
     return ~crc;

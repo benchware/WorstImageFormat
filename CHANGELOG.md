@@ -4,6 +4,10 @@ All notable WIMF changes are recorded here. The project follows semantic version
 
 ## 2.2.0 - Unreleased
 
+- Upgraded the scalar CRC-32 to slice-by-8: all eight slice tables are derived
+  from the polynomial at compile time, and the bulk loop consumes eight bytes
+  per iteration instead of one (typically 4-6x table throughput on every
+  platform, including x86 where no IEEE hardware CRC instruction exists).
 - First slice of the context-modeled entropy stage (known-flaws A3): lossy
   wavelet tiles now use marker-free (run, zigzag) coefficient tokens flagged by
   the tile's reversible byte value 2, removing one mandatory byte per token
