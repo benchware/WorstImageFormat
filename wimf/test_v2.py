@@ -33,7 +33,7 @@ def test_varints_decode_v2_marker_free_pairs():
     with pytest.raises(ValueError):
         hybrid._varints_decode_v2(bytes([9, 1]), 3)
     with pytest.raises(ValueError):
-        hybrid._varints_decode_v2(bytes([1, 1, 1]), 3)
+        hybrid._varints_decode_v2(bytes([1]), 3)
 
 
 def test_v2_lossless_rgb_odd_dimensions(tmp_path):

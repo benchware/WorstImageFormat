@@ -396,9 +396,10 @@ def _wavelet_decode(data, h, w, channels, dtype):
         pos += 4
         if pos + size > len(data):
             raise ValueError("truncated wavelet coefficients")
-        coeff = (
-            _varints_decode_v2 if reversible == 2 else _varints_decode
-        )(data[pos : pos + size], ph * pw)
+        if reversible == 2:
+            coeff = _varints_decode_v2(data[pos : pos + size], ph * pw)
+        else:
+            coeff = _varints_decode(data[pos : pos + size], ph * pw)
         if subband:
             coeff = _restore_subbands(coeff, pw, ph, levels)
         coeff = coeff.reshape(ph, pw)
