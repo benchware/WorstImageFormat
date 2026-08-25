@@ -71,47 +71,51 @@ int64_t floor_div(int64_t value, int64_t divisor) {
     return q - (r != 0 && value < 0);
 }
 
-std::vector<double> lift97_forward(const std::vector<double>& line) {
+// B1: lifting functions operate in-place on `line` using caller-provided
+// scratch buffers. After the first call, resize() is a no-op, eliminating
+// per-line heap allocations in the hot loop. Math is unchanged.
+void lift97_forward(std::vector<double>& line,std::vector<double>& e,std::vector<double>& o){
     constexpr double a=-1.586134342, b=-0.05298011854, g=0.8829110762, d=0.4435068522, k=1.149604398;
-    const size_t half=(line.size()+1)/2, odds=line.size()/2;
-    std::vector<double> e(half), o(odds), out(line.size());
+    const size_t half=(line.size()+1)/2, odds=line.size()/2, om=odds?odds-1:0;
+    e.resize(half); o.resize(odds?odds:1); if(!odds)o[0]=0;
     for(size_t i=0;i<half;++i)e[i]=line[i*2]; for(size_t i=0;i<odds;++i)o[i]=line[i*2+1];
     for(size_t i=0;i<odds;++i)o[i]+=a*(e[i]+e[std::min(i+1,half-1)]);
-    for(size_t i=0;i<half;++i)e[i]+=b*(o[i?i-1:0]+o[std::min(i,odds-1)]);
+    for(size_t i=0;i<half;++i)e[i]+=b*(o[i?i-1:0]+o[std::min(i,om)]);
     for(size_t i=0;i<odds;++i)o[i]+=g*(e[i]+e[std::min(i+1,half-1)]);
-    for(size_t i=0;i<half;++i)e[i]+=d*(o[i?i-1:0]+o[std::min(i,odds-1)]);
+    for(size_t i=0;i<half;++i)e[i]+=d*(o[i?i-1:0]+o[std::min(i,om)]);
     for(auto& x:e)x*=k; for(auto& x:o)x/=k;
-    std::copy(e.begin(),e.end(),out.begin()); std::copy(o.begin(),o.end(),out.begin()+half); return out;
+    std::copy(e.begin(),e.end(),line.begin()); std::copy(o.begin(),o.end(),line.begin()+half);
 }
 
-std::vector<double> lift97_inverse(const std::vector<double>& line) {
+void lift97_inverse(std::vector<double>& line,std::vector<double>& e,std::vector<double>& o){
     constexpr double a=-1.586134342, b=-0.05298011854, g=0.8829110762, d=0.4435068522, k=1.149604398;
-    const size_t half=(line.size()+1)/2, odds=line.size()/2;
-    std::vector<double> e(line.begin(),line.begin()+half),o(line.begin()+half,line.end()),out(line.size());
+    const size_t half=(line.size()+1)/2, odds=line.size()/2, om=odds?odds-1:0;
+    e.resize(half); o.resize(odds?odds:1); if(!odds)o[0]=0;
+    for(size_t i=0;i<half;++i)e[i]=line[i]; for(size_t i=0;i<odds;++i)o[i]=line[half+i];
     for(auto& x:e)x/=k; for(auto& x:o)x*=k;
-    for(size_t i=0;i<half;++i)e[i]-=d*(o[i?i-1:0]+o[std::min(i,odds-1)]);
+    for(size_t i=0;i<half;++i)e[i]-=d*(o[i?i-1:0]+o[std::min(i,om)]);
     for(size_t i=0;i<odds;++i)o[i]-=g*(e[i]+e[std::min(i+1,half-1)]);
-    for(size_t i=0;i<half;++i)e[i]-=b*(o[i?i-1:0]+o[std::min(i,odds-1)]);
+    for(size_t i=0;i<half;++i)e[i]-=b*(o[i?i-1:0]+o[std::min(i,om)]);
     for(size_t i=0;i<odds;++i)o[i]-=a*(e[i]+e[std::min(i+1,half-1)]);
-    for(size_t i=0;i<half;++i)out[i*2]=e[i]; for(size_t i=0;i<odds;++i)out[i*2+1]=o[i]; return out;
+    for(size_t i=0;i<half;++i)line[i*2]=e[i]; for(size_t i=0;i<odds;++i)line[i*2+1]=o[i];
 }
 
-std::vector<double> lift53_forward(const std::vector<double>& line) {
-    const size_t half=(line.size()+1)/2, odds=line.size()/2;
-    std::vector<int64_t> e(half),o(odds); std::vector<double> out(line.size());
+void lift53_forward(std::vector<double>& line,std::vector<int64_t>& e,std::vector<int64_t>& o){
+    const size_t half=(line.size()+1)/2, odds=line.size()/2, om=odds?odds-1:0;
+    e.resize(half); o.resize(odds?odds:1); if(!odds)o[0]=0;
     for(size_t i=0;i<half;++i)e[i]=static_cast<int64_t>(line[i*2]); for(size_t i=0;i<odds;++i)o[i]=static_cast<int64_t>(line[i*2+1]);
     for(size_t i=0;i<odds;++i)o[i]-=floor_div(e[i]+e[std::min(i+1,half-1)],2);
-    for(size_t i=0;i<half;++i)e[i]+=floor_div(o[i?i-1:0]+o[std::min(i,odds-1)]+2,4);
-    for(size_t i=0;i<half;++i)out[i]=static_cast<double>(e[i]); for(size_t i=0;i<odds;++i)out[half+i]=static_cast<double>(o[i]); return out;
+    for(size_t i=0;i<half;++i)e[i]+=floor_div(o[i?i-1:0]+o[std::min(i,om)]+2,4);
+    for(size_t i=0;i<half;++i)line[i]=static_cast<double>(e[i]); for(size_t i=0;i<odds;++i)line[half+i]=static_cast<double>(o[i]);
 }
 
-std::vector<double> lift53_inverse(const std::vector<double>& line) {
-    const size_t half=(line.size()+1)/2, odds=line.size()/2;
-    std::vector<int64_t> e(half),o(odds); std::vector<double> out(line.size());
+void lift53_inverse(std::vector<double>& line,std::vector<int64_t>& e,std::vector<int64_t>& o){
+    const size_t half=(line.size()+1)/2, odds=line.size()/2, om=odds?odds-1:0;
+    e.resize(half); o.resize(odds?odds:1); if(!odds)o[0]=0;
     for(size_t i=0;i<half;++i)e[i]=static_cast<int64_t>(line[i]); for(size_t i=0;i<odds;++i)o[i]=static_cast<int64_t>(line[half+i]);
-    for(size_t i=0;i<half;++i)e[i]-=floor_div(o[i?i-1:0]+o[std::min(i,odds-1)]+2,4);
+    for(size_t i=0;i<half;++i)e[i]-=floor_div(o[i?i-1:0]+o[std::min(i,om)]+2,4);
     for(size_t i=0;i<odds;++i)o[i]+=floor_div(e[i]+e[std::min(i+1,half-1)],2);
-    for(size_t i=0;i<half;++i)out[i*2]=static_cast<double>(e[i]); for(size_t i=0;i<odds;++i)out[i*2+1]=static_cast<double>(o[i]); return out;
+    for(size_t i=0;i<half;++i)line[i*2]=static_cast<double>(e[i]); for(size_t i=0;i<odds;++i)line[i*2+1]=static_cast<double>(o[i]);
 }
 
 }  // namespace
@@ -178,13 +182,21 @@ std::vector<uint8_t> decode_palette(const uint8_t* data,size_t size,uint32_t w,u
 
 std::vector<int64_t> wavelet_forward(const uint8_t* data,uint32_t w,uint32_t h,uint8_t bps,bool rev,unsigned levels,double q){
     if(!data||!w||!h||!q||levels>8)throw std::invalid_argument("invalid wavelet input");std::vector<double>a(static_cast<size_t>(w)*h);for(size_t i=0;i<a.size();++i)a[i]=bps==1?data[i]:data[i*2]|static_cast<uint16_t>(data[i*2+1])<<8;uint32_t rw=w,rh=h;
-    for(unsigned level=0;level<levels;++level){for(uint32_t y=0;y<rh;++y){std::vector<double>line(a.begin()+y*w,a.begin()+y*w+rw);line=rev?lift53_forward(line):lift97_forward(line);std::copy(line.begin(),line.end(),a.begin()+y*w);}for(uint32_t x=0;x<rw;++x){std::vector<double>line(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];line=rev?lift53_forward(line):lift97_forward(line);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}rw=(rw+1)/2;rh=(rh+1)/2;}
+    // Scratch buffers are allocated once at the largest size; every later
+    // resize shrinks within existing capacity, so the lifting loop performs
+    // no per-line heap allocations. resize() always precedes the copy into
+    // `line` - the original B1 attempt copied first and overflowed the
+    // buffer whenever a later level's row width exceeded a shrunk size
+    // (any non-square tile).
+    std::vector<double> line,e97,o97;std::vector<int64_t> e53,o53;
+    for(unsigned level=0;level<levels;++level){for(uint32_t y=0;y<rh;++y){line.resize(rw);std::copy(a.begin()+y*w,a.begin()+y*w+rw,line.begin());if(rev)lift53_forward(line,e53,o53);else lift97_forward(line,e97,o97);std::copy(line.begin(),line.begin()+rw,a.begin()+y*w);}for(uint32_t x=0;x<rw;++x){line.resize(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];if(rev)lift53_forward(line,e53,o53);else lift97_forward(line,e97,o97);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}rw=(rw+1)/2;rh=(rh+1)/2;}
     std::vector<int64_t>out(a.size());for(size_t i=0;i<a.size();++i)out[i]=std::llround(a[i]/q);return out;
 }
 
 std::vector<uint8_t> wavelet_inverse(const int64_t* coeff,size_t count,uint32_t w,uint32_t h,uint8_t bps,bool rev,unsigned levels,double q){
     if(count!=static_cast<size_t>(w)*h)throw std::invalid_argument("invalid coefficient count");std::vector<double>a(count);for(size_t i=0;i<count;++i)a[i]=static_cast<double>(coeff[i])*q;
-    for(int level=static_cast<int>(levels)-1;level>=0;--level){const uint32_t rw=(w+(1u<<level)-1)>>level,rh=(h+(1u<<level)-1)>>level;for(uint32_t x=0;x<rw;++x){std::vector<double>line(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];line=rev?lift53_inverse(line):lift97_inverse(line);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}for(uint32_t y=0;y<rh;++y){std::vector<double>line(a.begin()+y*w,a.begin()+y*w+rw);line=rev?lift53_inverse(line):lift97_inverse(line);std::copy(line.begin(),line.end(),a.begin()+y*w);}}
+    std::vector<double> line,e97,o97;std::vector<int64_t> e53,o53;
+    for(int level=static_cast<int>(levels)-1;level>=0;--level){const uint32_t rw=(w+(1u<<level)-1)>>level,rh=(h+(1u<<level)-1)>>level;for(uint32_t x=0;x<rw;++x){line.resize(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];if(rev)lift53_inverse(line,e53,o53);else lift97_inverse(line,e97,o97);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}for(uint32_t y=0;y<rh;++y){line.resize(rw);std::copy(a.begin()+y*w,a.begin()+y*w+rw,line.begin());if(rev)lift53_inverse(line,e53,o53);else lift97_inverse(line,e97,o97);std::copy(line.begin(),line.begin()+rw,a.begin()+y*w);}}
     const uint32_t max=bps==1?255u:65535u;std::vector<uint8_t>out(count*bps);for(size_t i=0;i<count;++i){const uint32_t v=static_cast<uint32_t>(std::clamp<int64_t>(std::llround(a[i]),0,max));out[i*bps]=static_cast<uint8_t>(v);if(bps==2)out[i*bps+1]=static_cast<uint8_t>(v>>8);}return out;
 }
 

@@ -4,6 +4,15 @@ All notable WIMF changes are recorded here. The project follows semantic version
 
 ## 2.2.1 - 2026-08-25
 
+- Eliminated per-line heap allocations in the wavelet lifting loops (known-flaw
+  B1): lifting now operates in place on caller-owned scratch buffers, cutting
+  the transform cost by roughly 13% and removing allocator churn from Extreme
+  encodes. The retry also hardened the public wavelet API: single-element
+  lines (any dimension of 1 or 2 at deeper levels) previously read out of
+  bounds through an underflowing scratch index; verified with a 972-case
+  non-square reversible roundtrip sweep. Local GCC coverage added for the
+  exact AppleClang wheel configuration that failed in the 2.2.1 release.
+
 - Retuned the default quality ladder from scale 1.5 to 2.5 (divisor stays 16)
   based on the photo/natural RD sweeps: the lossy ladder gains a ninth usable
   step on natural content and every quality index produces smaller files at
