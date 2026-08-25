@@ -4,6 +4,13 @@ All notable WIMF changes are recorded here. The project follows semantic version
 
 ## 2.2.0 - Unreleased
 
+- First slice of the context-modeled entropy stage (known-flaws A3): lossy
+  wavelet tiles now use marker-free (run, zigzag) coefficient tokens flagged by
+  the tile's reversible byte value 2, removing one mandatory byte per token
+  (about a quarter of packed lossy streams). Pre-2.2 decoders reject the new
+  flag cleanly; the native and Python decoders accept all layouts, and legacy
+  files decode bit-identically. The Python encoder keeps emitting legacy
+  packing, which remains fully valid.
 - Filled the lossy quality dead zone: tile scoring now evaluates a second
   wavelet candidate at 0.9x quantizer scale. Each payload stores its own
   quantizer, so no format change is needed and the decoder is untouched; the

@@ -375,6 +375,44 @@ std::vector<int64_t> unpack_coefficients(const uint8_t* data, size_t size, size_
     return output;
 }
 
+// Marker-free token packing (reversible flag value 2). Legacy packing spends a
+// mandatory 0x00 marker byte on every run/value token, roughly a quarter of
+// the packed lossy stream. V2 tokens are strict (run, zigzag) varint pairs;
+// the reversible byte distinguishes the layouts and pre-v2.2 decoders reject
+// the value cleanly.
+std::vector<uint8_t> pack_coefficients_v2(const std::vector<int64_t>& coefficients) {
+    std::vector<uint8_t> output;
+    size_t run = 0;
+    for (const int64_t value : coefficients) {
+        if (value == 0) {
+            ++run;
+            continue;
+        }
+        append_varint(output, run);
+        run = 0;
+        const uint64_t zigzag = (static_cast<uint64_t>(value) << 1) ^ static_cast<uint64_t>(value >> 63);
+        append_varint(output, zigzag);
+    }
+    // Trailing zero-run is omitted: the decoder zero-fills the remainder.
+    return output;
+}
+
+std::vector<int64_t> unpack_coefficients_v2(const uint8_t* data, size_t size, size_t count) {
+    std::vector<int64_t> output(count);
+    size_t position = 0, index = 0;
+    while (index < count) {
+        if (position >= size) break; // stream ended, remaining coefficients are zero
+        const uint64_t run = read_varint(data, size, position);
+        if (run > count - index) throw std::runtime_error("coefficient zero run exceeds tile");
+        index += static_cast<size_t>(run);
+        if (index == count) break;
+        const uint64_t zigzag = read_varint(data, size, position);
+        output[index++] = static_cast<int64_t>((zigzag >> 1) ^ (0 - (zigzag & 1)));
+    }
+    if (position != size) throw std::runtime_error("trailing coefficient data");
+    return output;
+}
+
 uint32_t next_power_of_two(uint32_t value) {
     uint32_t output = 1;
     while (output < std::max(2u, value)) output <<= 1;
@@ -451,7 +489,9 @@ std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality,
     put16(output, static_cast<uint16_t>(padded_height));
     put16(output, static_cast<uint16_t>(padded_width));
     output.push_back(static_cast<uint8_t>(levels | 0x80));
-    output.push_back(lossless ? 1 : 0);
+    // reversible byte doubles as the coefficient-packing selector: 1 lossless
+    // (legacy packing), 2 lossy with marker-free v2 packing, 0 lossy legacy.
+    output.push_back(lossless ? 1 : 2);
     append_float(output, quantizer);
     if (reconstructed) reconstructed->assign(static_cast<size_t>(tile.width) * tile.height * tile.channels * tile.bytes_per_sample, 0);
 
@@ -465,7 +505,8 @@ std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality,
         }
         const auto coefficients = wavelet_forward(plane.data(), padded_width, padded_height,
                                                   tile.bytes_per_sample, lossless, levels, quantizer);
-        const auto packed = pack_coefficients(reorder_subbands(coefficients, padded_width, padded_height, levels));
+        const auto ordered = reorder_subbands(coefficients, padded_width, padded_height, levels);
+        const auto packed = lossless ? pack_coefficients(ordered) : pack_coefficients_v2(ordered);
         put32(output, static_cast<uint32_t>(packed.size()));
         output.insert(output.end(), packed.begin(), packed.end());
         if (reconstructed) {
@@ -489,7 +530,7 @@ std::vector<uint8_t> decode_wavelet_tile(const uint8_t* data, size_t size, uint3
     const uint8_t levels = data[4] & 0x7F, reversible = data[5];
     const float quantizer = read_float(data + 6);
     if (padded_width > 256 || padded_height > 256 || padded_width < width || padded_height < height ||
-        levels > 8 || reversible > 1 || !std::isfinite(quantizer) || quantizer <= 0)
+        levels > 8 || reversible > 2 || !std::isfinite(quantizer) || quantizer <= 0)
         throw std::runtime_error("invalid wavelet dimensions");
     size_t position = 10;
     std::vector<uint8_t> output(static_cast<size_t>(width) * height * channels * bytes_per_sample);
@@ -498,12 +539,14 @@ std::vector<uint8_t> decode_wavelet_tile(const uint8_t* data, size_t size, uint3
         const uint32_t packed_size = read32(data + position);
         position += 4;
         if (packed_size > size - position) throw std::runtime_error("truncated wavelet coefficients");
-        auto coefficients = unpack_coefficients(data + position, packed_size,
-                                                static_cast<size_t>(padded_width) * padded_height);
+        auto coefficients = reversible == 2 ? unpack_coefficients_v2(data + position, packed_size,
+                                                                      static_cast<size_t>(padded_width) * padded_height)
+                                            : unpack_coefficients(data + position, packed_size,
+                                                                  static_cast<size_t>(padded_width) * padded_height);
         if (subband) coefficients = restore_raster_order(std::move(coefficients), padded_width, padded_height, levels);
         position += packed_size;
         const auto plane = wavelet_inverse(coefficients.data(), coefficients.size(), padded_width,
-                                           padded_height, bytes_per_sample, reversible != 0, levels, quantizer);
+                                           padded_height, bytes_per_sample, reversible == 1, levels, quantizer);
         for (uint32_t y = 0; y < height; ++y) for (uint32_t x = 0; x < width; ++x) {
             const size_t source = (static_cast<size_t>(y) * padded_width + x) * bytes_per_sample;
             const size_t target = (static_cast<size_t>(y) * width * channels + x * channels + channel) * bytes_per_sample;
