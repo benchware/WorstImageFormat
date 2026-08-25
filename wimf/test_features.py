@@ -108,6 +108,17 @@ def test_public_option_validation():
         wimf.encode(image, metadata="not-a-dict")
 
 
+def test_codec_name_case_insensitive():
+    image = np.zeros((16, 16, 3), dtype=np.uint8)
+    reference = wimf.encode(image, lossless=True, codec="auto")
+    for name in ("Auto", "AUTO", "Auto (hybrid)", " auto "):
+        assert wimf.encode(image, lossless=True, codec=name) == reference
+    for name in ("Wavelet", "WAVELET", "PREDICTIVE"):
+        assert wimf.encode(image, lossless=True, codec=name).startswith(b"WIM2")
+    with pytest.raises(ValueError):
+        wimf.encode(image, codec="Not A Codec")
+
+
 def test_operation_progress_contract_when_native_available():
     token = wimf.operation_token()
     payload = wimf.encode(np.zeros((257, 259, 3), dtype=np.uint8), lossless=True, threads=2, operation_token=token)

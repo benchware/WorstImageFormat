@@ -2,6 +2,19 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
+## 2.2.4 - 2026-08-25
+
+- Wavelet tiles now use an adaptive binary range coder (LZMA-style, with
+  11-bit context-modeled probabilities) instead of varint packing plus
+  container-level zstd. Lossless tiles carry reversible flag 3 and lossy
+  tiles flag 4; older decoders reject these cleanly via the existing
+  reversible range check. The legacy unpackers are kept for reading
+  pre-2.2.4 files.
+- Lossy output improves dramatically at equal quality settings: the
+  photo harness drops from 1.58x @ 25.48 dB to 2.31x @ 45.46 dB at Q5.
+- Magnitude coding emits 16 raw bits once coefficients exceed the eight
+  threshold levels, so large lossy DC values no longer truncate.
+
 ## 2.2.3 - 2026-08-25
 
 - Fixed the root cause of the chroma artifacts reported in 2.2.2:

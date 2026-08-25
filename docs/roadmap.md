@@ -101,9 +101,12 @@ section 5b target the largest one - compressed file size - first.
   container flags bit 1 for 8-bit RGB/RGBA, with the Python decoder mirror
   added after run #180's failures pinpointed the missing inverse.
 - [ ] YCoCg-with-offsets refinement of the color transform remains open.
-- [ ] Introduce context-modeled entropy coding tuned to prediction residuals
-  and wavelet subbands; generic Zstd payloads are the main structural size gap
-  versus modern image codecs.
+- [x] Context-modeled entropy coding for wavelet subbands: an adaptive binary
+  range coder (LZMA style, 11-bit probability models) replaces varint+zstd
+  payloads behind reversible flags 3/4; lossy Q5 harness went from
+  1.58x @ 25.48 dB to 2.31x @ 45.46 dB. Legacy unpackers retained for old files.
+- [ ] Extend context-modeled entropy coding to prediction residuals;
+  predictive and palette tiles still use generic Zstd payloads.
 - [ ] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve;
   today Extreme records 6.89× at Q1 versus 17.31× at Q2 across every tested
   system, so lower quality currently produces larger files.
@@ -127,8 +130,8 @@ section 5b target the largest one - compressed file size - first.
 
 ## 6. Quality-of-life improvements
 
-- [ ] Accept case-insensitive codec names in the Python API: `auto`, `Auto`,
-  `Auto (hybrid)` and similar variants should map to the same internal path.
+- [x] Accept case-insensitive codec names in the Python API: `auto`, `Auto`,
+  `Auto (hybrid)` and similar variants map to the same internal path.
 - [ ] Implement ROI decode conformance test (currently returns `'encode'` error).
 - [ ] Add `--file` or `--image` flag to the CLI to target a single image rather
   than scanning an entire directory.
@@ -160,5 +163,28 @@ section 5b target the largest one - compressed file size - first.
 Base16, Base32, and Base64 transport support is implemented. These encodings
 help move WIMF through text-only systems but are not compression formats.
 
-GPU acceleration, plugins inside the codec, and another container redesign
-remain deferred until profiling or adopter demand identifies a concrete need.
+## 8. WIMF 3.0 candidates (breaking container redesign)
+
+Nothing in this section lands in a 2.x release. Each item needs its own spec,
+conformance vectors, and migration note before any code.
+
+- [ ] Remove the 256x256 tile limit via quadtree tile splitting (AV1
+  superblock style): stable regions stay one large tile while detailed areas
+  subdivide.
+- [ ] Embedded zerotree or bitplane coefficient coding (SPIHT style) so
+  progressive-by-quality decode becomes real instead of the reserved layers
+  field staying at 1.
+- [ ] Chroma-from-luma decorrelation evaluated against fixed YCoCg-R across
+  the photo corpus before either becomes the default.
+- [ ] Perceptual quantization: contrast-sensitivity-weighted per-subband
+  quantizers replacing the single global quantizer.
+- [ ] First-class HDR and alpha: native 16-bit half float plus alpha handled
+  in the core path rather than as container bolt-ons.
+- [ ] Optional learned transform mode with a tiny decoder-side network, always
+  shipped beside a scalar fallback so conformance stays testable.
+- [ ] Carry-over wishlist blocked only by the container break: larger tile
+  header fields, wider range-coder probability precision, per-tile quality maps.
+
+GPU acceleration and plugins inside the codec remain deferred until profiling
+or adopter demand identifies a concrete need. The breaking-container ideas in
+section 8 are tracked separately so they cannot leak into 2.x releases.
