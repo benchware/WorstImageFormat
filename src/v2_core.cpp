@@ -189,14 +189,14 @@ std::vector<int64_t> wavelet_forward(const uint8_t* data,uint32_t w,uint32_t h,u
     // buffer whenever a later level's row width exceeded a shrunk size
     // (any non-square tile).
     std::vector<double> line,e97,o97;std::vector<int64_t> e53,o53;
-    for(unsigned level=0;level<levels;++level){for(uint32_t y=0;y<rh;++y){line.resize(rw);std::copy(a.begin()+y*w,a.begin()+y*w+rw,line.begin());if(rev)lift53_forward(line,e53,o53);else lift97_forward(line,e97,o97);std::copy(line.begin(),line.begin()+rw,a.begin()+y*w);}for(uint32_t x=0;x<rw;++x){line.resize(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];if(rev)lift53_forward(line,e53,o53);else lift97_forward(line,e97,o97);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}rw=(rw+1)/2;rh=(rh+1)/2;}
+    for(unsigned level=0;level<levels;++level){for(uint32_t y=0;y<rh;++y){line.resize(rw);std::copy(a.begin()+static_cast<size_t>(y)*w,a.begin()+static_cast<size_t>(y)*w+rw,line.begin());if(rev)lift53_forward(line,e53,o53);else lift97_forward(line,e97,o97);std::copy(line.begin(),line.begin()+rw,a.begin()+static_cast<size_t>(y)*w);}for(uint32_t x=0;x<rw;++x){line.resize(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[static_cast<size_t>(y)*w+x];if(rev)lift53_forward(line,e53,o53);else lift97_forward(line,e97,o97);for(uint32_t y=0;y<rh;++y)a[static_cast<size_t>(y)*w+x]=line[y];}rw=(rw+1)/2;rh=(rh+1)/2;}
     std::vector<int64_t>out(a.size());for(size_t i=0;i<a.size();++i)out[i]=std::llround(a[i]/q);return out;
 }
 
 std::vector<uint8_t> wavelet_inverse(const int64_t* coeff,size_t count,uint32_t w,uint32_t h,uint8_t bps,bool rev,unsigned levels,double q){
     if(count!=static_cast<size_t>(w)*h)throw std::invalid_argument("invalid coefficient count");std::vector<double>a(count);for(size_t i=0;i<count;++i)a[i]=static_cast<double>(coeff[i])*q;
     std::vector<double> line,e97,o97;std::vector<int64_t> e53,o53;
-    for(int level=static_cast<int>(levels)-1;level>=0;--level){const uint32_t rw=(w+(1u<<level)-1)>>level,rh=(h+(1u<<level)-1)>>level;for(uint32_t x=0;x<rw;++x){line.resize(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[y*w+x];if(rev)lift53_inverse(line,e53,o53);else lift97_inverse(line,e97,o97);for(uint32_t y=0;y<rh;++y)a[y*w+x]=line[y];}for(uint32_t y=0;y<rh;++y){line.resize(rw);std::copy(a.begin()+y*w,a.begin()+y*w+rw,line.begin());if(rev)lift53_inverse(line,e53,o53);else lift97_inverse(line,e97,o97);std::copy(line.begin(),line.begin()+rw,a.begin()+y*w);}}
+    for(int level=static_cast<int>(levels)-1;level>=0;--level){const uint32_t rw=(w+(1u<<level)-1)>>level,rh=(h+(1u<<level)-1)>>level;for(uint32_t x=0;x<rw;++x){line.resize(rh);for(uint32_t y=0;y<rh;++y)line[y]=a[static_cast<size_t>(y)*w+x];if(rev)lift53_inverse(line,e53,o53);else lift97_inverse(line,e97,o97);for(uint32_t y=0;y<rh;++y)a[static_cast<size_t>(y)*w+x]=line[y];}for(uint32_t y=0;y<rh;++y){line.resize(rw);std::copy(a.begin()+static_cast<size_t>(y)*w,a.begin()+static_cast<size_t>(y)*w+rw,line.begin());if(rev)lift53_inverse(line,e53,o53);else lift97_inverse(line,e97,o97);std::copy(line.begin(),line.begin()+rw,a.begin()+static_cast<size_t>(y)*w);}}
     const uint32_t max=bps==1?255u:65535u;std::vector<uint8_t>out(count*bps);for(size_t i=0;i<count;++i){const uint32_t v=static_cast<uint32_t>(std::clamp<int64_t>(std::llround(a[i]),0,max));out[i*bps]=static_cast<uint8_t>(v);if(bps==2)out[i*bps+1]=static_cast<uint8_t>(v>>8);}return out;
 }
 
@@ -432,102 +432,6 @@ std::vector<int64_t> unpack_coefficients_v2(const uint8_t* data, size_t size, si
 // Structure adapted from LZMA's range coder (public domain) with adaptive
 // 11-bit probability models (shift-5 counter update).
 
-struct RangeEncoder {
-    uint64_t low = 0;
-    uint32_t range = 0xFFFFFFFFu;
-    uint8_t cache = 0;
-    uint64_t cache_size = 1;
-    std::vector<uint8_t> output;
-    void shift_low() {
-        if ((low >> 32) != 0 || low < 0xFF000000ull) {
-            const uint8_t carry = static_cast<uint8_t>((low >> 32) & 1);
-            output.push_back(cache + carry);
-            for (; cache_size > 1; --cache_size) output.push_back(0xFF + carry);
-            cache = static_cast<uint8_t>((low >> 24) & 0xFF);
-        } else { ++cache_size; }
-        low = (low & 0x00FFFFFF) << 8;
-    }
-    void encode(int bit, uint16_t prob) {
-        const uint32_t bound = (range >> 11) * prob;
-        if (!bit) { range = bound; } else { low += bound; range -= bound; }
-        while (range < (1u << 24)) { shift_low(); range <<= 8; }
-    }
-    void flush() { for (int i = 0; i < 5; ++i) shift_low(); }
-};
-
-struct RangeDecoder {
-    uint32_t range = 0xFFFFFFFFu;
-    uint32_t code = 0;
-    const uint8_t* data;
-    size_t pos;
-    RangeDecoder(const uint8_t* d, size_t offset) : data(d), pos(offset + 1) {
-        for (int i = 0; i < 4; ++i) code = (code << 8) | data[pos++];
-    }
-    int decode(uint16_t prob) {
-        const uint32_t bound = (range >> 11) * prob;
-        int bit;
-        if (code < bound) { range = bound; bit = 0; } else { code -= bound; range -= bound; bit = 1; }
-        while (range < (1u << 24)) { code = (code << 8) | data[pos++]; range <<= 8; }
-        return bit;
-    }
-};
-
-struct BitModel {
-    uint16_t prob = 1024;
-    void update(int bit) { if (bit) prob -= prob >> 5; else prob += (2048 - prob) >> 5; }
-};
-
-struct WaveletRCModels {
-    BitModel is_zero[2];   // [previous coefficient was zero]
-    BitModel is_gt[8];     // magnitude > (1<<level)-1
-    BitModel sign;
-};
-
-// Adapted from PHP crc32_x86.c pattern: encode each quantized coefficient as
-// binary decisions with adaptive context models.
-[[maybe_unused]] void encode_coef_rc(RangeEncoder& re, WaveletRCModels& m, int& prev_zero, int64_t c) {
-    const int is_zero = c == 0 ? 1 : 0;
-    re.encode(is_zero, m.is_zero[prev_zero].prob);
-    m.is_zero[prev_zero].update(is_zero);
-    prev_zero = is_zero;
-    if (is_zero) return;
-    const uint64_t mag = c < 0 ? static_cast<uint64_t>(-c) : static_cast<uint64_t>(c);
-    int level = 0;
-    while (level < 8 && mag > ((uint64_t)1 << (level + 1)) - 1) {
-        re.encode(1, m.is_gt[level].prob);
-        m.is_gt[level].update(1);
-        ++level;
-    }
-    if (level < 8) {
-        re.encode(0, m.is_gt[level].prob);
-        m.is_gt[level].update(0);
-    }
-    for (int i = level - 1; i >= 0; --i)
-        re.encode(static_cast<int>((mag >> i) & 1), 1024);
-    const int sign = c < 0 ? 1 : 0;
-    re.encode(sign, m.sign.prob);
-    m.sign.update(sign);
-}
-
-[[maybe_unused]] int64_t decode_coef_rc(RangeDecoder& rd, WaveletRCModels& m, int& prev_zero) {
-    const int is_zero = rd.decode(m.is_zero[prev_zero].prob);
-    m.is_zero[prev_zero].update(is_zero);
-    prev_zero = is_zero;
-    if (is_zero) return 0;
-    int level = 0;
-    while (level < 8) {
-        const int b = rd.decode(m.is_gt[level].prob);
-        m.is_gt[level].update(b);
-        if (!b) break;
-        ++level;
-    }
-    uint64_t mag = level > 0 ? (uint64_t)1 << level : 1;
-    for (int i = level - 1; i >= 0; --i)
-        mag |= static_cast<uint64_t>(rd.decode(1024)) << i;
-    const int sign = rd.decode(m.sign.prob);
-    m.sign.update(sign);
-    return sign ? -static_cast<int64_t>(mag) : static_cast<int64_t>(mag);
-}
 
 uint32_t next_power_of_two(uint32_t value) {
     uint32_t output = 1;
