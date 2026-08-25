@@ -1,11 +1,12 @@
 name: RD tuning sweep
 
 # Parallel parameter sweep for known-flaws A3/A4. Dispatch builds the codec
-# with 8 different ladder/divisor combinations simultaneously. Each job
+# with 9 different ladder/divisor combinations simultaneously. Each job
 # produces an RD table in the step summary. Compare all tables to pick
 # winning constants, then bake them into v2_core.cpp as the new defaults.
-# Stock values: scale=1.5, divisor=16.0 (retuned after the photo-pattern RD
-# sweep; divisor 16 adds intermediate lossy ladder steps with no regressions).
+# Stock values: scale=2.5, divisor=16.0 (retuned after the photo-pattern RD
+# sweeps; divisor 16 adds intermediate lossy ladder steps and scale 2.5 yields
+# the finest usable ladder - nine lossy steps on natural content).
 
 on:
   workflow_dispatch:
@@ -21,6 +22,9 @@ jobs:
       matrix:
         include:
           - label: stock
+            scale: "2.5"
+            divisor: "16.0"
+          - label: legacy-ladder
             scale: "1.5"
             divisor: "16.0"
           - label: steep-ladder
@@ -41,8 +45,8 @@ jobs:
           - label: gentle-divisor
             scale: "1.5"
             divisor: "4.0"
-          - label: steep-divisor
-            scale: "2.5"
+          - label: steepest
+            scale: "3.5"
             divisor: "16.0"
     steps:
       - uses: actions/checkout@v6

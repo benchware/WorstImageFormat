@@ -22,7 +22,7 @@
 #include <vector>
 
 #ifndef WIMF_LADDER_SCALE
-#define WIMF_LADDER_SCALE 1.5f
+#define WIMF_LADDER_SCALE 2.5f
 #endif
 #ifndef WIMF_SCORING_DIVISOR
 #define WIMF_SCORING_DIVISOR 16.0

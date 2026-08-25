@@ -26,9 +26,11 @@ def main() -> int:
     )
     print(native_row)
     print(reference_row)
-    if native["encode_mpx_s"] > 0 and native["decode_mpx_s"] > 0:
-        encode_speedup = reference["encode_mpx_s"] / native["encode_mpx_s"]
-        decode_speedup = reference["decode_mpx_s"] / native["decode_mpx_s"]
+    if reference["encode_mpx_s"] > 0 and reference["decode_mpx_s"] > 0:
+        # Speedup is native relative to the Python reference; skip the row
+        # when a reference rate rounds to zero so the ratio stays finite.
+        encode_speedup = native["encode_mpx_s"] / reference["encode_mpx_s"]
+        decode_speedup = native["decode_mpx_s"] / reference["decode_mpx_s"]
         print(f"| Native speedup | {encode_speedup:.0f}x | {decode_speedup:.0f}x | - |")
     print()
     print("Each runner is different hardware: compare within a table, not across tables or runs.")

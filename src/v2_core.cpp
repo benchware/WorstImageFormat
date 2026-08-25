@@ -18,12 +18,14 @@
 #include "zstd.h"
 #include "v2_simd.hpp"
 
-// Tunable codec constants. The ladder scale reproduces the historical quality
-// ladder; the scoring divisor default was retuned from 8.0 to 16.0 after an
-// RD sweep showed it adds intermediate lossy ladder steps with no regressions.
-// The tuning workflow overrides these via -D flags to sweep candidate curves.
+// Tunable codec constants. The scoring divisor and ladder scale were retuned
+// from the historical 8.0/1.5 after photo-pattern RD sweeps: divisor 16 adds
+// intermediate lossy ladder steps, and scale 2.5 yields the finest usable
+// ladder (nine lossy steps on natural content, smaller files at every quality
+// index). The tuning workflow overrides these via -D flags to sweep candidate
+// curves.
 #ifndef WIMF_LADDER_SCALE
-#define WIMF_LADDER_SCALE 1.5f
+#define WIMF_LADDER_SCALE 2.5f
 #endif
 #ifndef WIMF_SCORING_DIVISOR
 #define WIMF_SCORING_DIVISOR 16.0
