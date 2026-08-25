@@ -1,10 +1,13 @@
 // WIMF v2 AVX2 kernels.
 //
-// GCC/Clang enable AVX2 in-source via '#pragma GCC target' so no global
-// compiler flag is needed and other translation units stay baseline-portable.
-// MSVC has no per-function ISA selection, so the build system must compile
-// this file with '/arch:AVX2' (CMake scopes that flag to this file only).
-// The whole unit is skipped unless WIMF_SIMD_ENABLE_AVX2 is defined.
+// GCC, Clang, and AppleClang enable AVX2 per function via
+// '__attribute__((target("avx2")))' so no global compiler flag is needed and
+// other translation units stay baseline-portable. AppleClang rejects the
+// GCC-style '#pragma GCC target' form, which is why the attribute is applied
+// to each kernel directly. MSVC has no per-function ISA selection, so the
+// build system must compile this file with '/arch:AVX2' (CMake scopes that
+// flag to this file only). The whole unit is skipped unless
+// WIMF_SIMD_ENABLE_AVX2 is defined.
 
 #include "v2_simd.hpp"
 
@@ -14,16 +17,17 @@
 #error "WIMF_SIMD_ENABLE_AVX2 requires /arch:AVX2 when compiling with MSVC"
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC push_options
-#pragma GCC target("avx2")
+#if defined(_MSC_VER)
+#define WIMF_AVX2_TARGET
+#else
+#define WIMF_AVX2_TARGET __attribute__((target("avx2")))
 #endif
 
 #include <immintrin.h>
 
 namespace wimf::v2::simd::avx2 {
 
-uint64_t left_filter_cost(const uint8_t* row, size_t width) noexcept {
+WIMF_AVX2_TARGET uint64_t left_filter_cost(const uint8_t* row, size_t width) noexcept {
     if (width == 0) return 0;
     uint64_t cost = row[0] <= 128 ? row[0] : 256u - row[0];
     const __m256i zero = _mm256_setzero_si256();
@@ -50,7 +54,7 @@ uint64_t left_filter_cost(const uint8_t* row, size_t width) noexcept {
     return cost;
 }
 
-void left_filter_emit(const uint8_t* row, uint8_t* out, size_t width) noexcept {
+WIMF_AVX2_TARGET void left_filter_emit(const uint8_t* row, uint8_t* out, size_t width) noexcept {
     if (width == 0) return;
     out[0] = row[0];
     size_t x = 1;
@@ -63,9 +67,5 @@ void left_filter_emit(const uint8_t* row, uint8_t* out, size_t width) noexcept {
 }
 
 }  // namespace wimf::v2::simd::avx2
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC pop_options
-#endif
 
 #endif  // WIMF_AVX2_KERNELS

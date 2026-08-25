@@ -91,7 +91,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # macos-15-intel compiles the AVX2 kernels with AppleClang, the only
+        # toolchain that rejects '#pragma GCC target' - it guards the exact
+        # wheel-build configuration used by the macOS Intel release job.
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
     steps:
       - uses: actions/checkout@v7
       - name: Configure MSVC
