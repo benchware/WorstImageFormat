@@ -33,9 +33,10 @@ determinism, corruption rejection, and memory guards all audited clean
   streams. Still missing: context modeling of residuals/subbands - the
   structural advantage modern image codecs exploit.
 - **[P1] A4 Coarse quantizer dead zone.** Largely fixed: monotonic scoring
-  (A4), the divisor retune 8.0→16.0, and the 0.9x quantizer sub-step in tile
-  scoring removed the non-monotonicity and the one-ladder-notch gap that showed
-  as a 34-43 dB jump on the photo pattern. Remaining coarseness is minor; the
+  (A4), the divisor retune 8.0→16.0, the 0.9x quantizer sub-step in tile
+  scoring, and the ladder scale retune 1.5→2.5 leave natural-content ladders
+  with nine smooth lossy steps. The photo pattern retains one Q5→Q6 jump from
+  per-tile energy bimodality (sharp edges next to flat regions); the
   structural win left is the context-modeled entropy stage (A3).
 - **[P2] A5 Per-tile framing overhead.** Default 128 px tiles give ~2.8k
   independent Zstd frames per 45 MP encode (per scored mode), with no

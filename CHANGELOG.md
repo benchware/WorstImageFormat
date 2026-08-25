@@ -4,6 +4,14 @@ All notable WIMF changes are recorded here. The project follows semantic version
 
 ## 2.2.0 - Unreleased
 
+- Retuned the default quality ladder from scale 1.5 to 2.5 (divisor stays 16)
+  based on the photo/natural RD sweeps: the lossy ladder gains a ninth usable
+  step on natural content and every quality index produces smaller files at
+  smoothly increasing PSNR. Same-quality-index output is more compressed and
+  slightly softer than 2.1; lossless output is unchanged. Old files decode
+  identically - the container format is untouched.
+- Fixed the codec benchmark summary printing "Native speedup 0x": the ratio
+  was computed inverted and is now guarded against zero reference rates.
 - Upgraded the scalar CRC-32 to slice-by-8: all eight slice tables are derived
   from the polynomial at compile time, and the bulk loop consumes eight bytes
   per iteration instead of one (typically 4-6x table throughput on every
