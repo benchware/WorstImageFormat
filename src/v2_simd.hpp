@@ -4,7 +4,7 @@
 // Instruction-set-specific kernels are isolated in dedicated translation
 // units so vector code can never leak into baseline compilation:
 //
-//   v2_simd_avx2.cpp  x86-64 AVX2 kernels (in-source '#pragma GCC target',
+//   v2_simd_avx2.cpp  x86-64 AVX2 kernels (per-function target attribute,
 //                     or MSVC '/arch:AVX2' scoped to that file)
 //   v2_simd_neon.cpp  AArch64 NEON kernels (baseline ISA, no flags needed)
 //   v2_simd_crc.cpp   AArch64 CRC-32 extension (optional, runtime-probed)
