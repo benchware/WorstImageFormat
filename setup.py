@@ -32,8 +32,7 @@ class Pybind11BuildExt(build_ext):
                 output_dir=os.path.join(self.build_temp, "avx2"),
                 include_dirs=ext.include_dirs,
                 macros=ext.define_macros,
-                extra_postargs=[arg for arg in ext.extra_compile_args if "arch" not in arg]
-                    + ["/arch:AVX2"],
+                extra_postargs=[arg for arg in ext.extra_compile_args if "arch" not in arg] + ["/arch:AVX2"],
                 debug=self.debug,
             )
             ext.extra_objects.extend(avx2_objects)
