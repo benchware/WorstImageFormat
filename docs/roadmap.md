@@ -130,8 +130,8 @@ section 5b target the largest one - compressed file size - first.
 
 ## 6. Quality-of-life improvements
 
-- [ ] Accept case-insensitive codec names in the Python API: `auto`, `Auto`,
-  `Auto (hybrid)` and similar variants should map to the same internal path.
+- [x] Accept case-insensitive codec names in the Python API: `auto`, `Auto`,
+  `Auto (hybrid)` and similar variants map to the same internal path.
 - [ ] Implement ROI decode conformance test (currently returns `'encode'` error).
 - [ ] Add `--file` or `--image` flag to the CLI to target a single image rather
   than scanning an entire directory.

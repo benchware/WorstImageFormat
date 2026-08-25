@@ -479,6 +479,13 @@ def encode_v2(
         raise ValueError("width, height, and channels must be positive integers")
     if channels > 16:
         raise ValueError("channels must be between 1 and 16")
+    # Roadmap QoL: accept case-insensitive codec names and Studio-style
+    # display labels such as "Auto (hybrid)"; normalize before validation
+    # so every downstream consumer sees a canonical lowercase value.
+    if isinstance(codec, str):
+        codec = codec.strip().lower()
+        if " (" in codec:
+            codec = codec.split(" (", 1)[0].strip()
     if codec not in NAME_MODES and codec != "auto":
         raise ValueError(f"unknown codec {codec!r}")
     if not 1 <= quality <= 10:
