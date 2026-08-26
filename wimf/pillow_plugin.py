@@ -9,7 +9,7 @@ from .api import WIMFDecoder, WIMFEncoder
 
 
 def _accept(prefix):
-    return prefix[:4] in (b"WIM2", b"WIMF", b"AWIF", b"ROT!")
+    return prefix[:4] in (b"WIM2", b"WIM3", b"WIMF", b"AWIF", b"ROT!")
 
 
 class WIMFImageFile(ImageFile.ImageFile):

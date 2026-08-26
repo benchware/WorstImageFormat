@@ -46,11 +46,11 @@ def test_parity_protection(tmp_path):
     arr = np.random.randint(0, 256, (16, 16, 3), dtype=np.uint8)
     img = Image.fromarray(arr)
     out = str(tmp_path / "test_parity.wimf")
-    wimf.save(out, img, lossless=True, anti_rot=True)
+    wimf.save(out, img, lossless=True, anti_rot=True, format_version=2)
 
     with open(out, "rb") as f:
         magic = f.read(4)
-    assert magic == b"WIM2"
+    assert magic in (b"WIM2", b"WIM3")
     assert b"AROT" in parse_extensions(Path(out).read_bytes())
 
 

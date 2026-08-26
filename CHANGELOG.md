@@ -2,6 +2,22 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
+## 3.0.0 - 2026-08-26
+
+- WIM3 (oxygen) is now the default container. `wimf.encode` and
+  `wimf.save` write WIM3 unless `format_version=2` is passed; decode
+  auto-detects the magic and reads both formats transparently.
+- The version-3 path is lossless in this release: quality, preset, and
+  codec arguments are validated but only affect version-2 encodes.
+  Multi-state history and anti-rot protection remain version-2 features
+  and raise a clear error under version 3.
+- New public surface: `wimf.decode(..., target_planes=N)` performs
+  progressive decoding of WIM3 wavelet tiles; `wimf.inspect` reports
+  WIM3 tile modes, leaf count, and depth enum; the Pillow plugin
+  registers the WIM3 magic.
+- CI builds and runs the WIM2 and WIM3 native suites separately on every
+  operating system, with per-suite job summaries.
+
 ## 2.3.0 - 2026-08-26
 
 - Predictive tiles gain an adaptive range-coded entropy stage (tile entropy

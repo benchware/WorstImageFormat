@@ -74,7 +74,8 @@ v3_extension = Extension(
     "wimf.wimf_v3_cpp",
     [
         "src/v2_core.cpp",
-        "src/v3_core.cpp",\r\n        "src/v3_wavelet.cpp",
+        "src/v3_core.cpp",
+        "src/v3_wavelet.cpp",
         "src/v3_bindings.cpp",
         "src/v2_bindings.cpp",
         "src/v2_simd.cpp",

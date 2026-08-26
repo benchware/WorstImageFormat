@@ -22,7 +22,7 @@ def parse_header(data):
         raise ValueError("file too short to be a valid WIMF file")
 
     magic = data[:4]
-    if magic not in (b"WIMF", b"AWIF"):
+    if magic not in (b"WIMF", b"AWIF", b"WIM3"):
         raise ValueError(f"not a WIMF/AWIF file (got magic {magic!r})")
 
     try:

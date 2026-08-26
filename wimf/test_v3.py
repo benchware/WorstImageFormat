@@ -73,6 +73,26 @@ def test_v3_rejects_mismatched_buffer():
         wimf_v3.encode_image(image.tobytes()[:-1], 32, 32, 3)
 
 
+def test_v3_progressive_decode_and_16bit():
+    image = _image(96, 96, 3, kind="gradient")
+    payload = wimf_v3.encode_image(image.tobytes(), 96, 96, 3)
+    full = wimf_v3.decode_image(payload)
+    assert full["pixels"] == image.tobytes()
+    rough = wimf_v3.decode_image(payload, target_planes=1)
+    assert rough["width"] == 96 and len(rough["pixels"]) == len(image.tobytes())
+
+    # HDR depth enums: u12 rides two-byte little-endian samples.
+    yy, xx = np.mgrid[0:40, 0:40]
+    deep = (((xx * 1024 + yy * 33) % 4000) + 100).astype("<u2")
+    deep = np.repeat(deep[..., None], 3, axis=2)
+    blob = wimf_v3.encode_image(deep.tobytes(), 40, 40, 3, depth=2)  # kDepthU12
+    out = wimf_v3.decode_image(blob)
+    assert out["bit_depth"] == 16
+    assert out["pixels"] == deep.tobytes()
+    with pytest.raises(ValueError):
+        wimf_v3.encode_image(deep.tobytes(), 40, 40, 3, depth=4)  # f16 reserved
+
+
 def test_wim2_files_still_decode_through_v2():
     import wimf
     arr = _image(48, 48, 3, kind="gradient")

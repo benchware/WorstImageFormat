@@ -13,7 +13,7 @@ def test_pillow_plugin_lossless_open_save(mode, shape):
     image = Image.fromarray(source, mode=mode)
     stream = io.BytesIO()
     image.save(stream, format="WIMF", lossless=True, metadata={"bridge": "pillow"})
-    assert stream.getvalue().startswith(b"WIM2")
+    assert stream.getvalue().startswith((b"WIM2", b"WIM3"))
 
     stream.seek(0)
     with Image.open(stream) as decoded:

@@ -27,7 +27,7 @@ def test_base64_and_data_url_roundtrip():
 
 def test_corruption_diagnosis_and_unsafe_preview():
     image = np.random.default_rng(31).integers(0, 256, (133, 259, 3), dtype=np.uint8)
-    payload = wimf.encode(image, lossless=True, codec="predictive")
+    payload = wimf.encode(image, lossless=True, codec="predictive", format_version=2)
     damaged = corrupt(payload, seed=9, area="payload", tile=(128, 0))
     report = diagnose(damaged)
     assert not report["strict_ok"]
@@ -39,7 +39,7 @@ def test_corruption_diagnosis_and_unsafe_preview():
 
 def test_metadata_rewrite_preserves_payloads_and_extensions():
     image = np.random.default_rng(32).integers(0, 256, (131, 257, 4), dtype=np.uint8)
-    payload = wimf.encode(image, lossless=True, anti_rot=True, metadata={"before": 1})
+    payload = wimf.encode(image, lossless=True, anti_rot=True, format_version=2, metadata={"before": 1})
     before = parse_v2(payload)
     before_payloads = [payload[entry[8] : entry[8] + entry[9]] for entry in before["entries"]]
     rewritten = wimf.rewrite_metadata(payload, {"after": 2})
@@ -65,7 +65,7 @@ def test_studio_document_headless_encode():
     document = StudioDocument(source=np.zeros((17, 21, 3), dtype=np.uint8), metadata={"studio": True})
     result = document.encode(EncodeSettings(lossless=True))
     document.apply_encode_result(result)
-    assert document.dirty and document.details["format"] == "WIM2"
+    assert document.dirty and document.details["format"] in ("WIM2", "WIM3")
     assert document.metrics["maximum_error"] == 0
 
 
@@ -73,7 +73,7 @@ def test_operation_token_cancels_before_first_tile():
     token = wimf.operation_token()
     token.cancel()
     try:
-        wimf.encode(np.zeros((257, 259, 3), dtype=np.uint8), lossless=True, operation_token=token)
+        wimf.encode(np.zeros((257, 259, 3), dtype=np.uint8), lossless=True, operation_token=token, format_version=2)
     except ValueError as error:
         assert "cancel" in str(error)
     else:

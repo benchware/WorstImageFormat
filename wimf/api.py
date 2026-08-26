@@ -163,6 +163,29 @@ class WIMFDecoder:
             self._history_states = decode_history(history["payload"]) if history else None
             return
 
+        if raw[:4] == b"WIM3":
+            try:
+                from . import wimf_v3_cpp
+            except ImportError as error:
+                raise RuntimeError("WIM3 decoding requires the native wimf_v3_cpp extension") from error
+            info = wimf_v3_cpp.parse_container(raw)
+            self.magic = b"WIM3"
+            self.width, self.height = int(info["width"]), int(info["height"])
+            self.flags = 0
+            meta_bytes = bytes(info["metadata"])
+            self.metadata = json.loads(meta_bytes.decode("utf-8")) if meta_bytes else {}
+            depth_bits = {0: 8, 1: 10, 2: 12, 3: 16}.get(int(info["depth"]))
+            if depth_bits is None:
+                raise ValueError("unsupported WIM3 sample depth")
+            self.channels = int(info["channels"])
+            self.bit_depth = depth_bits
+            self.metadata.update({"channels": self.channels, "bit_depth": self.bit_depth, "format_version": 3})
+            self.is_animated = False
+            self._data_start = 0
+            self._raw = raw
+            self._v3_info = info
+            return
+
         try:
             from . import wimf_cpp
 
@@ -192,8 +215,22 @@ class WIMFDecoder:
         self._raw = raw
 
     # actually do the heavy lifting
-    def decode(self, roi=None, target_layer=2, mip_level=0, operation_token=None):
+    def decode(self, roi=None, target_layer=2, mip_level=0, operation_token=None, target_planes=None):
         data = self._raw[self._data_start :]
+
+        if self.magic == b"WIM3":
+            from . import wimf_v3_cpp
+
+            if roi or mip_level or target_layer != 2:
+                raise ValueError("WIM3 ROI/mip/layer options do not apply; use target_planes for progressive decode")
+            kwargs = {} if target_planes is None else {"target_planes": int(target_planes)}
+            out = wimf_v3_cpp.decode_image(self._raw, **kwargs)
+            dtype = np.uint8 if self.bit_depth == 8 else np.dtype("<u2")
+            pix = np.frombuffer(out["pixels"], dtype=dtype)
+            pix = pix.reshape(self.height, self.width, self.channels)
+            pil_img = _pixels_to_pil(pix.tobytes(), self.width, self.height,
+                                     self.channels, self.metadata, self.bit_depth)
+            return WIMFImage(pil_image=pil_img, metadata=self.metadata, raw_pixels=pix)
 
         if self.magic == V2_MAGIC:
             if mip_level:
@@ -393,7 +430,7 @@ class WIMFEncoder:
         quality=7,
         preset="Balanced",
         lossless=False,
-        format_version=2,
+        format_version=3,
         codec="auto",
         threads=None,
         operation_token=None,
@@ -440,14 +477,55 @@ class WIMFEncoder:
 
         bit_depth = meta.get("bit_depth", 10 if meta.get("bit10") else 8)
 
-        if format_version not in (1, 2):
-            raise ValueError("format_version must be 1 or 2")
+        if format_version not in (1, 2, 3):
+            raise ValueError("format_version must be 1, 2, or 3")
 
         if format_version == 1:
             from .deprecation import warn_legacy
 
             legacy_feature = "legacy ROT! authoring" if self.tuning.get("anti_rot") else "WIMF v1 authoring"
             warn_legacy(legacy_feature)
+
+        if format_version == 3:
+            # The oxygen container: lossless quadtree tiles with Raw,
+            # Predictive-RC, and embedded-wavelet coding. Lossy quality
+            # tuning arrives with perceptual quantization; until then the
+            # version-3 path is always lossless and ignores quality/preset/
+            # codec. Multi-state history stays a version-2 feature.
+            if len(pixel_states) > 1:
+                raise ValueError("multi-state history requires format_version=2")
+            # Validate tuning inputs even though v3 ignores them today, so a
+            # typo never silently changes meaning when lossy v3 lands.
+            if preset not in ("Fast", "Balanced", "Extreme"):
+                raise ValueError("preset must be Fast, Balanced, or Extreme")
+            try:
+                from .hybrid import NAME_MODES
+
+                normalized = str(codec).strip().lower()
+                if " (" in normalized:
+                    normalized = normalized.split(" (", 1)[0].strip()
+                if normalized not in NAME_MODES and normalized != "auto":
+                    raise ValueError(f"unknown codec {codec!r}")
+            except ImportError as error:
+                raise RuntimeError("WIMF package state is inconsistent") from error
+            if not isinstance(quality, int) or isinstance(quality, bool) or not 1 <= quality <= 10:
+                raise ValueError("quality must be an integer between 1 and 10")
+            if threads is not None and (
+                isinstance(threads, bool) or not isinstance(threads, int) or threads < 1
+            ):
+                raise ValueError("threads must be None or a positive integer")
+            try:
+                from . import wimf_v3_cpp
+            except ImportError as error:
+                raise RuntimeError("WIM3 encoding requires the native wimf_v3_cpp extension") from error
+            depth_enum = {8: 0, 10: 1, 12: 2, 16: 3}.get(int(bit_depth))
+            if depth_enum is None:
+                raise ValueError("WIM3 supports bit depths 8, 10, 12, and 16")
+            meta_json = json.dumps(meta, separators=(",", ":")).encode("utf-8")
+            return bytes(
+                wimf_v3_cpp.encode_image(pixel_states[0], int(w), int(h), channels,
+                                         depth=depth_enum, metadata=meta_json)
+            )
 
         if format_version == 2:
             encoded_states = [
