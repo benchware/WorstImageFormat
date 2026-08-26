@@ -222,7 +222,7 @@ ContainerInfo parse_container(const uint8_t* data,size_t size){
     const uint64_t expected=(out.width+out.tile_size-1)/out.tile_size*static_cast<uint64_t>((out.height+out.tile_size-1)/out.tile_size);if(count!=expected)throw std::runtime_error("WIM2 tile count mismatch");
     std::unordered_set<uint64_t> seen;
     for(uint32_t i=0;i<count;++i){const uint8_t* p=data+index_start+static_cast<uint64_t>(i)*kEntrySize;TileRecord tile{};tile.x=read16(p);tile.y=read16(p+2);tile.width=read16(p+4);tile.height=read16(p+6);tile.mode=p[8];tile.entropy=p[9];tile.layers=p[10];tile.offset=read64(p+12);tile.size=read32(p+20);tile.raw_size=read32(p+24);tile.checksum=read32(p+28);const uint64_t key=static_cast<uint64_t>(tile.y)<<32|tile.x;const uint64_t max_raw=std::max<uint64_t>(1048576,static_cast<uint64_t>(tile.width)*tile.height*out.channels*std::max(2,out.bit_depth/8)*32);
-        if(!tile.width||!tile.height||tile.mode>3||tile.entropy>1||tile.layers!=1||static_cast<uint32_t>(tile.x)+tile.width>out.width||static_cast<uint32_t>(tile.y)+tile.height>out.height||tile.x%out.tile_size||tile.y%out.tile_size||tile.width!=std::min<uint32_t>(out.tile_size,out.width-tile.x)||tile.height!=std::min<uint32_t>(out.tile_size,out.height-tile.y)||!seen.insert(key).second||tile.offset<data_start||tile.offset>size||tile.size>size-tile.offset||tile.raw_size>max_raw)throw std::runtime_error("invalid WIM2 tile entry");out.tiles.push_back(std::move(tile));}
+        if(!tile.width||!tile.height||tile.mode>3||tile.entropy>2||tile.layers!=1||static_cast<uint32_t>(tile.x)+tile.width>out.width||static_cast<uint32_t>(tile.y)+tile.height>out.height||tile.x%out.tile_size||tile.y%out.tile_size||tile.width!=std::min<uint32_t>(out.tile_size,out.width-tile.x)||tile.height!=std::min<uint32_t>(out.tile_size,out.height-tile.y)||!seen.insert(key).second||tile.offset<data_start||tile.offset>size||tile.size>size-tile.offset||tile.raw_size>max_raw)throw std::runtime_error("invalid WIM2 tile entry");out.tiles.push_back(std::move(tile));}
     return out;
 }
 
@@ -235,7 +235,7 @@ std::vector<uint8_t> write_container(const ContainerInfo& container){
 
 namespace {
 
-constexpr uint8_t kEntropyNone = 0, kEntropyZstd = 1;
+constexpr uint8_t kEntropyNone = 0, kEntropyZstd = 1, kEntropyRC = 2;
 
 class OperationCancelled final : public std::runtime_error {
 public:
@@ -300,11 +300,15 @@ void parallel_for(size_t count, unsigned workers, Function function) {
 
 std::vector<uint8_t> compress_zstd(const std::vector<uint8_t>& input, SearchPreset preset) {
     const int level = preset == SearchPreset::Fast ? 3 : (preset == SearchPreset::Extreme ? 19 : 9);
-    struct CctxCloser { void operator()(ZSTD_CCtx* context) const noexcept { ZSTD_freeCCtx(context); } };
-    thread_local std::unique_ptr<ZSTD_CCtx, CctxCloser> context{ZSTD_createCCtx()};
+    // Deliberately leaked per-thread context: MinGW's emutls runs TLS
+    // destructors during pthread key teardown, so a destroying thread_local
+    // unique_ptr intermittently touches freed memory at worker-thread exit
+    // (Dr.Mem: emutls_destroy -> ~unique_ptr, then heap corruption reports).
+    // Contexts are bounded at one per thread; the OS reclaims them at exit.
+    thread_local ZSTD_CCtx* context = ZSTD_createCCtx();
     if (!context) throw std::bad_alloc();
     std::vector<uint8_t> output(ZSTD_compressBound(input.size()));
-    const size_t size = ZSTD_compressCCtx(context.get(), output.data(), output.size(),
+    const size_t size = ZSTD_compressCCtx(context, output.data(), output.size(),
                                           input.data(), input.size(), level);
     if (ZSTD_isError(size)) throw std::runtime_error(ZSTD_getErrorName(size));
     output.resize(size);
@@ -312,12 +316,12 @@ std::vector<uint8_t> compress_zstd(const std::vector<uint8_t>& input, SearchPres
 }
 
 std::vector<uint8_t> decompress_zstd(const uint8_t* input, size_t size, size_t expected) {
-    struct DctxCloser { void operator()(ZSTD_DCtx* context) const noexcept { ZSTD_freeDCtx(context); } };
-    thread_local std::unique_ptr<ZSTD_DCtx, DctxCloser> context{ZSTD_createDCtx()};
+    // See compress_zstd for why this context is intentionally not destroyed.
+    thread_local ZSTD_DCtx* context = ZSTD_createDCtx();
     if (!context) throw std::bad_alloc();
     std::vector<uint8_t> output(expected);
     const size_t actual =
-        ZSTD_decompressDCtx(context.get(), output.data(), output.size(), input, size);
+        ZSTD_decompressDCtx(context, output.data(), output.size(), input, size);
     if (ZSTD_isError(actual) || actual != expected) throw std::runtime_error("invalid zstd tile payload");
     return output;
 }
@@ -417,14 +421,23 @@ struct RangeDecoder {
     uint32_t code = 0;
     const uint8_t* data;
     size_t pos;
+    // Hard ceiling on byte consumption. The encoder's five-byte flush makes
+    // valid streams never reach it; hostile or desynced input does, turning
+    // a silent out-of-bounds read into an exception.
+    size_t limit = 0;
     RangeDecoder(const uint8_t* d, size_t offset) : data(d), pos(offset + 1) {
         for (int i = 0; i < 4; ++i) code = (code << 8) | data[pos++];
     }
+    void set_limit(size_t bytes) { limit = bytes; }
     int decode(uint16_t prob) {
         const uint32_t bound = (range >> 11) * prob;
         int bit;
         if (code < bound) { range = bound; bit = 0; } else { code -= bound; range -= bound; bit = 1; }
-        while (range < (1u << 24)) { code = (code << 8) | data[pos++]; range <<= 8; }
+        while (range < (1u << 24)) {
+            if (limit != 0 && pos >= limit) throw std::runtime_error("range coder overread");
+            code = (code << 8) | data[pos++];
+            range <<= 8;
+        }
         return bit;
     }
 };
@@ -579,6 +592,46 @@ std::vector<size_t> rc_band_starts(uint32_t width, uint32_t height, unsigned lev
     return starts;
 }
 
+// Entropy-coded predictive residuals (tile entropy byte 2). The logical
+// stream matches encode_predictive - predictor kind per channel-row, then
+// wrapped residuals - but kinds ride two adaptive binary decisions and
+// residuals are coded as signed values through the shared coefficient models,
+// reusing the per-predictor context slot as the band index.
+std::vector<uint8_t> encode_predictive_rc(const ImageView& v) {
+    validate(v); const uint32_t mask=v.bytes_per_sample==1?0xFFu:0xFFFFu; const uint32_t mod=mask+1u; const int64_t modulus=static_cast<int64_t>(mask)+1;
+    RangeEncoder re; WaveletRCModels models; BitModel kind_bit[2];
+    int prev_zero[kMaxRCBands]; for(auto& value:prev_zero)value=1;
+    std::vector<uint8_t> rbuf(v.bytes_per_sample==1?v.width:0u);
+    for(uint8_t c=0;c<v.channels;++c)for(uint32_t y=0;y<v.height;++y){
+        std::array<uint64_t,4> costs{};
+        if(v.bytes_per_sample==1){const uint8_t* base=v.data+static_cast<size_t>(y)*v.row_stride+c;for(uint32_t x=0;x<v.width;++x)rbuf[x]=base[x*v.channels];costs[1]=simd::left_filter_cost(rbuf.data(),v.width);}
+        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0;const uint32_t ps[4]={0,l,u,paeth(l,u,ul)};for(int k=0;k<4;++k){if(v.bytes_per_sample==1&&k==1)continue;uint32_t r=(cur-ps[k])&mask;costs[k]+=std::min(r,mod-r);}}
+        const uint8_t kind=static_cast<uint8_t>(std::min_element(costs.begin(),costs.end())-costs.begin());
+        re.encode(kind&1,kind_bit[0].prob);kind_bit[0].update(kind&1);
+        re.encode((kind>>1)&1,kind_bit[1].prob);kind_bit[1].update((kind>>1)&1);
+        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0,ps[4]={0,l,u,paeth(l,u,ul)};int64_t s=static_cast<int64_t>((cur-ps[kind])&mask);if(s>modulus/2)s-=modulus;encode_coef_rc(re,models,prev_zero[kind],s,kind);}
+    }
+    re.flush();
+    return std::move(re.output);
+}
+
+std::vector<uint8_t> decode_predictive_rc(const uint8_t* data,size_t size,uint32_t w,uint32_t h,uint8_t ch,uint8_t bps){
+    if(!data||size<5)throw std::runtime_error("truncated predictive RC stream");
+    RangeDecoder rd(data,0); rd.set_limit(size); WaveletRCModels models; BitModel kind_bit[2];
+    int prev_zero[kMaxRCBands]; for(auto& value:prev_zero)value=1;
+    const uint32_t mask=bps==1?0xFFu:0xFFFFu; const int64_t modulus=static_cast<int64_t>(mask)+1;
+    const size_t expected=static_cast<size_t>(ch)*h*(1+static_cast<size_t>(w)*bps);
+    std::vector<uint8_t> out; out.reserve(expected);
+    for(uint8_t c=0;c<ch;++c)for(uint32_t y=0;y<h;++y){
+        const int k0=rd.decode(kind_bit[0].prob);kind_bit[0].update(k0);
+        const int k1=rd.decode(kind_bit[1].prob);kind_bit[1].update(k1);
+        const uint8_t kind=static_cast<uint8_t>(k0|(k1<<1)); out.push_back(kind);
+        for(uint32_t x=0;x<w;++x){const int64_t s=decode_coef_rc(rd,models,prev_zero[kind],kind);append_sample(out,s<0?static_cast<uint32_t>(s+modulus):static_cast<uint32_t>(s),bps);}
+    }
+    if(rd.pos>size+8||out.size()!=expected)throw std::runtime_error("corrupt predictive RC stream");
+    return out;
+}
+
 std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality, bool lossless,
                                          std::vector<uint8_t>* reconstructed,
                                          float quantizer_scale = 1.0f) {
@@ -661,7 +714,9 @@ std::vector<uint8_t> decode_wavelet_tile(const uint8_t* data, size_t size, uint3
         // A3 stage 2: range-coder unpacking, no per-channel size headers.
         // Reversible 5/6 code coefficients with per-subband contexts walked in
         // dyadic segment order; 3/4 keep the single-context stream of 2.2.4.
+        if (size < 15) throw std::runtime_error("truncated wavelet RC stream");
         RangeDecoder rd(data, 10);
+        rd.set_limit(size);
         WaveletRCModels models;
         const size_t coef_count = static_cast<size_t>(padded_width) * padded_height;
         const bool banded = reversible >= 5 && subband;
@@ -811,6 +866,8 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
             double best_score = std::numeric_limits<double>::infinity();
             size_t best_size = std::numeric_limits<size_t>::max();
             TileMode best_mode = TileMode::Raw;
+            uint8_t best_entropy = kEntropyZstd;
+            bool best_is_rc = false;
             std::vector<uint8_t> best_raw, best_payload;
             // Known-flaw B2: scoring every candidate at Extreme's Zstandard level
             // 19 wastes most of the effort. Rank candidates with the cheaper
@@ -826,8 +883,10 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
             // the stored per-tile quantizer makes both decodable, and the 0.9
             // step fills the one-ladder-notch gap that showed up as the
             // 34-43 dB dead zone in the photo-pattern RD sweep.
-            auto consider = [&](TileMode mode, std::vector<uint8_t> raw, const std::vector<uint8_t>* reconstructed) {
-                auto payload = mode == TileMode::Raw || (raw.size() > 5 && raw[5] >= 3) ? raw : compress_zstd(raw, scoring_preset);
+            auto consider = [&](TileMode mode, std::vector<uint8_t> raw, const std::vector<uint8_t>* reconstructed,
+                                bool rc_coded = false) {
+                const bool already_coded = rc_coded || mode == TileMode::Raw || (raw.size() > 5 && raw[5] >= 3);
+                auto payload = already_coded ? raw : compress_zstd(raw, scoring_preset);
                 double distortion = 0;
                 if (!options.lossless && mode == TileMode::Wavelet && reconstructed) {
                     for (size_t i = 0; i < pixels.size(); i += image.bytes_per_sample) {
@@ -845,12 +904,20 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                 if (score < best_score || (score == best_score && payload.size() < best_size) ||
                     (score == best_score && payload.size() == best_size && static_cast<uint8_t>(mode) < static_cast<uint8_t>(best_mode))) {
                     best_score = score; best_size = payload.size(); best_mode = mode;
+                    best_entropy = rc_coded ? kEntropyRC
+                        : already_coded ? kEntropyNone : kEntropyZstd;
+                    best_is_rc = rc_coded;
                     best_raw = std::move(raw); best_payload = std::move(payload);
                 }
             };
             for (const TileMode mode : candidate_modes(tile, options)) {
                 if (mode == TileMode::Raw) consider(mode, pixels, nullptr);
-                else if (mode == TileMode::Predictive) consider(mode, encode_predictive(tile), nullptr);
+                else if (mode == TileMode::Predictive) {
+                    consider(mode, encode_predictive(tile), nullptr);
+                    // Same tile mode, competing entropy stage: whichever codes
+                    // smaller wins the record. Legacy zstd wins exact ties.
+                    consider(mode, encode_predictive_rc(tile), nullptr, true);
+                }
                 else if (mode == TileMode::Palette) {
                     std::vector<uint8_t> raw = encode_palette(tile);
                     if (!raw.empty()) consider(mode, std::move(raw), nullptr);
@@ -867,8 +934,9 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
                 }
             }
             // Ship the winner at the full preset strength (see scoring_preset).
-            // Range-coded wavelet tiles are already compressed; skip zstd.
-            if (best_mode != TileMode::Raw && !(best_raw.size() > 5 && best_raw[5] >= 3))
+            // Range-coded tiles (wavelet RC or predictive RC) are already
+            // compressed; skip zstd for them.
+            if (!best_is_rc && best_mode != TileMode::Raw && !(best_raw.size() > 5 && best_raw[5] >= 3))
                 best_payload = compress_zstd(best_raw, options.preset);
             else
                 best_payload = best_raw;
@@ -876,9 +944,9 @@ Status encode_image(const ImageView& image, const EncodeOptions& options,
             record.x = static_cast<uint16_t>(x); record.y = static_cast<uint16_t>(y);
             record.width = static_cast<uint16_t>(width); record.height = static_cast<uint16_t>(height);
             record.mode = static_cast<uint8_t>(best_mode);
-            // Range-coded tiles are already entropy-coded; store them raw.
-            record.entropy = best_mode == TileMode::Raw || (best_raw.size() > 5 && best_raw[5] >= 3)
-                                 ? kEntropyNone : kEntropyZstd;
+            // RC-coded tiles (entropy already chosen during scoring) are
+            // stored raw; everything else non-Raw ships zstd.
+            record.entropy = best_entropy;
             record.layers = 1; record.raw_size = static_cast<uint32_t>(best_raw.size());
             record.payload = std::move(best_payload);
             container.tiles[index] = std::move(record);
@@ -932,9 +1000,19 @@ Status decode_image(const uint8_t* data, size_t size, const DecodeOptions& optio
             const auto& tile = container.tiles[selected[selected_index]];
             const uint8_t* packed = data + tile.offset;
             if (crc32(packed, tile.size) != tile.checksum) throw std::runtime_error("WIMF v2 tile checksum mismatch");
-            std::vector<uint8_t> raw = tile.entropy == kEntropyNone
-                ? std::vector<uint8_t>(packed, packed + tile.size)
-                : decompress_zstd(packed, tile.size, tile.raw_size);
+            std::vector<uint8_t> raw;
+            if (tile.entropy == kEntropyNone) {
+                raw.assign(packed, packed + tile.size);
+            } else if (tile.entropy == kEntropyZstd) {
+                raw = decompress_zstd(packed, tile.size, tile.raw_size);
+            } else {
+                // kEntropyRC: predictive residuals coded through the range
+                // coder; the decoded bytes are the classic predictive payload.
+                if (tile.mode != static_cast<uint8_t>(TileMode::Predictive))
+                    throw std::runtime_error("RC entropy is only valid for predictive tiles");
+                raw = decode_predictive_rc(packed, tile.size, tile.width, tile.height,
+                                           container.channels, bytes_per_sample);
+            }
             std::vector<uint8_t> pixels;
             if (tile.mode == static_cast<uint8_t>(TileMode::Raw)) {
                 const size_t expected = static_cast<size_t>(tile.width) * tile.height * container.channels * bytes_per_sample;
