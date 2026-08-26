@@ -144,7 +144,7 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd_crc.cpp -o v2_simd_crc.o
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v3_wavelet.cpp -o v3_wavelet.o
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v3_core.cpp -o v3_core.o
-          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_core.cpp -o v2_core.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd -c src/v2_core.cpp -o v2_core.o
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp v2_core.o v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o zstd.o -pthread -o v2_core_tests
           ./v2_core_tests
           echo "### WIM2 native suite" >> $GITHUB_STEP_SUMMARY

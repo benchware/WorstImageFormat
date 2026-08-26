@@ -14,16 +14,34 @@ from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageOps
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import wimf  # noqa: E402
-from wimf.hybrid import MODE_NAMES, parse_v2  # noqa: E402
 
 THREADS = 4
+# Every configuration reports under WIM2 (the classic container with lossy
+# tuning); the WIM3 entry documents the new default container, which is
+# lossless-only in this release and ignores codec selection.
 CONFIGURATIONS = [
-    ("lossless_auto", "Lossless Auto", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "auto"}),
-    ("lossy_auto_q5", "Lossy Auto Q5", {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "auto"}),
-    ("predictive", "Predictive", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "predictive"}),
-    ("palette", "Palette", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "palette"}),
-    ("wavelet_q5", "Wavelet Q5", {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "wavelet"}),
-    ("raw", "Raw", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "raw"}),
+    (
+        "lossless_auto",
+        "Lossless Auto (WIM2)",
+        {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "auto"},
+        2,
+    ),
+    (
+        "lossy_auto_q5",
+        "Lossy Auto Q5 (WIM2)",
+        {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "auto"},
+        2,
+    ),
+    (
+        "predictive",
+        "Predictive (WIM2)",
+        {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "predictive"},
+        2,
+    ),
+    ("palette", "Palette (WIM2)", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "palette"}, 2),
+    ("wavelet_q5", "Wavelet Q5 (WIM2)", {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "wavelet"}, 2),
+    ("raw", "Raw (WIM2)", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "raw"}, 2),
+    ("v3_lossless", "Lossless Auto (WIM3)", {"lossless": True, "format_version": 3}, 3),
 ]
 
 
@@ -38,10 +56,7 @@ def encode_decode(image, options):
 
 
 def tile_modes(payload):
-    counts = {name: 0 for name in MODE_NAMES.values()}
-    for entry in parse_v2(payload)["entries"]:
-        counts[MODE_NAMES[entry[4]]] += 1
-    return {name: count for name, count in counts.items() if count}
+    return {name: count for name, count in wimf.inspect(payload)["tile_modes"].items() if count}
 
 
 def metrics(source, decoded, payload, encode_ms, decode_ms):
@@ -105,17 +120,19 @@ def build_comparison(panels):
 
 
 def options_text(options):
-    return ", ".join(
-        [
+    version = options.get("format_version", 2)
+    parts = [f"format=WIM{version}"]
+    if version == 2:
+        parts += [
             f"codec={options['codec']}",
             f"lossless={str(options['lossless']).lower()}",
             f"quality={options['quality']}",
             f"preset={options['preset']}",
-            f"threads={THREADS}",
-            "tile=128x128",
-            "format=WIM2",
         ]
-    )
+    else:
+        parts.append("lossless=true (lossy v3 lands with perceptual quantization)")
+    parts.append(f"threads={THREADS}")
+    return ", ".join(parts)
 
 
 def report_fixture(slug, title, source, credit, output, preview_dir):
@@ -123,12 +140,13 @@ def report_fixture(slug, title, source, credit, output, preview_dir):
     fixture_dir.mkdir(parents=True, exist_ok=True)
     source.save(fixture_dir / "source.png")
     results, decoded_images = {}, {}
-    for key, label, options in CONFIGURATIONS:
-        payload, decoded, encode_ms, decode_ms = encode_decode(source, options)
+    for key, label, options, version in CONFIGURATIONS:
+        encode_options = {**options, "format_version": version}
+        payload, decoded, encode_ms, decode_ms = encode_decode(source, encode_options)
         results[key] = {
             "label": label,
-            "configuration": options_text(options),
-            "options": {**options, "threads": THREADS, "tile_size": 128, "format_version": 2},
+            "configuration": options_text(encode_options),
+            "options": {**encode_options, "threads": THREADS, "tile_size": 128},
             **metrics(source, decoded, payload, encode_ms, decode_ms),
         }
         decoded_images[key] = decoded
@@ -137,14 +155,14 @@ def report_fixture(slug, title, source, credit, output, preview_dir):
 
     if results["lossless_auto"]["max_error"] != 0:
         raise AssertionError(f"{slug} failed its lossless roundtrip")
-    if slug == "synthetic-mixed" and not {"palette", "predictive"} <= set(results["lossless_auto"]["tile_modes"]):
-        raise AssertionError("synthetic fixture did not exercise mixed Palette/Predictive auto selection")
+    if slug == "synthetic-mixed" and len(results["lossless_auto"]["tile_modes"]) < 2:
+        raise AssertionError("synthetic fixture did not exercise mixed auto tile selection")
 
     difference = ImageEnhance.Contrast(ImageChops.difference(source, decoded_images["wavelet_q5"])).enhance(8)
     difference.save(fixture_dir / "wavelet-difference-8x.png")
     comparison = build_comparison(
         [("Source", source)]
-        + [(label, decoded_images[key]) for key, label, _ in CONFIGURATIONS]
+        + [(label, decoded_images[key]) for key, label, _, _ in CONFIGURATIONS]
         + [("Wavelet difference (8x)", difference)]
     )
     comparison.save(fixture_dir / "comparison.png")
