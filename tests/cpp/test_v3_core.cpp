@@ -169,7 +169,7 @@ int main() {
         for (int kind = 0; kind < 3; ++kind) {
             auto pixels = make_image(70, 50, 3, kind, 11);
             ImageView view{pixels.data(), 70, 50, 3, 1, static_cast<size_t>(70) * 3};
-            const auto payload = embedded::encode(view);
+            const auto payload = embedded::encode(view, 0);
             const auto decoded =
                 embedded::decode(payload.data(), payload.size(), 70, 50, 3, 1, 255);
             check(decoded == pixels, "embedded wavelet lossless roundtrip");
@@ -182,13 +182,15 @@ int main() {
     {
         auto pixels = make_image(64, 64, 1, 0, 21);
         ImageView view{pixels.data(), 64, 64, 1, 1, 64};
-        const auto payload = embedded::encode(view);
-        const uint16_t planes = static_cast<uint16_t>(payload[2] | payload[3] << 8);
+        const auto payload = embedded::encode(view, 0);
+        // Header: u8 channels, u8 levels, u8 quant_shift, u16 plane_count.
+        const uint16_t planes = static_cast<uint16_t>(payload[3] | payload[4] << 8);
         check(planes > 1, "embedded stream has multiple planes");
+        check(payload[2] == 0, "lossless stream carries quant_shift 0");
 
-        // Single channel: one u32 length per plane after the 4-byte header.
+        // Single channel: one u32 length per plane after the 5-byte header.
         std::vector<size_t> plane_len(planes);
-        size_t table_end = 4;
+        size_t table_end = 5;
         for (unsigned p = 0; p < planes; ++p) {
             plane_len[p] = static_cast<size_t>(payload[table_end]) |
                            static_cast<size_t>(payload[table_end + 1]) << 8 |
@@ -257,6 +259,46 @@ int main() {
               "u12 decode");
         check(out16.bit_depth == 16 && out16.pixels == bytes, "u12 content exact");
         corrupt_and_expect_reject(blob, 6, kDepthF16, "f16 depth rejected");
+    }
+
+    // Lossy: quantized-bitplane coding trades exactness for size, with
+    // monotonic quality behavior and exactness restored at quality 10.
+    {
+        auto pixels = make_image(96, 96, 3, 2, 33);
+        ImageView view{pixels.data(), 96, 96, 3, 1, static_cast<size_t>(96) * 3};
+        size_t previous_bytes = 0;
+        double previous_mse = -1.0;
+        for (uint8_t quality : {uint8_t{3}, uint8_t{5}, uint8_t{7}, uint8_t{10}}) {
+            EncodeOptionsV3 opt;
+            opt.lossless = quality == 10;
+            opt.quality = quality;
+            std::vector<uint8_t> blob;
+            check(static_cast<bool>(encode_image(view, opt, blob)), "lossy encode succeeds");
+            wimf::v2::DecodeResult out;
+            check(static_cast<bool>(decode_image(blob.data(), blob.size(), DecodeOptionsV3{}, out)),
+                  "lossy decode succeeds");
+            double mse = 0;
+            for (size_t i = 0; i < pixels.size(); ++i) {
+                const double delta = static_cast<double>(pixels[i]) - out.pixels[i];
+                mse += delta * delta;
+            }
+            mse /= pixels.size();
+            if (quality == 10) {
+                check(out.pixels == pixels, "quality 10 stays lossless");
+            } else {
+                check(mse > 0, "lossy quality actually loses information");
+                if (previous_bytes > 0) {
+                    check(blob.size() >= previous_bytes, "payload grows with quality");
+                    check(mse <= previous_mse + 1e-9, "higher quality never hurts PSNR");
+                }
+                previous_bytes = blob.size();
+                previous_mse = mse;
+            }
+        }
+        EncodeOptionsV3 lossless_opt;
+        std::vector<uint8_t> lossless_blob;
+        check(static_cast<bool>(encode_image(view, lossless_opt, lossless_blob)), "lossless encode");
+        check(lossless_blob.size() > previous_bytes, "lossless payload exceeds lossy payloads");
     }
 
     if (failures == 0) printf("All WIMF v3 tests passed.\n");

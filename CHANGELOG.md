@@ -7,16 +7,24 @@ All notable WIMF changes are recorded here. The project follows semantic version
 - WIM3 (oxygen) is now the default container. `wimf.encode` and
   `wimf.save` write WIM3 unless `format_version=2` is passed; decode
   auto-detects the magic and reads both formats transparently.
-- The version-3 path is lossless in this release: quality, preset, and
-  codec arguments are validated but only affect version-2 encodes.
-  Multi-state history and anti-rot protection remain version-2 features
-  and raise a clear error under version 3.
+- Lossy WIM3 at launch: quality 1-10 quantizes wavelet coefficient
+  bitplanes (a power-of-two dead-zone quantizer reusing the embedded
+  coder), with progressive truncation still working on lossy payloads.
+  On the CI synthetic fixture, WIM3 Q5 reaches 7.8x and Q1 reaches 284x
+  versus 4.0x lossless.
+- EXIF round-tripping: camera tags from Pillow sources ride container
+  metadata and rebuild on decode; the Pillow plugin re-attaches them on
+  save to JPEG/TIFF/WebP.
+- The version-3 path validates quality, preset, codec, and threads for
+  consistency. Multi-state history and anti-rot protection remain
+  version-2 features and raise a clear error under version 3.
 - New public surface: `wimf.decode(..., target_planes=N)` performs
   progressive decoding of WIM3 wavelet tiles; `wimf.inspect` reports
-  WIM3 tile modes, leaf count, and depth enum; the Pillow plugin
-  registers the WIM3 magic.
+  WIM3 tile modes, leaf count, and depth enum; `WIMFImage.exif` exposes
+  rebuilt EXIF tags; the Pillow plugin registers the WIM3 magic.
 - CI builds and runs the WIM2 and WIM3 native suites separately on every
-  operating system, with per-suite job summaries.
+  operating system, and publishes separate WIM2/WIM3 visual codec
+  reports with per-suite job summaries.
 
 ## 2.3.0 - 2026-08-26
 

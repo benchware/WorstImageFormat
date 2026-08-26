@@ -26,7 +26,7 @@ PYBIND11_MODULE(wimf_v3_cpp, m) {
     m.doc() = "Portable native kernels for the WIMF v3 (oxygen) codec";
     m.def("encode_image",
           [](py::buffer value, uint32_t width, uint32_t height, uint8_t channels, uint16_t max_tile,
-             uint8_t depth, py::bytes metadata) {
+             uint8_t depth, bool lossless, uint8_t quality, py::bytes metadata) {
               auto view = value.request();
               const uint8_t bps = depth == 0 ? 1 : 2;
               const uint64_t byte_count = static_cast<uint64_t>(view.size) * view.itemsize;
@@ -40,6 +40,8 @@ PYBIND11_MODULE(wimf_v3_cpp, m) {
               EncodeOptionsV3 options{};
               options.max_tile = max_tile;
               options.depth = depth;
+              options.lossless = lossless;
+              options.quality = quality;
               options.metadata = metadata.cast<std::string>();
               std::vector<uint8_t> output;
               wimf::v2::Status status;
@@ -51,7 +53,7 @@ PYBIND11_MODULE(wimf_v3_cpp, m) {
               return py::bytes(reinterpret_cast<const char*>(output.data()), output.size());
           },
           "pixels"_a, "width"_a, "height"_a, "channels"_a, "max_tile"_a = 256, "depth"_a = 0,
-          "metadata"_a = py::bytes());
+          "lossless"_a = true, "quality"_a = 7, "metadata"_a = py::bytes());
     m.def("decode_image",
           [](py::buffer value, uint8_t target_planes) {
               auto view = value.request();

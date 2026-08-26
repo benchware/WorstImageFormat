@@ -66,6 +66,25 @@ class WIMFImage:
         self.pil = pil_image
         self.metadata = metadata or {}
         self.raw_pixels = raw_pixels  # keep the full data
+        if self.metadata.get("exif"):
+            # Pillow's JPEG/TIFF/WebP savers pick EXIF back up from info.
+            try:
+                self.pil.info["exif"] = self.exif.tobytes()
+            except Exception:
+                pass
+
+    @property
+    def exif(self):
+        """EXIF tags preserved through the container, as a Pillow Exif object."""
+        from PIL import Image
+
+        exif = Image.Exif()
+        for tag, value in (self.metadata.get("exif") or {}).items():
+            try:
+                exif[int(tag)] = value
+            except (TypeError, ValueError):
+                continue
+        return exif
 
     @property
     def width(self):
@@ -378,6 +397,14 @@ class WIMFEncoder:
                 raise ValueError("image dimensions must be > 0")
             self.metadata = {}
             self.raw_data = None
+            # Preserve camera/authoring EXIF when the source carries it; the
+            # tags ride the container metadata and rebuild on decode.
+            try:
+                exif = image.getexif()
+                if len(exif):
+                    self.metadata["exif"] = {str(tag): value for tag, value in exif.items()}
+            except Exception:
+                pass
 
         self.states = [self.pil]
         self.metadata = self.metadata or {}
@@ -488,15 +515,13 @@ class WIMFEncoder:
             warn_legacy(legacy_feature)
 
         if format_version == 3:
-            # The oxygen container: lossless quadtree tiles with Raw,
-            # Predictive-RC, and embedded-wavelet coding. Lossy quality
-            # tuning arrives with perceptual quantization; until then the
-            # version-3 path is always lossless and ignores quality/preset/
-            # codec. Multi-state history stays a version-2 feature.
+            # The oxygen container: quadtree tiles with Raw, Predictive-RC,
+            # and embedded-wavelet coding. Lossy coding quantizes wavelet
+            # bitplanes (quality maps to the quantization shift); preset and
+            # codec apply to version 2 only. Multi-state history stays a
+            # version-2 feature.
             if len(pixel_states) > 1:
                 raise ValueError("multi-state history requires format_version=2")
-            # Validate tuning inputs even though v3 ignores them today, so a
-            # typo never silently changes meaning when lossy v3 lands.
             if preset not in ("Fast", "Balanced", "Extreme"):
                 raise ValueError("preset must be Fast, Balanced, or Extreme")
             try:
@@ -523,7 +548,14 @@ class WIMFEncoder:
             meta_json = json.dumps(meta, separators=(",", ":")).encode("utf-8")
             return bytes(
                 wimf_v3_cpp.encode_image(
-                    pixel_states[0], int(w), int(h), channels, depth=depth_enum, metadata=meta_json
+                    pixel_states[0],
+                    int(w),
+                    int(h),
+                    channels,
+                    depth=depth_enum,
+                    lossless=bool(lossless),
+                    quality=int(quality),
+                    metadata=meta_json,
                 )
             )
 

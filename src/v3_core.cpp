@@ -5,6 +5,7 @@
 
 #include "v3_core.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
@@ -218,6 +219,13 @@ Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
             throw std::runtime_error("depth enum disagrees with sample width");
         if (options.max_tile < 16 || options.max_tile > 4096)
             throw std::runtime_error("max_tile must be between 16 and 4096");
+        if (options.quality < 1 || options.quality > 10)
+            throw std::runtime_error("quality must be between 1 and 10");
+        // Lossy coding quantizes wavelet coefficients by a power-of-two
+        // shift derived from quality: quality 10 (or lossless) keeps every
+        // bitplane, quality 1 discards up to nine.
+        const uint8_t quant_shift =
+            options.lossless ? 0 : static_cast<uint8_t>(std::clamp<int>(10 - options.quality, 0, 9));
         if (options.metadata.size() > 16u * 1024u * 1024u)
             throw std::runtime_error("metadata too large");
 
@@ -235,7 +243,7 @@ Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
         for (const Node& leaf : leaves) {
             const ImageView view = subview(image, leaf);
             auto rc = wimf::v2::encode_predictive_rc(view);
-            auto embedded = embedded::encode(view);
+            auto embedded = embedded::encode(view, quant_shift);
             const size_t raw_bytes =
                 static_cast<size_t>(leaf.w) * leaf.h * image.channels * bps;
             struct Candidate {

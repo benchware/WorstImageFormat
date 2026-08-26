@@ -51,6 +51,8 @@ struct ContainerInfo {
 struct EncodeOptionsV3 {
     uint16_t max_tile = 256;  // 16..4096; leaves never exceed this edge
     uint8_t depth = kDepthU8; // sample format enum; u10/u12/u16 ride 2-byte LE samples
+    bool lossless = true;     // false enables quantized-bitplane lossy coding
+    uint8_t quality = 7;      // 1..10; maps to the coefficient quantization shift
     std::string metadata;
 };
 
@@ -69,7 +71,7 @@ uint32_t crc32c(const uint8_t* data, size_t size);
 // Embedded bitplane wavelet codec (tile mode 2): lossless CDF 5/3 plus
 // zerotree-contexted significance coding in truncatable plane segments.
 namespace embedded {
-std::vector<uint8_t> encode(const ImageView& tile);
+std::vector<uint8_t> encode(const ImageView& tile, uint8_t quant_shift);
 std::vector<uint8_t> decode(const uint8_t* data, size_t size, uint32_t width, uint32_t height,
                             uint8_t channels, uint8_t bytes_per_sample, uint8_t target_planes);
 }  // namespace embedded

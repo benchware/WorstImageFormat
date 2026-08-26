@@ -42,7 +42,9 @@ V2_CONFIGURATIONS = [
 ]
 V3_CONFIGURATIONS = [
     ("v3_lossless", "Lossless Auto", {"lossless": True}),
-    ("v3_coarse_preview", "Lossless Auto (top-plane decode)", {"lossless": True}),
+    ("v3_lossy_q5", "Lossy Q5", {"lossless": False, "quality": 5}),
+    ("v3_lossy_q1", "Lossy Q1", {"lossless": False, "quality": 1}),
+    ("v3_coarse_preview", "Lossless (top-plane decode)", {"lossless": True}),
 ]
 
 
@@ -131,7 +133,9 @@ def options_text(version, options, target_planes=None):
             f"preset={options['preset']}",
         ]
     else:
-        parts.append("lossless=true (lossy v3 lands with perceptual quantization)")
+        parts.append(f"lossless={str(options['lossless']).lower()}")
+        if not options["lossless"]:
+            parts.append(f"quality={options['quality']}")
         if target_planes:
             parts.append(f"decode target_planes={target_planes}")
     parts.append(f"threads={THREADS}")

@@ -23,6 +23,10 @@ class WIMFImageFile(ImageFile.ImageFile):
         self._size = self._decoded.size
         self._mode = self._decoded.mode
         self.info.update(decoded.metadata)
+        if decoded.metadata.get("exif"):
+            # Raw EXIF bytes in info let Pillow re-attach the tags when the
+            # image is saved to formats that carry them (JPEG, TIFF, WebP).
+            self.info["exif"] = decoded.exif.tobytes()
         self.tile = []
 
     def load(self):
@@ -37,7 +41,16 @@ def _save(image, fp, filename):
     supported = {"quality", "lossless", "preset", "codec", "threads", "metadata", "anti_rot"}
     options = {key: value for key, value in options.items() if key in supported}
     encoder = WIMFEncoder(image)
-    metadata = options.pop("metadata", None)
+    metadata = dict(options.pop("metadata", None) or {})
+    if "exif" not in metadata and image.info.get("exif"):
+        # Round-trip EXIF from a previously opened WIMF (or any source that
+        # stashed raw tags in info) into the container metadata.
+        try:
+            exif = Image.Exif()
+            exif.load(image.info["exif"])
+            metadata["exif"] = {str(tag): value for tag, value in exif.items()}
+        except Exception:
+            pass
     if metadata:
         encoder.set_metadata(**metadata)
     if options.pop("anti_rot", False):

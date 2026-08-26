@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+import wimf
+
 wimf_v3 = pytest.importorskip("wimf.wimf_v3_cpp")
 
 
@@ -92,9 +94,39 @@ def test_v3_progressive_decode_and_16bit():
         wimf_v3.encode_image(deep.tobytes(), 40, 40, 3, depth=4)  # f16 reserved
 
 
-def test_wim2_files_still_decode_through_v2():
-    import wimf
+def test_v3_lossy_quality_ladder():
+    image = _image(80, 80, 3, kind="gradient")
+    payloads = {q: wimf_v3.encode_image(image.tobytes(), 80, 80, 3, lossless=q == 10, quality=q) for q in (1, 5, 10)}
+    assert len(payloads[1]) < len(payloads[5]) < len(payloads[10])
+    for quality, payload in payloads.items():
+        decoded = wimf_v3.decode_image(payload)
+        assert decoded["width"] == 80 and len(decoded["pixels"]) == image.nbytes
+        if quality == 10:
+            assert decoded["pixels"] == image.tobytes()
+        else:
+            assert decoded["pixels"] != image.tobytes()
 
+
+def test_exif_roundtrip():
+    from PIL import Image
+
+    image = _image(40, 40, 3, kind="gradient").copy()
+    pil = Image.fromarray(image)
+    exif = pil.getexif()
+    exif[271] = "WorstImageFormat"  # Make
+    exif[272] = "Oxygen Test Bench"  # Model
+    pil.info["exif"] = exif.tobytes()
+
+    for version in (2, 3):
+        payload = wimf.encode(pil, format_version=version)
+        assert payload[:4] == (b"WIM3" if version == 3 else b"WIM2")
+        decoded = wimf.decode(payload)
+        assert decoded.metadata["exif"]["271"] == "WorstImageFormat"
+        assert decoded.exif[271] == "WorstImageFormat"
+        assert decoded.exif[272] == "Oxygen Test Bench"
+
+
+def test_wim2_files_still_decode_through_v2():
     arr = _image(48, 48, 3, kind="gradient")
     payload = wimf.encode(arr, lossless=True)
     decoded = wimf.decode(payload)

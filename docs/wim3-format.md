@@ -1,12 +1,14 @@
 # WIMF 3.0 format specification (draft, codename oxygen)
 
-Status: **phases 1 and 2 implemented on this branch** (container, split
+Status: **phases 1-3 implemented on this branch**. The container, split
 tree, Raw / Predictive-RC / embedded-wavelet tile modes, u8-u16 sample
-depths, truncation-based progressive decode). Chroma-from-luma, perceptual
-quantization, and the learned transform remain future work; each needs
-corpus evaluation and conformance vectors before code. Container
-compatibility with WIM2 is intentionally broken; WIM2 files keep decoding
-through the existing v2 path forever.
+depths, truncation-based progressive decode, and quantized-bitplane lossy
+coding all ship. EXIF tags round-trip through the container metadata block
+(`exif` key: integer-tag strings to values; Pillow interop included).
+Remaining future work: chroma-from-luma, perceptual (CSF-weighted)
+quantization, and the optional learned transform - each needs corpus
+evaluation. Container compatibility with WIM2 is intentionally broken;
+WIM2 files keep decoding through the existing v2 path forever.
 
 ## Design goals
 
@@ -71,6 +73,19 @@ Phase 2 (this branch):
   decode.
 - Sample depths u8, u10, u12, u16 (u10/u12 ride little-endian u16 samples);
   f16 stays reserved and rejected.
+
+Phase 3 (this branch):
+
+- Lossy coding via quantized bitplanes: the tile payload header carries a
+  `quant_shift` byte (0-14); coefficient magnitudes are coded after an
+  arithmetic right shift by that amount and shifted back on
+  reconstruction - a uniform dead-zone scalar quantizer that reuses the
+  entire embedded machinery. Quality 1-10 maps to the shift; quality 10 or
+  the lossless flag keeps every plane. Lossy payloads truncate
+  progressively exactly like lossless ones.
+- EXIF interop: camera tags captured from Pillow sources ride the metadata
+  JSON under `exif` and rebuild into `PIL.Image.Exif` on decode, so
+  WIMF-to-JPEG/TIFF saves re-attach them automatically.
 
 Future work in order: chroma-from-luma + perceptual quantization (needs a
 photo-corpus RD harness), learned transform behind a scalar fallback.

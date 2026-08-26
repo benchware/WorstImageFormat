@@ -11,7 +11,7 @@
 // its parent coefficient is already significant.
 //
 // Payload layout:
-//   u8 channels, u8 levels, u16 plane_count
+//   u8 channels, u8 levels, u8 quant_shift, u16 plane_count
 //   u32 segment_length[channels * plane_count]   (plane-major, then channel)
 //   segments in the same order
 
@@ -169,12 +169,6 @@ std::vector<int32_t> parent_map(const std::vector<BandRect>& bands, size_t count
     return parents;
 }
 
-unsigned band_of(const std::vector<BandRect>& bands, size_t index) {
-    for (unsigned b = static_cast<unsigned>(bands.size()); b-- > 0;)
-        if (index >= bands[b].base) return b;
-    return 0;
-}
-
 struct SigModels {
     BitModel sig[kMaxBands][2];  // [subband][parent significant]
     BitModel sign;
@@ -184,7 +178,12 @@ struct SigModels {
 
 namespace embedded {
 
-std::vector<uint8_t> encode(const ImageView& tile) {
+// Lossy coding quantizes coefficient magnitudes by a power-of-two shift
+// before bitplane coding: magnitudes >> quant_shift, coded exactly, then
+// shifted back on reconstruction. This is a uniform dead-zone quantizer and
+// reuses the entire embedded machinery - lossless is simply quant_shift 0.
+std::vector<uint8_t> encode(const ImageView& tile, uint8_t quant_shift) {
+    if (quant_shift > 14) throw std::runtime_error("quant_shift above the 14-bit cap");
     if (!tile.data || !tile.width || !tile.height || !tile.channels ||
         (tile.bytes_per_sample != 1 && tile.bytes_per_sample != 2))
         throw std::runtime_error("unsupported layout for embedded wavelet");
@@ -193,7 +192,16 @@ std::vector<uint8_t> encode(const ImageView& tile) {
     for (uint32_t value = std::min(pw, ph); value > 1 && levels < 3; value >>= 1) ++levels;
 
     const auto bands = band_layout(pw, ph, levels);
-    const auto parents = parent_map(bands, static_cast<size_t>(pw) * ph);
+    const size_t coef_total = static_cast<size_t>(pw) * ph;
+    // Per-coefficient subband id, precomputed once: the plane loops below
+    // would otherwise run an O(bands) scan per coefficient per plane.
+    std::vector<uint8_t> band_ids(coef_total);
+    for (size_t b = 0; b < bands.size(); ++b) {
+        const size_t begin = bands[b].base;
+        const size_t end = b + 1 < bands.size() ? bands[b + 1].base : coef_total;
+        for (size_t i = begin; i < end; ++i) band_ids[i] = static_cast<uint8_t>(b);
+    }
+    const auto parents = parent_map(bands, coef_total);
     SigModels models{};
     std::vector<std::vector<int64_t>> ordered(tile.channels);
 
@@ -218,20 +226,23 @@ std::vector<uint8_t> encode(const ImageView& tile) {
         for (const int64_t coef : ordered[c]) {
             const uint64_t mag =
                 coef < 0 ? static_cast<uint64_t>(-(coef + 1)) + 1 : static_cast<uint64_t>(coef);
-            max_magnitude = std::max(max_magnitude, mag);
+            max_magnitude = std::max(max_magnitude, mag >> quant_shift);
         }
     }
 
     // Magnitudes drive every bitplane decision; sign rides separately. Using
     // raw two's-complement bits here would mark negatives significant at the
-    // top plane (their sign-extension sets every high bit).
+    // top plane (their sign-extension sets every high bit). The quantization
+    // shift folds away the low bitplanes lossy coding would discard anyway.
     std::vector<std::vector<uint64_t>> magnitudes(tile.channels);
     for (uint8_t c = 0; c < tile.channels; ++c) {
         magnitudes[c].resize(ordered[c].size());
-        for (size_t i = 0; i < ordered[c].size(); ++i)
-            magnitudes[c][i] = ordered[c][i] < 0
-                                   ? static_cast<uint64_t>(-(ordered[c][i] + 1)) + 1
-                                   : static_cast<uint64_t>(ordered[c][i]);
+        for (size_t i = 0; i < ordered[c].size(); ++i) {
+            const uint64_t mag = ordered[c][i] < 0
+                                     ? static_cast<uint64_t>(-(ordered[c][i] + 1)) + 1
+                                     : static_cast<uint64_t>(ordered[c][i]);
+            magnitudes[c][i] = mag >> quant_shift;
+        }
     }
 
     const int n_planes = max_magnitude == 0 ? 1 : top_bit(max_magnitude) + 1;
@@ -263,7 +274,7 @@ std::vector<uint8_t> encode(const ImageView& tile) {
             for (size_t i = 0; i < coefs.size(); ++i) {
                 if (state.significant[i]) continue;
                 const int parent_sig = parents[i] >= 0 ? state.significant[parents[i]] : 0;
-                BitModel& model = models.sig[band_of(bands, i)][parent_sig];
+                BitModel& model = models.sig[band_ids[i]][parent_sig];
                 const int becomes = static_cast<int>((mags[i] >> plane_bit) & 1);
                 encoder.encode(becomes, model.prob);
                 model.update(becomes);
@@ -290,11 +301,12 @@ std::vector<uint8_t> encode(const ImageView& tile) {
 
     const uint16_t plane_count = static_cast<uint16_t>(n_planes);
     std::vector<uint8_t> out;
-    size_t total_bytes = 4 + segments.size() * 4;
+    size_t total_bytes = 5 + segments.size() * 4;
     for (const auto& segment : segments) total_bytes += segment.size();
     out.reserve(total_bytes);
     out.push_back(tile.channels);
     out.push_back(static_cast<uint8_t>(levels));
+    out.push_back(quant_shift);
     out.push_back(static_cast<uint8_t>(plane_count & 0xFF));
     out.push_back(static_cast<uint8_t>(plane_count >> 8));
     for (const uint32_t len : lengths)
@@ -305,20 +317,21 @@ std::vector<uint8_t> encode(const ImageView& tile) {
 
 std::vector<uint8_t> decode(const uint8_t* data, size_t size, uint32_t width, uint32_t height,
                             uint8_t channels, uint8_t bytes_per_sample, uint8_t target_planes) {
-    if (!data || size < 4) throw std::runtime_error("truncated embedded wavelet payload");
+    // Payload header: u8 channels, u8 levels, u8 quant_shift, u16 plane_count.
+    if (!data || size < 5) throw std::runtime_error("truncated embedded wavelet payload");
     const uint8_t stored_channels = data[0];
     const unsigned levels = data[1];
-    const uint16_t plane_count =
-        static_cast<uint16_t>(data[2] | data[3] << 8);
-    if (stored_channels != channels || levels > 8 || plane_count == 0)
+    const uint8_t quant_shift = data[2];
+    const uint16_t plane_count = static_cast<uint16_t>(data[3] | data[4] << 8);
+    if (stored_channels != channels || levels > 8 || quant_shift > 14 || plane_count == 0)
         throw std::runtime_error("invalid embedded wavelet header");
-    if (size < 4 + static_cast<size_t>(stored_channels) * plane_count * 4)
+    if (size < 5 + static_cast<size_t>(stored_channels) * plane_count * 4)
         throw std::runtime_error("truncated embedded wavelet lengths");
 
     // How many planes fit in the available bytes (file truncation), capped by
     // the caller's progressive target.
     std::vector<uint32_t> lengths(static_cast<size_t>(stored_channels) * plane_count);
-    size_t cursor = 4;
+    size_t cursor = 5;
     for (auto& len : lengths) {
         len = static_cast<uint32_t>(data[cursor]) | static_cast<uint32_t>(data[cursor + 1]) << 8 |
               static_cast<uint32_t>(data[cursor + 2]) << 16 |
@@ -340,6 +353,12 @@ std::vector<uint8_t> decode(const uint8_t* data, size_t size, uint32_t width, ui
     const uint32_t pw = next_pow2(width), ph = next_pow2(height);
     const auto bands = band_layout(pw, ph, levels);
     const auto parents = parent_map(bands, static_cast<size_t>(pw) * ph);
+    std::vector<uint8_t> band_ids(static_cast<size_t>(pw) * ph);
+    for (size_t b = 0; b < bands.size(); ++b) {
+        const size_t begin = bands[b].base;
+        const size_t end = b + 1 < bands.size() ? bands[b + 1].base : band_ids.size();
+        for (size_t i = begin; i < end; ++i) band_ids[i] = static_cast<uint8_t>(b);
+    }
 
     struct ChannelState {
         std::vector<uint8_t> significant;
@@ -372,7 +391,7 @@ std::vector<uint8_t> decode(const uint8_t* data, size_t size, uint32_t width, ui
             for (size_t i = 0; i < coef_count; ++i) {
                 if (state.significant[i]) continue;
                 const int parent_sig = parents[i] >= 0 ? state.significant[parents[i]] : 0;
-                BitModel& model = models.sig[band_of(bands, i)][parent_sig];
+                BitModel& model = models.sig[band_ids[i]][parent_sig];
                 const int becomes = decoder.decode(model.prob);
                 model.update(becomes);
                 if (becomes) {
@@ -399,9 +418,9 @@ std::vector<uint8_t> decode(const uint8_t* data, size_t size, uint32_t width, ui
     for (uint8_t c = 0; c < channels; ++c) {
         ChannelState& state = states[c];
         for (size_t i = 0; i < coef_count; ++i) {
-            ordered[i] = state.significant[i]
-                             ? (state.negative[i] ? -state.value[i] : state.value[i])
-                             : 0;
+            // Dequantize: the coded domain was magnitudes >> quant_shift.
+            const int64_t magnitude = state.value[i] << quant_shift;
+            ordered[i] = state.significant[i] ? (state.negative[i] ? -magnitude : magnitude) : 0;
         }
         auto raster = wimf::v2::restore_raster_order_v2(ordered, pw, ph, levels);
         auto plane_pixels = wimf::v2::wavelet_inverse(raster.data(), raster.size(), pw, ph,
