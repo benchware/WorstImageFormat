@@ -103,8 +103,10 @@ section 5b target the largest one - compressed file size - first.
 - [ ] YCoCg-with-offsets refinement of the color transform remains open.
 - [x] Context-modeled entropy coding for wavelet subbands: an adaptive binary
   range coder (LZMA style, 11-bit probability models) replaces varint+zstd
-  payloads behind reversible flags 3/4; lossy Q5 harness went from
-  1.58x @ 25.48 dB to 2.31x @ 45.46 dB. Legacy unpackers retained for old files.
+  payloads behind reversible flags 3/4/6; lossy tiles add per-subband
+  probability contexts (flag 6), worth about half a percent on the bench
+  corpus, while lossless keeps the single-context stream (flag 3) where
+  banding measured net-negative. Legacy unpackers retained for old files.
 - [ ] Extend context-modeled entropy coding to prediction residuals;
   predictive and palette tiles still use generic Zstd payloads.
 - [x] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve.

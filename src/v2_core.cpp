@@ -434,28 +434,31 @@ struct BitModel {
     void update(int bit) { if (bit) prob -= prob >> 5; else prob += (2048 - prob) >> 5; }
 };
 
+// Maximum subband contexts: LL plus HL/LH/HH for up to 8 wavelet levels.
+constexpr unsigned kMaxRCBands = 25;
+
 struct WaveletRCModels {
-    BitModel is_zero[2];
-    BitModel is_gt[8];
+    BitModel is_zero[kMaxRCBands][2];
+    BitModel is_gt[kMaxRCBands][8];
     BitModel sign;
 };
 
-void encode_coef_rc(RangeEncoder& re, WaveletRCModels& m, int& prev_zero, int64_t c) {
+void encode_coef_rc(RangeEncoder& re, WaveletRCModels& m, int& prev_zero, int64_t c, unsigned band) {
     const int is_zero = c == 0 ? 1 : 0;
-    re.encode(is_zero, m.is_zero[prev_zero].prob);
-    m.is_zero[prev_zero].update(is_zero);
+    re.encode(is_zero, m.is_zero[band][prev_zero].prob);
+    m.is_zero[band][prev_zero].update(is_zero);
     prev_zero = is_zero;
     if (is_zero) return;
     const uint64_t mag = c < 0 ? static_cast<uint64_t>(-c) : static_cast<uint64_t>(c);
     int level = 0;
     while (level < 8 && mag > ((uint64_t)1 << (level + 1)) - 1) {
-        re.encode(1, m.is_gt[level].prob);
-        m.is_gt[level].update(1);
+        re.encode(1, m.is_gt[band][level].prob);
+        m.is_gt[band][level].update(1);
         ++level;
     }
     if (level < 8) {
-        re.encode(0, m.is_gt[level].prob);
-        m.is_gt[level].update(0);
+        re.encode(0, m.is_gt[band][level].prob);
+        m.is_gt[band][level].update(0);
         for (int i = level - 1; i >= 0; --i)
             re.encode(static_cast<int>((mag >> i) & 1), 1024);
     } else {
@@ -468,15 +471,15 @@ void encode_coef_rc(RangeEncoder& re, WaveletRCModels& m, int& prev_zero, int64_
     m.sign.update(sign);
 }
 
-int64_t decode_coef_rc(RangeDecoder& rd, WaveletRCModels& m, int& prev_zero) {
-    const int is_zero = rd.decode(m.is_zero[prev_zero].prob);
-    m.is_zero[prev_zero].update(is_zero);
+int64_t decode_coef_rc(RangeDecoder& rd, WaveletRCModels& m, int& prev_zero, unsigned band) {
+    const int is_zero = rd.decode(m.is_zero[band][prev_zero].prob);
+    m.is_zero[band][prev_zero].update(is_zero);
     prev_zero = is_zero;
     if (is_zero) return 0;
     int level = 0;
     while (level < 8) {
-        const int b = rd.decode(m.is_gt[level].prob);
-        m.is_gt[level].update(b);
+        const int b = rd.decode(m.is_gt[band][level].prob);
+        m.is_gt[band][level].update(b);
         if (!b) break;
         ++level;
     }
@@ -559,6 +562,23 @@ std::vector<int64_t> restore_raster_order(const std::vector<int64_t>& ordered, u
     return coefficients;
 }
 
+// Cumulative segment boundaries of the dyadic ordered stream: band b spans
+// [starts[b], starts[b+1]). Band 0 is LL, then HL/LH/HH per level, coarsest
+// first - mirrors reorder_subbands exactly.
+std::vector<size_t> rc_band_starts(uint32_t width, uint32_t height, unsigned levels) {
+    std::vector<size_t> starts;
+    starts.reserve(2 + static_cast<size_t>(levels) * 3);
+    starts.push_back(0);
+    starts.push_back(static_cast<size_t>(width >> levels) * (height >> levels));
+    for (unsigned level = levels; level >= 1; --level) {
+        const size_t count = static_cast<size_t>(width >> level) * (height >> level);
+        starts.push_back(starts.back() + count);
+        starts.push_back(starts.back() + count);
+        starts.push_back(starts.back() + count);
+    }
+    return starts;
+}
+
 std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality, bool lossless,
                                          std::vector<uint8_t>* reconstructed,
                                          float quantizer_scale = 1.0f) {
@@ -571,16 +591,27 @@ std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality,
     put16(output, static_cast<uint16_t>(padded_height));
     put16(output, static_cast<uint16_t>(padded_width));
     output.push_back(static_cast<uint8_t>(levels | 0x80));
-    // reversible byte doubles as the coefficient-packing selector: 3 lossless
-    // or 4 lossy with A3 stage 2 range-coder packing. Values 0-2 are legacy
-    // formats still decodable but no longer produced.
-    output.push_back(lossless ? 3 : 4);
+    // reversible byte doubles as the coefficient-packing selector. Lossless
+    // keeps the 2.2.4 single-context RC stream (flag 3): measured across the
+    // bench corpus, splitting its near-uniform 5/3 coefficient statistics into
+    // per-subband contexts costs ~0.5% to context fragmentation. Lossy uses
+    // flag 6 with per-subband contexts: quantization makes band statistics
+    // diverge sharply (large LL magnitudes, mostly-zero HH), worth ~0.5%.
+    // Flags 4 (single-context lossy) and 0-2 (legacy varint) remain decodable.
+    output.push_back(lossless ? 3 : 6);
     append_float(output, quantizer);
     if (reconstructed) reconstructed->assign(static_cast<size_t>(tile.width) * tile.height * tile.channels * tile.bytes_per_sample, 0);
 
     RangeEncoder re;
     WaveletRCModels models;
-    int prev_zero = 1;
+    // Segment layout must mirror the decoder's interpretation of the emitted
+    // reversible flag exactly: flag 3 is one flat stream with a single
+    // zero-run context, flag 6 walks dyadic subband segments.
+    const size_t plane_coefficients = static_cast<size_t>(padded_width) * padded_height;
+    const auto band_starts = lossless ? std::vector<size_t>{0, plane_coefficients}
+                                      : rc_band_starts(padded_width, padded_height, levels);
+    int prev_zero[kMaxRCBands];
+    for (auto& value : prev_zero) value = 1;
 
     for (uint8_t channel = 0; channel < tile.channels; ++channel) {
         std::vector<uint8_t> plane(static_cast<size_t>(padded_width) * padded_height * tile.bytes_per_sample);
@@ -593,7 +624,10 @@ std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality,
         const auto coefficients = wavelet_forward(plane.data(), padded_width, padded_height,
                                                   tile.bytes_per_sample, lossless, levels, quantizer);
         const auto ordered = reorder_subbands(coefficients, padded_width, padded_height, levels);
-        for (const int64_t c : ordered) encode_coef_rc(re, models, prev_zero, c);
+        size_t index = 0;
+        for (unsigned band = 0; band + 1 < band_starts.size(); ++band)
+            for (; index < band_starts[band + 1]; ++index)
+                encode_coef_rc(re, models, prev_zero[band], ordered[index], band);
         if (reconstructed) {
             const auto decoded = wavelet_inverse(coefficients.data(), coefficients.size(), padded_width,
                                                  padded_height, tile.bytes_per_sample, lossless, levels, quantizer);
@@ -617,21 +651,30 @@ std::vector<uint8_t> decode_wavelet_tile(const uint8_t* data, size_t size, uint3
     const uint8_t levels = data[4] & 0x7F, reversible = data[5];
     const float quantizer = read_float(data + 6);
     if (padded_width > 256 || padded_height > 256 || padded_width < width || padded_height < height ||
-        levels > 8 || reversible > 4 || !std::isfinite(quantizer) || quantizer <= 0)
+        levels > 8 || reversible > 6 || !std::isfinite(quantizer) || quantizer <= 0)
         throw std::runtime_error("invalid wavelet dimensions");
     size_t position = 10;
     std::vector<uint8_t> output(static_cast<size_t>(width) * height * channels * bytes_per_sample);
-    // Lossless inverse for reversible 1 (legacy) or 3 (range coder).
-    const bool lossless_inv = reversible == 1 || reversible == 3;
+    // Lossless inverses: reversible 1 (legacy), 3 (single-context RC), 5 (banded RC).
+    const bool lossless_inv = reversible == 1 || reversible == 3 || reversible == 5;
     if (reversible >= 3) {
         // A3 stage 2: range-coder unpacking, no per-channel size headers.
+        // Reversible 5/6 code coefficients with per-subband contexts walked in
+        // dyadic segment order; 3/4 keep the single-context stream of 2.2.4.
         RangeDecoder rd(data, 10);
         WaveletRCModels models;
-        int prev_zero = 1;
+        const size_t coef_count = static_cast<size_t>(padded_width) * padded_height;
+        const bool banded = reversible >= 5 && subband;
+        const auto band_starts = banded ? rc_band_starts(padded_width, padded_height, levels)
+                                        : std::vector<size_t>{0, coef_count};
+        int prev_zero[kMaxRCBands];
+        for (auto& value : prev_zero) value = 1;
         for (uint8_t channel = 0; channel < channels; ++channel) {
-            const size_t coef_count = static_cast<size_t>(padded_width) * padded_height;
             std::vector<int64_t> ordered(coef_count);
-            for (size_t i = 0; i < coef_count; ++i) ordered[i] = decode_coef_rc(rd, models, prev_zero);
+            size_t index = 0;
+            for (unsigned band = 0; band + 1 < band_starts.size(); ++band)
+                for (; index < band_starts[band + 1]; ++index)
+                    ordered[index] = decode_coef_rc(rd, models, prev_zero[band], band);
             auto coefficients = subband ? restore_raster_order(std::move(ordered), padded_width, padded_height, levels)
                                         : std::move(ordered);
             const auto plane = wavelet_inverse(coefficients.data(), coefficients.size(), padded_width,
