@@ -17,14 +17,15 @@ using wimf::v2::DecodeResult;
 using wimf::v2::ImageView;
 using wimf::v2::Status;
 
-constexpr uint8_t kDepthU8 = 0;    // phase 1
-constexpr uint8_t kDepthU10 = 1;   // reserved, rejected
-constexpr uint8_t kDepthU12 = 2;   // reserved, rejected
-constexpr uint8_t kDepthU16 = 3;   // reserved, rejected
-constexpr uint8_t kDepthF16 = 4;   // reserved, rejected
+constexpr uint8_t kDepthU8 = 0;
+constexpr uint8_t kDepthU10 = 1;   // stored as u16 little-endian samples
+constexpr uint8_t kDepthU12 = 2;   // stored as u16 little-endian samples
+constexpr uint8_t kDepthU16 = 3;   // stored as u16 little-endian samples
+constexpr uint8_t kDepthF16 = 4;   // reserved, rejected until the HDR phase
 
 constexpr uint8_t kModeRaw = 0;
 constexpr uint8_t kModePredictive = 1;
+constexpr uint8_t kModeWavelet = 2;  // embedded bitplane streams, lossless
 
 constexpr uint8_t kEntropyNone = 0;
 constexpr uint8_t kEntropyRC = 2;  // predictive residuals through the range coder
@@ -49,11 +50,13 @@ struct ContainerInfo {
 
 struct EncodeOptionsV3 {
     uint16_t max_tile = 256;  // 16..4096; leaves never exceed this edge
+    uint8_t depth = kDepthU8; // sample format enum; u10/u12/u16 ride 2-byte LE samples
     std::string metadata;
 };
 
 struct DecodeOptionsV3 {
     uint64_t max_output_bytes = 1024ull * 1024ull * 1024ull;
+    uint8_t target_planes = 255;  // progressive decode: cap bitplanes per wavelet tile
 };
 
 // Parses and fully validates a WIM3 container: magic, header fields, split
@@ -62,6 +65,14 @@ struct DecodeOptionsV3 {
 ContainerInfo parse_container(const uint8_t* data, size_t size);
 
 uint32_t crc32c(const uint8_t* data, size_t size);
+
+// Embedded bitplane wavelet codec (tile mode 2): lossless CDF 5/3 plus
+// zerotree-contexted significance coding in truncatable plane segments.
+namespace embedded {
+std::vector<uint8_t> encode(const ImageView& tile);
+std::vector<uint8_t> decode(const uint8_t* data, size_t size, uint32_t width, uint32_t height,
+                            uint8_t channels, uint8_t bytes_per_sample, uint8_t target_planes);
+}  // namespace embedded
 
 Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
                     std::vector<uint8_t>& encoded) noexcept;

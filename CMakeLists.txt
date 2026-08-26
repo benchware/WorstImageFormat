@@ -4,7 +4,7 @@ project(wimf VERSION 2.2.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-add_library(wimf src/wimf_c.cpp src/v2_core.cpp src/v3_core.cpp
+add_library(wimf src/wimf_c.cpp src/v2_core.cpp src/v3_core.cpp src/v3_wavelet.cpp
     src/v2_simd.cpp src/v2_simd_avx2.cpp src/v2_simd_neon.cpp src/v2_simd_crc.cpp
     third_party/zstd/zstd.c)
 add_library(WIMF::wimf ALIAS wimf)

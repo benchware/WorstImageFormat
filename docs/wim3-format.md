@@ -1,12 +1,12 @@
 # WIMF 3.0 format specification (draft, codename oxygen)
 
-Status: **phase 1 implemented on this branch** (container, split tree, Raw
-and Predictive-RC tile modes; see "Implementation status"). Embedded
-zerotree wavelet streams, HDR sample formats, chroma-from-luma, perceptual
-quantization, and the learned transform remain future phases; each needs
-conformance vectors before code. Container compatibility with WIM2 is
-intentionally broken; WIM2 files keep decoding through the existing v2 path
-forever.
+Status: **phases 1 and 2 implemented on this branch** (container, split
+tree, Raw / Predictive-RC / embedded-wavelet tile modes, u8-u16 sample
+depths, truncation-based progressive decode). Chroma-from-luma, perceptual
+quantization, and the learned transform remain future work; each needs
+corpus evaluation and conformance vectors before code. Container
+compatibility with WIM2 is intentionally broken; WIM2 files keep decoding
+through the existing v2 path forever.
 
 ## Design goals
 
@@ -58,9 +58,22 @@ Phase 1 (this branch), all with full structural validation and CRC32C:
   metadata/tree length overflow, reserved-byte policy, payload CRC,
   truncation at every structural boundary, and WIM2-magic rejection.
 
-Future phases in order: embedded zerotree wavelet streams (progressive),
-HDR depth enums, chroma-from-luma + perceptual quantization, learned
-transform behind a scalar fallback.
+Phase 2 (this branch):
+
+- Tile mode Wavelet (2): lossless CDF 5/3 coefficients coded one magnitude
+  bitplane at a time into independently flushed range-coder segments.
+  Significance decisions use per-subband models keyed by parent
+  significance (zerotree-style context); magnitudes are coded sign-magnitude,
+  never raw two's complement.
+- Progressive decode: payloads truncate at plane boundaries into valid
+  coarser images, and decoders accept an explicit target-plane cap. Both
+  paths are pinned by tests asserting capped-decode equals truncated-file
+  decode.
+- Sample depths u8, u10, u12, u16 (u10/u12 ride little-endian u16 samples);
+  f16 stays reserved and rejected.
+
+Future work in order: chroma-from-luma + perceptual quantization (needs a
+photo-corpus RD harness), learned transform behind a scalar fallback.
 
 ## Embedded coefficient streams
 

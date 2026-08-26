@@ -26,17 +26,20 @@ PYBIND11_MODULE(wimf_v3_cpp, m) {
     m.doc() = "Portable native kernels for the WIMF v3 (oxygen) codec";
     m.def("encode_image",
           [](py::buffer value, uint32_t width, uint32_t height, uint8_t channels, uint16_t max_tile,
-             py::bytes metadata) {
+             uint8_t depth, py::bytes metadata) {
               auto view = value.request();
+              const uint8_t bps = depth == 0 ? 1 : 2;
               const uint64_t byte_count = static_cast<uint64_t>(view.size) * view.itemsize;
-              const uint64_t expected = static_cast<uint64_t>(width) * height * channels;
-              if (!is_c_contiguous(view) || byte_count != expected)
-                  throw py::value_error("pixel buffer length does not match image properties");
+              const uint64_t expected = static_cast<uint64_t>(width) * height * channels * bps;
+              if (!is_c_contiguous(view) || byte_count != expected ||
+                  (view.itemsize != 1 && view.itemsize != 2))
+                  throw py::value_error("pixel buffer does not match image properties");
               std::string pixels(static_cast<const char*>(view.ptr), static_cast<size_t>(byte_count));
               ImageView image{reinterpret_cast<const uint8_t*>(pixels.data()), width, height,
-                              channels, 1, static_cast<size_t>(width) * channels};
+                              channels, bps, static_cast<size_t>(width) * channels * bps};
               EncodeOptionsV3 options{};
               options.max_tile = max_tile;
+              options.depth = depth;
               options.metadata = metadata.cast<std::string>();
               std::vector<uint8_t> output;
               wimf::v2::Status status;
@@ -47,15 +50,16 @@ PYBIND11_MODULE(wimf_v3_cpp, m) {
               if (!status) throw py::value_error(status.message);
               return py::bytes(reinterpret_cast<const char*>(output.data()), output.size());
           },
-          "pixels"_a, "width"_a, "height"_a, "channels"_a, "max_tile"_a = 256,
+          "pixels"_a, "width"_a, "height"_a, "channels"_a, "max_tile"_a = 256, "depth"_a = 0,
           "metadata"_a = py::bytes());
     m.def("decode_image",
-          [](py::buffer value) {
+          [](py::buffer value, uint8_t target_planes) {
               auto view = value.request();
               if (view.ndim != 1 || view.itemsize != 1 || view.strides[0] != 1)
                   throw py::value_error("WIM3 data must be a contiguous byte buffer");
               std::string data(static_cast<const char*>(view.ptr), static_cast<size_t>(view.size));
               DecodeOptionsV3 options;
+              options.target_planes = target_planes;
               DecodeResult output;
               wimf::v2::Status status;
               {
@@ -72,7 +76,7 @@ PYBIND11_MODULE(wimf_v3_cpp, m) {
                   "channels"_a = output.channels, "bit_depth"_a = output.bit_depth,
                   "metadata"_a = py::bytes(output.metadata));
           },
-          "data"_a);
+          "data"_a, "target_planes"_a = 255);
     m.def("parse_container",
           [](py::buffer value) {
               auto view = value.request();

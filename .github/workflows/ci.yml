@@ -110,9 +110,16 @@ jobs:
           cl /nologo /std:c++17 /EHsc /O2 /Isrc /c src/v2_simd_neon.cpp /Fo:v2_simd_neon.obj
           cl /nologo /std:c++17 /EHsc /O2 /Isrc /c src/v2_simd_crc.cpp /Fo:v2_simd_crc.obj
           cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd /c src/v2_core.cpp /Fo:v2_core.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /c src/v3_wavelet.cpp /Fo:v3_wavelet.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /c src/v3_core.cpp /Fo:v3_core.obj
           cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd /c tests/cpp/test_v2_core.cpp /Fo:test_v2_core.obj
+          cl /nologo /std:c++17 /EHsc /O2 /Isrc /Ithird_party/zstd /c tests/cpp/test_v3_core.cpp /Fo:test_v3_core.obj
           link /nologo test_v2_core.obj v2_core.obj v2_simd.obj v2_simd_avx2.obj v2_simd_neon.obj v2_simd_crc.obj zstd.obj /OUT:v2_core_tests.exe
           .\v2_core_tests.exe
+          Add-Content $env:GITHUB_STEP_SUMMARY "### WIM2 native suite`n`nPassed on ${{ matrix.os }}"
+          link /nologo test_v3_core.obj v3_core.obj v3_wavelet.obj v2_core.obj v2_simd.obj v2_simd_avx2.obj v2_simd_neon.obj v2_simd_crc.obj zstd.obj /OUT:v3_core_tests.exe
+          .\v3_core_tests.exe
+          Add-Content $env:GITHUB_STEP_SUMMARY "### WIM3 native suite`n`nPassed on ${{ matrix.os }}"
           cl /nologo /std:c++17 /EHsc /O2 /DWIMF_SIMD_ENABLE_AVX2 /Isrc /c tests/cpp/test_v2_simd.cpp /Fo:test_v2_simd.obj
           link /nologo test_v2_simd.obj v2_simd.obj v2_simd_avx2.obj v2_simd_neon.obj v2_simd_crc.obj /OUT:v2_simd_tests.exe
           .\v2_simd_tests.exe
@@ -135,8 +142,16 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DWIMF_SIMD_ENABLE_AVX2 -Isrc -c src/v2_simd_avx2.cpp -o v2_simd_avx2.o
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd_neon.cpp -o v2_simd_neon.o
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v2_simd_crc.cpp -o v2_simd_crc.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v3_wavelet.cpp -o v3_wavelet.o
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -c src/v3_core.cpp -o v3_core.o
           c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd tests/cpp/test_v2_core.cpp src/v2_core.cpp v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o zstd.o -pthread -o v2_core_tests
           ./v2_core_tests
+          echo "### WIM2 native suite" >> $GITHUB_STEP_SUMMARY
+          echo "Passed on ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
+          c++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -Isrc -Ithird_party/zstd tests/cpp/test_v3_core.cpp v3_core.o v3_wavelet.o v2_core.o v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o zstd.o -pthread -o v3_core_tests
+          ./v3_core_tests
+          echo "### WIM3 native suite" >> $GITHUB_STEP_SUMMARY
+          echo "Passed on ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
           c++ -std=c++17 -O2 -Wall -Wextra -DWIMF_SIMD_ENABLE_AVX2 -Isrc tests/cpp/test_v2_simd.cpp v2_simd.o v2_simd_avx2.o v2_simd_neon.o v2_simd_crc.o -o v2_simd_tests
           ./v2_simd_tests
           c++ -std=c++17 -O2 -Wall -Wextra -Isrc tests/cpp/test_v2_simd.cpp v2_simd_scalar.o v2_simd_neon.o v2_simd_crc.o -o v2_simd_scalar_tests

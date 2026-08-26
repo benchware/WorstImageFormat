@@ -153,7 +153,7 @@ ContainerInfo parse_container(const uint8_t* data, size_t size) {
     const uint32_t tile_count = read32(data + 26);
     const uint64_t payload_len = read64(data + 30);
     if (!out.width || !out.height || !out.channels || out.channels > 16 ||
-        out.depth != kDepthU8 || out.max_tile < 16 || out.max_tile > 4096)
+        out.depth > kDepthU16 || out.max_tile < 16 || out.max_tile > 4096)
         throw std::runtime_error("invalid WIM3 properties");
     const uint64_t index_start = kHeaderSize + metadata_len + tree_len;
     const uint64_t records_bytes = static_cast<uint64_t>(tile_count) * kRecordSize;
@@ -190,11 +190,13 @@ ContainerInfo parse_container(const uint8_t* data, size_t size) {
         const Node& leaf = leaves[i];
         if (tile.x != leaf.x || tile.y != leaf.y || tile.width != leaf.w || tile.height != leaf.h)
             throw std::runtime_error("WIM3 tile geometry disagrees with split tree");
-        if (tile.mode > kModePredictive) throw std::runtime_error("invalid WIM3 tile mode");
+        if (tile.mode > kModeWavelet) throw std::runtime_error("invalid WIM3 tile mode");
         if (tile.mode == kModeRaw && tile.entropy != kEntropyNone)
             throw std::runtime_error("raw tiles must be uncompressed");
         if (tile.mode == kModePredictive && tile.entropy != kEntropyRC)
             throw std::runtime_error("predictive tiles require range-coded entropy");
+        if (tile.mode == kModeWavelet && tile.entropy != kEntropyNone)
+            throw std::runtime_error("wavelet tiles must be uncompressed");
         if (tile.offset != cursor || tile.packed_size == 0 ||
             tile.packed_size > size - payload_start || tile.offset > size - tile.packed_size)
             throw std::runtime_error("invalid WIM3 tile entry");
@@ -209,9 +211,11 @@ ContainerInfo parse_container(const uint8_t* data, size_t size) {
 Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
                     std::vector<uint8_t>& encoded) noexcept {
     try {
-        if (!image.data || !image.width || !image.height || !image.channels || image.channels > 16 ||
-            image.bytes_per_sample != 1)
-            throw std::runtime_error("unsupported image layout for WIM3 phase 1");
+        if (!image.data || !image.width || !image.height || !image.channels || image.channels > 16)
+            throw std::runtime_error("unsupported image layout for WIM3");
+        const uint8_t bps = options.depth == kDepthU8 ? 1 : 2;
+        if (options.depth > kDepthU16 || image.bytes_per_sample != bps)
+            throw std::runtime_error("depth enum disagrees with sample width");
         if (options.max_tile < 16 || options.max_tile > 4096)
             throw std::runtime_error("max_tile must be between 16 and 4096");
         if (options.metadata.size() > 16u * 1024u * 1024u)
@@ -231,19 +235,30 @@ Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
         for (const Node& leaf : leaves) {
             const ImageView view = subview(image, leaf);
             auto rc = wimf::v2::encode_predictive_rc(view);
-            const size_t raw_bytes = static_cast<size_t>(leaf.w) * leaf.h * image.channels;
-            if (rc.size() < raw_bytes) {
-                payloads.push_back({kModePredictive, kEntropyRC, crc32c(rc.data(), rc.size()),
-                                    std::move(rc)});
-            } else {
+            auto embedded = embedded::encode(view);
+            const size_t raw_bytes =
+                static_cast<size_t>(leaf.w) * leaf.h * image.channels * bps;
+            struct Candidate {
+                uint8_t mode, entropy;
+                size_t size;
+                std::vector<uint8_t> bytes;
+            };
+            Candidate best{0, kEntropyNone, 0, {}};
+            // Raw candidate.
+            {
                 std::vector<uint8_t> raw(raw_bytes);
                 for (uint32_t row = 0; row < leaf.h; ++row)
-                    std::memcpy(raw.data() + static_cast<size_t>(row) * leaf.w * image.channels,
+                    std::memcpy(raw.data() + static_cast<size_t>(row) * leaf.w * image.channels * bps,
                                 view.data + static_cast<size_t>(row) * view.row_stride,
-                                static_cast<size_t>(leaf.w) * image.channels);
-                payloads.push_back(
-                    {kModeRaw, kEntropyNone, crc32c(raw.data(), raw.size()), std::move(raw)});
+                                static_cast<size_t>(leaf.w) * image.channels * bps);
+                best = {kModeRaw, kEntropyNone, raw.size(), std::move(raw)};
             }
+            if (rc.size() < best.size) best = {kModePredictive, kEntropyRC, rc.size(), std::move(rc)};
+            if (embedded.size() < best.size)
+                best = {kModeWavelet, kEntropyNone, embedded.size(), std::move(embedded)};
+            payloads.push_back({best.mode, best.entropy,
+                                crc32c(best.bytes.data(), best.bytes.size()),
+                                std::move(best.bytes)});
         }
 
         uint64_t payload_total = 0;
@@ -252,7 +267,7 @@ Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
         std::vector<uint8_t> out;
         out.reserve(static_cast<size_t>(kHeaderSize) + options.metadata.size() + tree.size() +
                     payloads.size() * kRecordSize + static_cast<size_t>(payload_total));
-        out.insert(out.end(), {'W', 'I', 'M', '3', 3, 0, kDepthU8, image.channels});
+        out.insert(out.end(), {'W', 'I', 'M', '3', 3, 0, options.depth, image.channels});
         put32(out, image.width);
         put32(out, image.height);
         put16(out, options.max_tile);
@@ -293,8 +308,9 @@ Status decode_image(const uint8_t* data, size_t size, const DecodeOptionsV3& opt
                     DecodeResult& decoded) noexcept {
     try {
         const ContainerInfo info = parse_container(data, size);
+        const uint8_t bps = info.depth == kDepthU8 ? 1 : 2;
         const size_t pixel_bytes =
-            static_cast<size_t>(info.width) * info.height * info.channels;
+            static_cast<size_t>(info.width) * info.height * info.channels * bps;
         if (pixel_bytes > options.max_output_bytes)
             return {wimf::v2::ErrorCode::ResourceLimit, "output exceeds limit"};
         decoded = DecodeResult{};
@@ -302,7 +318,7 @@ Status decode_image(const uint8_t* data, size_t size, const DecodeOptionsV3& opt
         decoded.width = info.width;
         decoded.height = info.height;
         decoded.channels = info.channels;
-        decoded.bit_depth = 8;
+        decoded.bit_depth = bps == 1 ? 8 : 16;
         decoded.metadata = info.metadata;
 
         for (const auto& tile : info.tiles) {
@@ -313,23 +329,28 @@ Status decode_image(const uint8_t* data, size_t size, const DecodeOptionsV3& opt
             if (tile.mode == kModeRaw) {
                 pixels.assign(packed, packed + tile.packed_size);
                 const size_t expected =
-                    static_cast<size_t>(tile.width) * tile.height * info.channels;
+                    static_cast<size_t>(tile.width) * tile.height * info.channels * bps;
                 if (pixels.size() != expected)
                     throw std::runtime_error("invalid raw tile length");
-            } else {
+            } else if (tile.mode == kModePredictive) {
                 // Two stages, mirroring v2: range-coded stream -> classic
                 // predictive payload -> reconstructed interleaved pixels.
                 const auto classic =
                     wimf::v2::decode_predictive_rc(packed, static_cast<size_t>(tile.packed_size),
-                                                   tile.width, tile.height, info.channels, 1);
+                                                   tile.width, tile.height, info.channels, bps);
                 pixels = wimf::v2::decode_predictive(classic.data(), classic.size(), tile.width,
-                                                     tile.height, info.channels, 1);
+                                                     tile.height, info.channels, bps);
+            } else {
+                pixels = embedded::decode(packed, static_cast<size_t>(tile.packed_size),
+                                          tile.width, tile.height, info.channels, bps,
+                                          options.target_planes);
             }
-            const size_t row_bytes = static_cast<size_t>(tile.width) * info.channels;
+            const size_t row_bytes =
+                static_cast<size_t>(tile.width) * info.channels * bps;
             for (uint32_t row = 0; row < tile.height; ++row) {
                 const size_t source = static_cast<size_t>(row) * row_bytes;
                 const size_t target =
-                    (static_cast<size_t>(tile.y + row) * info.width + tile.x) * info.channels;
+                    (static_cast<size_t>(tile.y + row) * info.width + tile.x) * info.channels * bps;
                 std::memcpy(decoded.pixels.data() + target, pixels.data() + source, row_bytes);
             }
         }

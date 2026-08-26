@@ -160,7 +160,103 @@ int main() {
         }
         check(threw, "v3 parser rejects WIM2");
         wimf::v2::DecodeResult v2out;
-        check(static_cast<bool>(wimf::v2::decode_image(v2blob.data(), v2blob.size(), {}, v2out)), "v2 decodes own file");
+        check(static_cast<bool>(wimf::v2::decode_image(v2blob.data(), v2blob.size(), {}, v2out)),
+              "v2 decodes own file");
+    }
+
+    // Embedded wavelet codec: exact lossless roundtrip on every content kind.
+    {
+        for (int kind = 0; kind < 3; ++kind) {
+            auto pixels = make_image(70, 50, 3, kind, 11);
+            ImageView view{pixels.data(), 70, 50, 3, 1, static_cast<size_t>(70) * 3};
+            const auto payload = embedded::encode(view);
+            const auto decoded =
+                embedded::decode(payload.data(), payload.size(), 70, 50, 3, 1, 255);
+            check(decoded == pixels, "embedded wavelet lossless roundtrip");
+        }
+    }
+
+    // Progressive: decoding fewer planes yields a valid coarser image; a
+    // payload cut at a plane boundary decodes exactly like the capped decode;
+    // the full stream remains lossless.
+    {
+        auto pixels = make_image(64, 64, 1, 0, 21);
+        ImageView view{pixels.data(), 64, 64, 1, 1, 64};
+        const auto payload = embedded::encode(view);
+        const uint16_t planes = static_cast<uint16_t>(payload[2] | payload[3] << 8);
+        check(planes > 1, "embedded stream has multiple planes");
+
+        // Single channel: one u32 length per plane after the 4-byte header.
+        std::vector<size_t> plane_len(planes);
+        size_t table_end = 4;
+        for (unsigned p = 0; p < planes; ++p) {
+            plane_len[p] = static_cast<size_t>(payload[table_end]) |
+                           static_cast<size_t>(payload[table_end + 1]) << 8 |
+                           static_cast<size_t>(payload[table_end + 2]) << 16 |
+                           static_cast<size_t>(payload[table_end + 3]) << 24;
+            table_end += 4;
+        }
+        size_t total = table_end;
+        for (size_t len : plane_len) total += len;
+        check(total == payload.size(), "plane lengths cover payload");
+
+        const unsigned half = planes / 2;
+        size_t cut = table_end;
+        for (unsigned p = 0; p < half; ++p) cut += plane_len[p];
+        std::vector<uint8_t> truncated(payload.begin(), payload.begin() + cut);
+
+        const auto capped =
+            embedded::decode(payload.data(), payload.size(), 64, 64, 1, 1,
+                             static_cast<uint8_t>(half));
+        const auto from_cut = embedded::decode(truncated.data(), truncated.size(), 64, 64, 1, 1, 255);
+        check(capped == from_cut, "target-planes decode equals truncated-payload decode");
+        const auto everything = embedded::decode(payload.data(), payload.size(), 64, 64, 1, 1, 255);
+        check(everything == pixels, "full decode remains lossless");
+        bool differs = capped != everything || half == planes;
+        check(differs, "coarser decode actually differs from full decode");
+    }
+
+    // Container-level progressive query: capping planes stays structurally
+    // valid while the uncapped decode stays exact.
+    {
+        auto pixels = make_image(96, 96, 3, 0, 22);
+        ImageView view{pixels.data(), 96, 96, 3, 1, static_cast<size_t>(96) * 3};
+        EncodeOptionsV3 opt;
+        std::vector<uint8_t> blob;
+        check(static_cast<bool>(encode_image(view, opt, blob)), "encode for progressive suite");
+        DecodeOptionsV3 coarse;
+        coarse.target_planes = 1;
+        wimf::v2::DecodeResult rough;
+        check(static_cast<bool>(decode_image(blob.data(), blob.size(), coarse, rough)),
+              "single-plane decode succeeds");
+        wimf::v2::DecodeResult full;
+        check(static_cast<bool>(decode_image(blob.data(), blob.size(), DecodeOptionsV3{}, full)),
+              "full decode succeeds");
+        check(full.pixels == pixels, "container full decode remains lossless");
+    }
+
+    // 16-bit container roundtrip exercises the HDR depth enums end to end.
+    {
+        std::vector<uint16_t> pixels16;
+        for (uint32_t y = 0; y < 40; ++y)
+            for (uint32_t x = 0; x < 40; ++x)
+                for (uint8_t c = 0; c < 3; ++c)
+                    pixels16.push_back(static_cast<uint16_t>(((x * 1024 + y * 33 + c * 77) % 4000) + 100));
+        std::vector<uint8_t> bytes(pixels16.size() * 2);
+        for (size_t i = 0; i < pixels16.size(); ++i) {
+            bytes[i * 2] = static_cast<uint8_t>(pixels16[i] & 0xFF);
+            bytes[i * 2 + 1] = static_cast<uint8_t>(pixels16[i] >> 8);
+        }
+        ImageView view16{bytes.data(), 40, 40, 3, 2, static_cast<size_t>(40) * 3 * 2};
+        EncodeOptionsV3 opt16;
+        opt16.depth = kDepthU12;
+        std::vector<uint8_t> blob;
+        check(static_cast<bool>(encode_image(view16, opt16, blob)), "u12 encode");
+        wimf::v2::DecodeResult out16;
+        check(static_cast<bool>(decode_image(blob.data(), blob.size(), DecodeOptionsV3{}, out16)),
+              "u12 decode");
+        check(out16.bit_depth == 16 && out16.pixels == bytes, "u12 content exact");
+        corrupt_and_expect_reject(blob, 6, kDepthF16, "f16 depth rejected");
     }
 
     if (failures == 0) printf("All WIMF v3 tests passed.\n");

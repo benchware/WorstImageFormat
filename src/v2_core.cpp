@@ -766,6 +766,19 @@ Status failure(ErrorCode code, const std::exception& error) { return {code, erro
 
 }  // namespace
 
+// Exported wrappers over the internal subband reorder pair for the WIM3
+// embedded wavelet tile mode; distinct names avoid shadowing the internals.
+
+std::vector<int64_t> reorder_subbands_v2(const std::vector<int64_t>& coefficients, uint32_t width,
+                                         uint32_t height, unsigned levels) {
+    return reorder_subbands(coefficients, width, height, levels);
+}
+
+std::vector<int64_t> restore_raster_order_v2(const std::vector<int64_t>& ordered, uint32_t width,
+                                             uint32_t height, unsigned levels) {
+    return restore_raster_order(ordered, width, height, levels);
+}
+
 // Entropy-coded predictive residuals (tile entropy byte 2). The logical
 // stream matches encode_predictive - predictor kind per channel-row, then
 // wrapped residuals - but kinds ride two adaptive binary decisions and
@@ -810,8 +823,7 @@ std::vector<uint8_t> decode_predictive_rc(const uint8_t* data,size_t size,uint32
 
 Status encode_image(const ImageView& image, const EncodeOptions& options,
                     std::vector<uint8_t>& encoded, CodecStats* stats) noexcept {
-    try {
-        validate(image);
+    try {        validate(image);
         if ((options.bit_depth != 8 && options.bit_depth != 10 && options.bit_depth != 16) ||
             (options.bit_depth == 8 ? 1 : 2) != image.bytes_per_sample || options.quality < 1 || options.quality > 10 ||
             options.tile_size < 16 || options.tile_size > 256 || image.width > 65535 || image.height > 65535 ||
