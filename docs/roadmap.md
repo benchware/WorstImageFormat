@@ -169,28 +169,47 @@ section 5b target the largest one - compressed file size - first.
 Base16, Base32, and Base64 transport support is implemented. These encodings
 help move WIMF through text-only systems but are not compression formats.
 
-## 8. WIMF 3.0 candidates (breaking container redesign)
+## 8. WIMF 3.0 (oxygen) - shipped on the oxygen branch
 
-Nothing in this section lands in a 2.x release. Each item needs its own spec,
-conformance vectors, and migration note before any code.
+The breaking container redesign shipped with its launch feature set; each
+item below landed with spec text in `docs/wim3-format.md`, conformance
+vectors, and Python-mirror notes where relevant.
 
-- [ ] Remove the 256x256 tile limit via quadtree tile splitting (AV1
-  superblock style): stable regions stay one large tile while detailed areas
-  subdivide.
-- [ ] Embedded zerotree or bitplane coefficient coding (SPIHT style) so
-  progressive-by-quality decode becomes real instead of the reserved layers
-  field staying at 1.
+- [x] Remove the 256x256 tile limit via a tagged split tree (vertical,
+  horizontal, quad nodes): leaves range from single pixels to the full
+  image, bounded by a per-image max_tile header field.
+- [x] Embedded bitplane coefficient coding with zerotree-style
+  parent-significance contexts: payloads truncate at plane boundaries into
+  valid coarser images, and decoders accept a target-plane cap, making
+  progressive decode real instead of a reserved layers field.
+- [x] Lossy coding at launch via quantized bitplanes: a per-tile
+  quant_shift byte implements a uniform dead-zone scalar quantizer that
+  reuses the embedded coder; quality 1-10 maps to the shift and quality 10
+  stays exactly lossless.
+- [x] First-class sample depths: u8, u10, u12, and u16 ride the core path
+  (u10/u12 as little-endian u16 samples); f16 stays reserved pending the
+  HDR phase.
+- [x] CRC32C per payload, 40-byte tile records, and structural validation
+  before any pixel work.
+- [x] EXIF interop: camera tags ride container metadata and rebuild into
+  Pillow Exif objects on decode, re-attaching on save to JPEG/TIFF/WebP.
+- [x] WIM3 becomes the default public container with format_version=2 as
+  the compatibility switch; CI publishes separate WIM2 and WIM3 visual
+  codec reports and native suites per operating system.
+
+## 9. WIMF 3.x candidates
+
 - [ ] Chroma-from-luma decorrelation evaluated against fixed YCoCg-R across
   the photo corpus before either becomes the default.
 - [ ] Perceptual quantization: contrast-sensitivity-weighted per-subband
-  quantizers replacing the single global quantizer.
-- [ ] First-class HDR and alpha: native 16-bit half float plus alpha handled
-  in the core path rather than as container bolt-ons.
+  quantizers replacing the single global quality-to-shift mapping.
 - [ ] Optional learned transform mode with a tiny decoder-side network, always
   shipped beside a scalar fallback so conformance stays testable.
-- [ ] Carry-over wishlist blocked only by the container break: larger tile
-  header fields, wider range-coder probability precision, per-tile quality maps.
+- [ ] f16 sample depth and premultiplied-alpha semantics for the HDR phase.
+- [ ] WIM3 in the WebAssembly conformance job, the C ABI, and the JS/Rust
+  bindings once the container settles.
+- [ ] Carry-over wishlist: per-tile quality maps and wider range-coder
+  probability precision.
 
 GPU acceleration and plugins inside the codec remain deferred until profiling
-or adopter demand identifies a concrete need. The breaking-container ideas in
-section 8 are tracked separately so they cannot leak into 2.x releases.
+or adopter demand identifies a concrete need.
