@@ -40,8 +40,11 @@ section 5b target the largest one - compressed file size - first.
 - [ ] Native Android build support (Termux/NDK): runtime dispatch already
   resolves the inactive-NEON report in issue #31; document the Android Bionic
   Zstandard `qsort_r` build note for native builds.
-- [ ] Resolve progressive-layer design: either implement multi-layer coding or
-  publish the reservation rationale in the WIM2 specification.
+- [x] Resolve progressive-layer design: the reservation rationale is published
+  in `docs/wim2-format.md` (tiles are independently decodable, layer
+  bookkeeping would touch every container invariant at once, and true
+  embedded progressive streams move to the WIMF 3.0 container break).
+  `layers != 1` remains rejected.
 
 ## 3. Web and languages
 
