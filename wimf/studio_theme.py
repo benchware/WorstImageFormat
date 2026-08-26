@@ -75,7 +75,7 @@ def mix_hex(first, second, ratio):
     """Blend two '#rrggbb' colors; ratio is the weight of ``second``."""
     a, b = first.lstrip("#"), second.lstrip("#")
     return "#" + "".join(
-        f"{round(int(a[i:i + 2], 16) * (1 - ratio) + int(b[i:i + 2], 16) * ratio):02x}" for i in (0, 2, 4)
+        f"{round(int(a[i : i + 2], 16) * (1 - ratio) + int(b[i : i + 2], 16) * ratio):02x}" for i in (0, 2, 4)
     )
 
 

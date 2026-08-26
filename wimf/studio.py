@@ -243,7 +243,9 @@ class Card(tk.Frame):
             head = ttk.Frame(inner, style="Card.TFrame")
             head.pack(fill="x", pady=(0, SPACING["sm"]))
             ttk.Label(head, text=title.upper(), style="CardTitle.TLabel").pack(side="left")
-            ttk.Separator(head, orient="horizontal").pack(side="left", fill="x", expand=True, padx=(SPACING["md"], 0), pady=SPACING["sm"] + 1)
+            ttk.Separator(head, orient="horizontal").pack(
+                side="left", fill="x", expand=True, padx=(SPACING["md"], 0), pady=SPACING["sm"] + 1
+            )
             body = ttk.Frame(inner, style="Card.TFrame")
             body.pack(fill="both", expand=True)
         else:
@@ -260,7 +262,7 @@ class Card(tk.Frame):
 class TitleBar(tk.Frame):
     """Custom themed title bar: logo, title, actions and drawn min/max/close controls."""
 
-    GLYPHS = {"min": "\u2013", "max": "\u25A1", "close": "\u00D7"}
+    GLYPHS = {"min": "\u2013", "max": "\u25a1", "close": "\u00d7"}
     CLOSE_HOVER = "#e81123"
 
     def __init__(
@@ -398,7 +400,9 @@ class TitleBar(tk.Frame):
 class StudioDialog(tk.Toplevel):
     """Themed replacement for native message boxes: bordered frame, title strip, accent actions."""
 
-    def __init__(self, app, *, title, message=None, detail=None, buttons, checkbox=None, default=0, rows=None, code_detail=None):
+    def __init__(
+        self, app, *, title, message=None, detail=None, buttons, checkbox=None, default=0, rows=None, code_detail=None
+    ):
         self.app = app
         self.result = None
         self.checkbox_value = None
@@ -450,12 +454,20 @@ class StudioDialog(tk.Toplevel):
             grid.pack(fill="x", pady=(12, 0))
             for index, (key, value) in enumerate(rows):
                 tk.Label(
-                    grid, text=key, background=palette["surface"], foreground=palette["muted"],
-                    font=("Segoe UI", 9), anchor="w",
+                    grid,
+                    text=key,
+                    background=palette["surface"],
+                    foreground=palette["muted"],
+                    font=("Segoe UI", 9),
+                    anchor="w",
                 ).grid(row=index, column=0, sticky="w", pady=2, padx=(0, 18))
                 tk.Label(
-                    grid, text=str(value), background=palette["surface"], foreground=palette["fg"],
-                    font=("Consolas", 9), anchor="w",
+                    grid,
+                    text=str(value),
+                    background=palette["surface"],
+                    foreground=palette["fg"],
+                    font=("Consolas", 9),
+                    anchor="w",
                 ).grid(row=index, column=1, sticky="w", pady=2)
                 row_widgets.append(grid)
         code_text = None
@@ -524,13 +536,17 @@ class StudioDialog(tk.Toplevel):
             for grid in row_widgets:
                 for child in grid.winfo_children():
                     if isinstance(child, tk.Label):
-                        mono = str(child.cget("font")).lower().startswith("consolas") or "consolas" in str(child.cget("font"))
+                        mono = str(child.cget("font")).lower().startswith("consolas") or "consolas" in str(
+                            child.cget("font")
+                        )
                         child.configure(
                             background=live["surface"],
                             foreground=live["muted"] if not mono else live["fg"],
                         )
             if code_text is not None:
-                code_text.configure(background=live["tip_bg"], foreground=live["tip_fg"], highlightbackground=live["border"])
+                code_text.configure(
+                    background=live["tip_bg"], foreground=live["tip_fg"], highlightbackground=live["border"]
+                )
 
         self._theme_refs.append(restyle)
 
@@ -646,8 +662,12 @@ class WelcomeWindow(tk.Toplevel):
         body = tk.Frame(self, background=palette["pane_bg"])
         body.pack(fill="both", expand=True, padx=SPACING["xl"])
         steps_label = tk.Label(
-            body, text="GET STARTED IN FIVE STEPS", background=palette["pane_bg"], foreground=palette["muted"],
-            font=("Segoe UI", 8, "bold"), anchor="w",
+            body,
+            text="GET STARTED IN FIVE STEPS",
+            background=palette["pane_bg"],
+            foreground=palette["muted"],
+            font=("Segoe UI", 8, "bold"),
+            anchor="w",
         )
         steps_label.pack(anchor="w", pady=(14, 8))
         self._step_widgets = []
@@ -661,13 +681,23 @@ class WelcomeWindow(tk.Toplevel):
             text_frame = tk.Frame(row, background=palette["pane_bg"])
             text_frame.pack(side="left", fill="x", expand=True)
             step_label = tk.Label(
-                text_frame, text=step_title, background=palette["pane_bg"], foreground=palette["fg"],
-                font=("Segoe UI", 10, "bold"), anchor="w",
+                text_frame,
+                text=step_title,
+                background=palette["pane_bg"],
+                foreground=palette["fg"],
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
             )
             step_label.pack(anchor="w")
             detail_label = tk.Label(
-                text_frame, text=step_text, background=palette["pane_bg"], foreground=palette["muted"],
-                font=("Segoe UI", 9), anchor="w", wraplength=460, justify="left",
+                text_frame,
+                text=step_text,
+                background=palette["pane_bg"],
+                foreground=palette["muted"],
+                font=("Segoe UI", 9),
+                anchor="w",
+                wraplength=460,
+                justify="left",
             )
             detail_label.pack(anchor="w")
             self._step_widgets.append((row, circle, index, text_frame, step_label, detail_label))
@@ -676,8 +706,12 @@ class WelcomeWindow(tk.Toplevel):
         hint = tk.Label(
             footer,
             text="Mouse: scroll to zoom, drag to pan, double-click to fit. Everything runs in the background; Cancel stops it.",
-            background=palette["pane_bg"], foreground=palette["muted"], font=("Segoe UI", 9), wraplength=470,
-            justify="left", anchor="w",
+            background=palette["pane_bg"],
+            foreground=palette["muted"],
+            font=("Segoe UI", 9),
+            wraplength=470,
+            justify="left",
+            anchor="w",
         )
         hint.pack(fill="x")
         self._checkbox_var = tk.BooleanVar(value=app.settings["show_welcome"])
@@ -775,12 +809,13 @@ class SettingsWindow(tk.Toplevel):
         appearance.pack(fill="x", pady=(0, 8))
         row = tk.Frame(appearance.body, background=palette["surface"])
         row.pack(fill="x")
-        self._label_refs.append(
-            self._make_label(row, "Theme")
-        )
+        self._label_refs.append(self._make_label(row, "Theme"))
         self.theme_choice = tk.StringVar(value=PALETTES[app.settings["theme"]]["label"].capitalize())
         theme_box = ttk.Combobox(
-            row, state="readonly", width=24, textvariable=self.theme_choice,
+            row,
+            state="readonly",
+            width=24,
+            textvariable=self.theme_choice,
             values=[PALETTES[name]["label"].capitalize() for name in THEME_NAMES],
         )
         theme_box.pack(side="left")
@@ -811,7 +846,9 @@ class SettingsWindow(tk.Toplevel):
         self.codec_value = tk.StringVar(value=app.settings["codec"])
         self.threads_value = tk.StringVar(value=app.settings["threads"])
         quality_spin = ttk.Spinbox(grid, from_=1, to=10, width=6, textvariable=self.quality_value)
-        preset_box = ttk.Combobox(grid, state="readonly", width=14, textvariable=self.preset_value, values=QUALITY_PRESETS)
+        preset_box = ttk.Combobox(
+            grid, state="readonly", width=14, textvariable=self.preset_value, values=QUALITY_PRESETS
+        )
         codec_box = ttk.Combobox(grid, state="readonly", width=14, textvariable=self.codec_value, values=CODECS)
         threads_entry = ttk.Entry(grid, width=8, textvariable=self.threads_value)
         for row_index, (label, widget) in enumerate(
@@ -820,9 +857,9 @@ class SettingsWindow(tk.Toplevel):
             self._label_refs.append(self._make_label(grid, label, grid_row=row_index))
             widget.grid(row=row_index, column=1, sticky="w", pady=3)
         grid.columnconfigure(1, weight=1)
-        ttk.Button(
-            grid, text="Apply and save as default", style="Accent.TButton", command=self._apply_encoding
-        ).grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        ttk.Button(grid, text="Apply and save as default", style="Accent.TButton", command=self._apply_encoding).grid(
+            row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0)
+        )
 
         core = self._card(container, "Codec core")
         core.pack(fill="x", pady=(0, 8))
@@ -836,7 +873,11 @@ class SettingsWindow(tk.Toplevel):
         self.core_note = tk.Label(
             core.body,
             text=self._backend_text(),
-            background=palette["surface"], foreground=palette["muted"], font=("Segoe UI", 9), justify="left", anchor="w",
+            background=palette["surface"],
+            foreground=palette["muted"],
+            font=("Segoe UI", 9),
+            justify="left",
+            anchor="w",
         )
         self.core_note.pack(fill="x", pady=(8, 0))
 
@@ -880,7 +921,10 @@ class SettingsWindow(tk.Toplevel):
 
     def _make_label(self, parent, text, grid_row=None):
         label = tk.Label(
-            parent, text=text, background=self.app.palette["surface"], foreground=self.app.palette["fg"],
+            parent,
+            text=text,
+            background=self.app.palette["surface"],
+            foreground=self.app.palette["fg"],
             font=("Segoe UI", 9),
         )
         if grid_row is None:
@@ -1122,7 +1166,9 @@ class ImagePane(tk.Frame):
             self.photo = ImageTk.PhotoImage(region.resize((out_w, out_h), method))
             self._cache_key = key
         canvas.delete("all")
-        canvas.create_image(origin_x + source_x0 * self.zoom, origin_y + source_y0 * self.zoom, image=self.photo, anchor="nw")
+        canvas.create_image(
+            origin_x + source_x0 * self.zoom, origin_y + source_y0 * self.zoom, image=self.photo, anchor="nw"
+        )
         line_width = 2 if upscale else 1
         for overlay in self.overlays:
             x, y, tile_w, tile_h, color = overlay[:5]
@@ -1409,7 +1455,9 @@ class WIMFStudio:
         file_menu.add_cascade(label="Open Recent", menu=self.recent_menu)
         file_menu.add_separator()
         file_menu.add_command(label="Save WIMF", command=self.save, accelerator="Ctrl+S")
-        file_menu.add_command(label="Save WIMF As...", command=lambda: self.save(as_new=True), accelerator="Ctrl+Shift+S")
+        file_menu.add_command(
+            label="Save WIMF As...", command=lambda: self.save(as_new=True), accelerator="Ctrl+Shift+S"
+        )
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.close, accelerator="Alt+F4")
         self.app_menu.add_cascade(label="File", menu=file_menu)
@@ -1487,7 +1535,9 @@ class WIMFStudio:
         toolbar.pack(fill="x")
         ttk.Button(toolbar, text="Open", command=self.open_file).pack(side="left")
         recent_button = ttk.Menubutton(toolbar, text="Recent", direction="below")
-        recent_toolbar_menu = tk.Menu(recent_button, tearoff=False, postcommand=lambda: self._fill_recent(recent_toolbar_menu))
+        recent_toolbar_menu = tk.Menu(
+            recent_button, tearoff=False, postcommand=lambda: self._fill_recent(recent_toolbar_menu)
+        )
         recent_button.configure(menu=recent_toolbar_menu)
         recent_button.pack(side="left", padx=(SPACING["sm"], 0))
         self._tip(recent_button, "Reopen recently used files.")
@@ -1525,7 +1575,9 @@ class WIMFStudio:
         statusbar = ttk.Frame(self.root, padding=(SPACING["lg"], SPACING["sm"] + 2))
         statusbar.pack(fill="x")
         self.status = tk.StringVar(value="Ready - open an image or WIMF file (Ctrl+O). Press F1 for the quick guide.")
-        ttk.Label(statusbar, textvariable=self.status, style="Pane.TLabel", anchor="w").pack(side="left", fill="x", expand=True)
+        ttk.Label(statusbar, textvariable=self.status, style="Pane.TLabel", anchor="w").pack(
+            side="left", fill="x", expand=True
+        )
         ttk.Label(statusbar, text=f"WIMF {wimf.__version__}", style="Hint.TLabel").pack(side="right")
 
     def _refit_visible(self):
@@ -1562,9 +1614,7 @@ class WIMFStudio:
         subtitle_label.pack(anchor="w")
         actions = tk.Frame(header, background=palette["pane_bg"])
         actions.pack(side="right", padx=SPACING["lg"])
-        menu_button = ttk.Menubutton(
-            actions, text="Menu", style="Tool.TButton", direction="below", menu=self.app_menu
-        )
+        menu_button = ttk.Menubutton(actions, text="Menu", style="Tool.TButton", direction="below", menu=self.app_menu)
         menu_button.pack(side="left", padx=(0, SPACING["sm"]), pady=SPACING["md"])
         self._tip(menu_button, "File, view and help commands.")
         settings_button = ttk.Button(actions, text="Settings", style="Tool.TButton", command=self.open_settings)
@@ -1613,7 +1663,9 @@ class WIMFStudio:
         self._tip(dismiss_button, "Hide tips (re-enable in Settings).")
         self._used_tips = []
         self.shuffle_tip()
-        self.themable.append(lambda: chip.configure(background=self.palette["accent"], foreground=self.palette["accent_text"]))
+        self.themable.append(
+            lambda: chip.configure(background=self.palette["accent"], foreground=self.palette["accent_text"])
+        )
 
     def shuffle_tip(self):
         remaining = [tip for tip in TIPS if tip not in self._used_tips]
@@ -1633,7 +1685,9 @@ class WIMFStudio:
     def _build_compare(self):
         if self.settings["show_tips"]:
             self._build_tip_card()
-        self.compare_top = ttk.Frame(self.compare_tab, padding=(SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["xs"]))
+        self.compare_top = ttk.Frame(
+            self.compare_tab, padding=(SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["xs"])
+        )
         self.compare_top.pack(fill="x")
 
         settings_card = self._card(self.compare_top, "Encode settings")
@@ -1690,7 +1744,9 @@ class WIMFStudio:
         metrics_label = ttk.Label(results_card.body, textvariable=self.metrics_text, anchor="w", justify="left")
         metrics_label.pack(fill="x")
         self._tip(metrics_label, "Encoded size, ratio, error metrics, timings and per-mode tile counts.")
-        self.compare_tab.bind("<Configure>", lambda event: metrics_label.configure(wraplength=max(360, event.width - 64)))
+        self.compare_tab.bind(
+            "<Configure>", lambda event: metrics_label.configure(wraplength=max(360, event.width - 64))
+        )
 
         panes = ttk.Panedwindow(self.compare_tab, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=SPACING["lg"], pady=(0, SPACING["lg"]))
@@ -1781,7 +1837,9 @@ class WIMFStudio:
         anti_card = self._card(container, "Anti-rot protection")
         anti_card.grid(row=0, column=0, sticky="nsew", padx=(0, SPACING["sm"]))
         self.anti_rot = tk.BooleanVar()
-        check = ttk.Checkbutton(anti_card.body, text="Enable anti-rot protection on next encode", variable=self.anti_rot)
+        check = ttk.Checkbutton(
+            anti_card.body, text="Enable anti-rot protection on next encode", variable=self.anti_rot
+        )
         check.pack(anchor="w")
         self._tip(check, "Stores an AROT parity extension so corrupted files can be repaired automatically.")
         ttk.Label(
@@ -1825,7 +1883,9 @@ class WIMFStudio:
         self.lab_area = tk.StringVar(value="payload")
         seed_spin = ttk.Spinbox(experiment_card.body, from_=0, to=2**31 - 1, width=10, textvariable=self.lab_seed)
         count_spin = ttk.Spinbox(experiment_card.body, from_=1, to=100, width=6, textvariable=self.lab_count)
-        area_box = ttk.Combobox(experiment_card.body, state="readonly", width=12, values=AREAS, textvariable=self.lab_area)
+        area_box = ttk.Combobox(
+            experiment_card.body, state="readonly", width=12, values=AREAS, textvariable=self.lab_area
+        )
         rows = (
             ("Seed", seed_spin, "Deterministic randomness: same seed, same damage."),
             ("Mutations", count_spin, "How many bytes to flip or overwrite."),
@@ -1846,7 +1906,11 @@ class WIMFStudio:
         transport_card.pack(side="left", fill="both", expand=True, padx=(SPACING["lg"], 0))
         buttons = (
             ("Copy Base64", lambda: self.copy_base64(), "Copy the whole WIMF file as wrapped Base64 text."),
-            ("Copy data URL", lambda: self.copy_base64(data_url=True), "Copy as a data: URL ready to paste into HTML/CSS."),
+            (
+                "Copy data URL",
+                lambda: self.copy_base64(data_url=True),
+                "Copy as a data: URL ready to paste into HTML/CSS.",
+            ),
             ("Paste Base64", self.paste_base64, "Import a WIMF file from Base64 text on the clipboard."),
             ("Export damaged...", self.export_damaged, "Save the last corrupted copy produced above."),
         )
@@ -1868,7 +1932,9 @@ class WIMFStudio:
         panes = ttk.Panedwindow(self.lab_tab, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=SPACING["lg"], pady=(0, SPACING["lg"]))
         self.lab_original = ImagePane(panes, "Original", self._palette, "Shows the currently loaded source image.")
-        self.lab_preview = ImagePane(panes, "UNSAFE corruption preview", self._palette, "Run 'Corrupt copy' to preview damage.")
+        self.lab_preview = ImagePane(
+            panes, "UNSAFE corruption preview", self._palette, "Run 'Corrupt copy' to preview damage."
+        )
         self.lab_recovered = ImagePane(
             panes, "Strict decode / recovery", self._palette, "Result of the strict decoder on the damaged copy."
         )
@@ -2010,9 +2076,7 @@ class WIMFStudio:
         counts = Counter(modes)
         ordered = [name for name in MODE_COLORS if counts[name]]
         if not ordered:
-            ttk.Label(
-                self.legend_body, text="Encode a WIM2 file to see per-tile codec overlays."
-            ).pack(side="left")
+            ttk.Label(self.legend_body, text="Encode a WIM2 file to see per-tile codec overlays.").pack(side="left")
             return
         for name in ordered:
             var = tk.BooleanVar(value=True)
@@ -2064,9 +2128,7 @@ class WIMFStudio:
         self.difference_pane.set_image(shown)
         psnr = self.document.metrics["psnr"]
         modes = ", ".join(
-            f"{name[0].upper()}:{count}"
-            for name, count in self.document.details.get("tile_modes", {}).items()
-            if count
+            f"{name[0].upper()}:{count}" for name, count in self.document.details.get("tile_modes", {}).items() if count
         )
         self.metrics_text.set(
             f"{self.document.metrics['encoded_bytes']:,} B ({self.document.metrics['ratio']:.3f}x) | "

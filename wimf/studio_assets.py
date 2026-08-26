@@ -67,9 +67,7 @@ def _flatten_path(path=LOGO_PATH, steps=14):
             values = numbers()
             for pair in range(0, len(values) - 1, 2):
                 pos = (
-                    (pos[0] + values[pair], pos[1] + values[pair + 1])
-                    if relative
-                    else (values[pair], values[pair + 1])
+                    (pos[0] + values[pair], pos[1] + values[pair + 1]) if relative else (values[pair], values[pair + 1])
                 )
                 current.append(pos)
         elif letter in "Hh":
