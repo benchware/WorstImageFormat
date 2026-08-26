@@ -70,6 +70,24 @@ v2_extension = Extension(
 )
 configure_simd(v2_extension)
 
+v3_extension = Extension(
+    "wimf.wimf_v3_cpp",
+    [
+        "src/v2_core.cpp",
+        "src/v3_core.cpp",
+        "src/v3_bindings.cpp",
+        "src/v2_bindings.cpp",
+        "src/v2_simd.cpp",
+        "src/v2_simd_avx2.cpp",
+        "src/v2_simd_neon.cpp",
+        "src/v2_simd_crc.cpp",
+        "src/zstd_vendor.cpp",
+    ],
+    include_dirs=["third_party/zstd"],
+    language="c++",
+)
+configure_simd(v3_extension)
+
 ext_modules = [
     Extension(
         "wimf.wimf_cpp",
@@ -77,6 +95,7 @@ ext_modules = [
         language="c++",
     ),
     v2_extension,
+    v3_extension,
 ]
 
 setup(
