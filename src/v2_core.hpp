@@ -122,6 +122,10 @@ TileMode classify_tile(const ImageView& image);
 std::vector<uint8_t> encode_predictive(const ImageView& image);
 std::vector<uint8_t> decode_predictive(const uint8_t* data, size_t size, uint32_t width,
                                        uint32_t height, uint8_t channels, uint8_t bytes_per_sample);
+// Range-coded predictive residual streams (v2 entropy byte 2; reused by WIM3).
+std::vector<uint8_t> encode_predictive_rc(const ImageView& image);
+std::vector<uint8_t> decode_predictive_rc(const uint8_t* data, size_t size, uint32_t width,
+                                          uint32_t height, uint8_t channels, uint8_t bytes_per_sample);
 std::vector<uint8_t> encode_palette(const ImageView& image);
 std::vector<uint8_t> decode_palette(const uint8_t* data, size_t size, uint32_t width,
                                     uint32_t height, uint8_t channels, uint8_t bytes_per_sample);

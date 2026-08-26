@@ -1,9 +1,12 @@
 # WIMF 3.0 format specification (draft, codename oxygen)
 
-Status: **draft for review**. No code on this branch implements any of it.
-Each section needs conformance vectors and a migration note before a C++
-implementation lands. Container compatibility with WIM2 is intentionally
-broken; WIM2 files keep decoding through the existing v2 path forever.
+Status: **phase 1 implemented on this branch** (container, split tree, Raw
+and Predictive-RC tile modes; see "Implementation status"). Embedded
+zerotree wavelet streams, HDR sample formats, chroma-from-luma, perceptual
+quantization, and the learned transform remain future phases; each needs
+conformance vectors before code. Container compatibility with WIM2 is
+intentionally broken; WIM2 files keep decoding through the existing v2 path
+forever.
 
 ## Design goals
 
@@ -30,14 +33,34 @@ broken; WIM2 files keep decoding through the existing v2 path forever.
 
 Replaces fixed-grid tiling. The encoder builds a split tree per image:
 
-- A leaf tile may be any power-of-two-aligned rectangle down to 16x16 and
-  up to the full image; no 256 cap.
-- Split decisions come from the same classifier that shortlists candidate
-  modes today, extended with a rate cost per split level.
-- The tree is serialized once per image (max 4 children per node, depth
-  capped at 12) and checksummed; tile records reference leaf indices.
-- Decoders reconstruct coverage from the tree instead of validating a
-  uniform grid, which removes the `x % tile_size` checks entirely.
+- A leaf tile may be any rectangle from 1 pixel up to the full image; the
+  `max_tile` header field (16..4096) caps the longest edge a leaf may have.
+- Split rule, identical on writer and reader: while either edge exceeds
+  `max_tile`, emit an internal node. Nodes are tagged: 1 = vertical split
+  (left/right halves), 2 = horizontal split (top/bottom halves), 3 = quad
+  when both edges exceed the cap. A dimension only splits when it exceeds
+  the cap, so extreme aspect ratios terminate without degenerate children.
+- The tree serializes pre-order, one byte per node, and is checksummed by
+  the container's payload-length validation; decoders rebuild coverage from
+  it and require the leaf sequence to match the tile records one-to-one,
+  which removes the old `x % tile_size` checks entirely.
+
+## Implementation status
+
+Phase 1 (this branch), all with full structural validation and CRC32C:
+
+- Container parse/write with exact-tree coverage enforcement, record-vs-tree
+  geometry agreement, payload non-overlap, and total-length checks.
+- Tile modes Raw (0) and Predictive (1, entropy byte 2 reusing the v2 range
+  coder for residuals). Lossless only; mode selection picks the smaller of
+  raw vs predictive per leaf.
+- Corruption-rejection vectors: magic, version, depth, max_tile bound,
+  metadata/tree length overflow, reserved-byte policy, payload CRC,
+  truncation at every structural boundary, and WIM2-magic rejection.
+
+Future phases in order: embedded zerotree wavelet streams (progressive),
+HDR depth enums, chroma-from-luma + perceptual quantization, learned
+transform behind a scalar fallback.
 
 ## Embedded coefficient streams
 
@@ -88,7 +111,7 @@ slip to 3.1 without breaking the container.
 
 ## Open questions
 
-1. Does CRC32C replace CRC32 for tile payloads in 3.0, or stay identical
-   to ease cross-version tooling?
-2. Metadata chunk format: carry WIM2's JSON blob unchanged?
+1. Resolved: tile payloads use CRC32C (Castagnoli); the v2 CRC32 remains
+   only in the legacy path.
+2. Metadata chunk format: carry WIM2's JSON blob unchanged? (leaning yes)
 3. Do extensions (XDIR/XEND) survive as-is?

@@ -592,45 +592,6 @@ std::vector<size_t> rc_band_starts(uint32_t width, uint32_t height, unsigned lev
     return starts;
 }
 
-// Entropy-coded predictive residuals (tile entropy byte 2). The logical
-// stream matches encode_predictive - predictor kind per channel-row, then
-// wrapped residuals - but kinds ride two adaptive binary decisions and
-// residuals are coded as signed values through the shared coefficient models,
-// reusing the per-predictor context slot as the band index.
-std::vector<uint8_t> encode_predictive_rc(const ImageView& v) {
-    validate(v); const uint32_t mask=v.bytes_per_sample==1?0xFFu:0xFFFFu; const uint32_t mod=mask+1u; const int64_t modulus=static_cast<int64_t>(mask)+1;
-    RangeEncoder re; WaveletRCModels models; BitModel kind_bit[2];
-    int prev_zero[kMaxRCBands]; for(auto& value:prev_zero)value=1;
-    std::vector<uint8_t> rbuf(v.bytes_per_sample==1?v.width:0u);
-    for(uint8_t c=0;c<v.channels;++c)for(uint32_t y=0;y<v.height;++y){
-        std::array<uint64_t,4> costs{};
-        if(v.bytes_per_sample==1){const uint8_t* base=v.data+static_cast<size_t>(y)*v.row_stride+c;for(uint32_t x=0;x<v.width;++x)rbuf[x]=base[x*v.channels];costs[1]=simd::left_filter_cost(rbuf.data(),v.width);}
-        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0;const uint32_t ps[4]={0,l,u,paeth(l,u,ul)};for(int k=0;k<4;++k){if(v.bytes_per_sample==1&&k==1)continue;uint32_t r=(cur-ps[k])&mask;costs[k]+=std::min(r,mod-r);}}
-        const uint8_t kind=static_cast<uint8_t>(std::min_element(costs.begin(),costs.end())-costs.begin());
-        re.encode(kind&1,kind_bit[0].prob);kind_bit[0].update(kind&1);
-        re.encode((kind>>1)&1,kind_bit[1].prob);kind_bit[1].update((kind>>1)&1);
-        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0,ps[4]={0,l,u,paeth(l,u,ul)};int64_t s=static_cast<int64_t>((cur-ps[kind])&mask);if(s>modulus/2)s-=modulus;encode_coef_rc(re,models,prev_zero[kind],s,kind);}
-    }
-    re.flush();
-    return std::move(re.output);
-}
-
-std::vector<uint8_t> decode_predictive_rc(const uint8_t* data,size_t size,uint32_t w,uint32_t h,uint8_t ch,uint8_t bps){
-    if(!data||size<5)throw std::runtime_error("truncated predictive RC stream");
-    RangeDecoder rd(data,0); rd.set_limit(size); WaveletRCModels models; BitModel kind_bit[2];
-    int prev_zero[kMaxRCBands]; for(auto& value:prev_zero)value=1;
-    const uint32_t mask=bps==1?0xFFu:0xFFFFu; const int64_t modulus=static_cast<int64_t>(mask)+1;
-    const size_t expected=static_cast<size_t>(ch)*h*(1+static_cast<size_t>(w)*bps);
-    std::vector<uint8_t> out; out.reserve(expected);
-    for(uint8_t c=0;c<ch;++c)for(uint32_t y=0;y<h;++y){
-        const int k0=rd.decode(kind_bit[0].prob);kind_bit[0].update(k0);
-        const int k1=rd.decode(kind_bit[1].prob);kind_bit[1].update(k1);
-        const uint8_t kind=static_cast<uint8_t>(k0|(k1<<1)); out.push_back(kind);
-        for(uint32_t x=0;x<w;++x){const int64_t s=decode_coef_rc(rd,models,prev_zero[kind],kind);append_sample(out,s<0?static_cast<uint32_t>(s+modulus):static_cast<uint32_t>(s),bps);}
-    }
-    if(rd.pos>size+8||out.size()!=expected)throw std::runtime_error("corrupt predictive RC stream");
-    return out;
-}
 
 std::vector<uint8_t> encode_wavelet_tile(const ImageView& tile, uint8_t quality, bool lossless,
                                          std::vector<uint8_t>* reconstructed,
@@ -804,6 +765,48 @@ void count_mode(CodecStats& stats, uint8_t mode) {
 Status failure(ErrorCode code, const std::exception& error) { return {code, error.what()}; }
 
 }  // namespace
+
+// Entropy-coded predictive residuals (tile entropy byte 2). The logical
+// stream matches encode_predictive - predictor kind per channel-row, then
+// wrapped residuals - but kinds ride two adaptive binary decisions and
+// residuals are coded as signed values through the shared coefficient models,
+// reusing the per-predictor context slot as the band index. Exported for the
+// WIM3 container, which reuses this codec for its predictive tiles.
+
+std::vector<uint8_t> encode_predictive_rc(const ImageView& v) {
+    validate(v); const uint32_t mask=v.bytes_per_sample==1?0xFFu:0xFFFFu; const uint32_t mod=mask+1u; const int64_t modulus=static_cast<int64_t>(mask)+1;
+    RangeEncoder re; WaveletRCModels models; BitModel kind_bit[2];
+    int prev_zero[kMaxRCBands]; for(auto& value:prev_zero)value=1;
+    std::vector<uint8_t> rbuf(v.bytes_per_sample==1?v.width:0u);
+    for(uint8_t c=0;c<v.channels;++c)for(uint32_t y=0;y<v.height;++y){
+        std::array<uint64_t,4> costs{};
+        if(v.bytes_per_sample==1){const uint8_t* base=v.data+static_cast<size_t>(y)*v.row_stride+c;for(uint32_t x=0;x<v.width;++x)rbuf[x]=base[x*v.channels];costs[1]=simd::left_filter_cost(rbuf.data(),v.width);}
+        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0;const uint32_t ps[4]={0,l,u,paeth(l,u,ul)};for(int k=0;k<4;++k){if(v.bytes_per_sample==1&&k==1)continue;uint32_t r=(cur-ps[k])&mask;costs[k]+=std::min(r,mod-r);}}
+        const uint8_t kind=static_cast<uint8_t>(std::min_element(costs.begin(),costs.end())-costs.begin());
+        re.encode(kind&1,kind_bit[0].prob);kind_bit[0].update(kind&1);
+        re.encode((kind>>1)&1,kind_bit[1].prob);kind_bit[1].update((kind>>1)&1);
+        for(uint32_t x=0;x<v.width;++x){const uint32_t cur=sample(v,x,y,c),l=x?sample(v,x-1,y,c):0,u=y?sample(v,x,y-1,c):0,ul=x&&y?sample(v,x-1,y-1,c):0,ps[4]={0,l,u,paeth(l,u,ul)};int64_t s=static_cast<int64_t>((cur-ps[kind])&mask);if(s>modulus/2)s-=modulus;encode_coef_rc(re,models,prev_zero[kind],s,kind);}
+    }
+    re.flush();
+    return std::move(re.output);
+}
+
+std::vector<uint8_t> decode_predictive_rc(const uint8_t* data,size_t size,uint32_t w,uint32_t h,uint8_t ch,uint8_t bps){
+    if(!data||size<5)throw std::runtime_error("truncated predictive RC stream");
+    RangeDecoder rd(data,0); rd.set_limit(size); WaveletRCModels models; BitModel kind_bit[2];
+    int prev_zero[kMaxRCBands]; for(auto& value:prev_zero)value=1;
+    const uint32_t mask=bps==1?0xFFu:0xFFFFu; const int64_t modulus=static_cast<int64_t>(mask)+1;
+    const size_t expected=static_cast<size_t>(ch)*h*(1+static_cast<size_t>(w)*bps);
+    std::vector<uint8_t> out; out.reserve(expected);
+    for(uint8_t c=0;c<ch;++c)for(uint32_t y=0;y<h;++y){
+        const int k0=rd.decode(kind_bit[0].prob);kind_bit[0].update(k0);
+        const int k1=rd.decode(kind_bit[1].prob);kind_bit[1].update(k1);
+        const uint8_t kind=static_cast<uint8_t>(k0|(k1<<1)); out.push_back(kind);
+        for(uint32_t x=0;x<w;++x){const int64_t s=decode_coef_rc(rd,models,prev_zero[kind],kind);append_sample(out,s<0?static_cast<uint32_t>(s+modulus):static_cast<uint32_t>(s),bps);}
+    }
+    if(rd.pos>size+8||out.size()!=expected)throw std::runtime_error("corrupt predictive RC stream");
+    return out;
+}
 
 Status encode_image(const ImageView& image, const EncodeOptions& options,
                     std::vector<uint8_t>& encoded, CodecStats* stats) noexcept {
