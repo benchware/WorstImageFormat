@@ -241,26 +241,31 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install pytest pybind11 numpy pillow zstandard setuptools wheel
       - run: python setup.py build_ext --inplace
-      - run: python tests/generate_ci_report.py --input .github/assets/dark.png --output codec-report
+      - run: python tests/generate_ci_report.py --input .github/assets/dark.png --output codec-report-wim2 --format 2
+      - run: python tests/generate_ci_report.py --input .github/assets/dark.png --output codec-report-wim3 --format 3
       - name: Render WIMF Studio states
         run: |
           if ! command -v xvfb-run >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y xvfb
           fi
-          xvfb-run -a python tests/generate_studio_screenshots.py codec-report/studio
+          xvfb-run -a python tests/generate_studio_screenshots.py codec-report-wim2/studio
       - name: Upload visual evidence
         id: visual-artifact
         uses: actions/upload-artifact@v7
         with:
           name: codec-visual-report
-          path: codec-report/
+          path: |
+            codec-report-wim2/
+            codec-report-wim3/
           retention-days: 30
       - name: Publish job summary
         run: |
-          cat codec-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat codec-report-wim2/summary.md >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "[Download decoded images, difference heatmap, metrics, and WIMF files](${{ steps.visual-artifact.outputs.artifact-url }})" >> "$GITHUB_STEP_SUMMARY"
+          cat codec-report-wim3/summary.md >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download decoded images, difference heatmaps, metrics, and WIMF files](${{ steps.visual-artifact.outputs.artifact-url }})" >> "$GITHUB_STEP_SUMMARY"
 
   package:
     name: Package metadata and source distribution
