@@ -137,6 +137,28 @@ def test_friendly_memory_api_and_inspection(tmp_path):
     assert wimf.is_wimf(output)
 
 
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param(np.full((64, 64, 3), 128, dtype=np.uint8), id="flat"),
+        pytest.param(np.repeat((np.indices((64, 64))[0] * 4)[..., None], 3, axis=2).astype(np.uint8), id="gradient"),
+        pytest.param(
+            np.clip(
+                (np.indices((64, 64))[0] * 4)[..., None] + np.random.default_rng(5).integers(-12, 13, (64, 64, 3)),
+                0,
+                255,
+            ).astype(np.uint8),
+            id="grad+noise",
+        ),
+    ],
+)
+def test_lossy_size_monotonic_in_quality(image):
+    """Roadmap 5b: the quality ladder must be rate-monotonic; higher quality
+    never produces a smaller payload than the quality below it."""
+    sizes = [len(wimf.encode(image, quality=q, preset="Extreme", threads=1)) for q in range(1, 7)]
+    assert all(sizes[i + 1] >= sizes[i] for i in range(len(sizes) - 1)), sizes
+
+
 def test_native_high_depth_and_forced_mode_roundtrips():
     try:
         from wimf import wimf_v2_cpp  # noqa: F401

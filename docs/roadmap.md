@@ -40,8 +40,11 @@ section 5b target the largest one - compressed file size - first.
 - [ ] Native Android build support (Termux/NDK): runtime dispatch already
   resolves the inactive-NEON report in issue #31; document the Android Bionic
   Zstandard `qsort_r` build note for native builds.
-- [ ] Resolve progressive-layer design: either implement multi-layer coding or
-  publish the reservation rationale in the WIM2 specification.
+- [x] Resolve progressive-layer design: the reservation rationale is published
+  in `docs/wim2-format.md` (tiles are independently decodable, layer
+  bookkeeping would touch every container invariant at once, and true
+  embedded progressive streams move to the WIMF 3.0 container break).
+  `layers != 1` remains rejected.
 
 ## 3. Web and languages
 
@@ -103,13 +106,16 @@ section 5b target the largest one - compressed file size - first.
 - [ ] YCoCg-with-offsets refinement of the color transform remains open.
 - [x] Context-modeled entropy coding for wavelet subbands: an adaptive binary
   range coder (LZMA style, 11-bit probability models) replaces varint+zstd
-  payloads behind reversible flags 3/4; lossy Q5 harness went from
-  1.58x @ 25.48 dB to 2.31x @ 45.46 dB. Legacy unpackers retained for old files.
+  payloads behind reversible flags 3/4/6; lossy tiles add per-subband
+  probability contexts (flag 6), worth about half a percent on the bench
+  corpus, while lossless keeps the single-context stream (flag 3) where
+  banding measured net-negative. Legacy unpackers retained for old files.
 - [ ] Extend context-modeled entropy coding to prediction residuals;
   predictive and palette tiles still use generic Zstd payloads.
-- [ ] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve;
-  today Extreme records 6.89× at Q1 versus 17.31× at Q2 across every tested
-  system, so lower quality currently produces larger files.
+- [x] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve.
+  The 2.1/2.2 retunes eliminated the inversion (Extreme Q1 once recorded
+  6.89x versus 17.31x at Q2); verified rate-monotonic across flat, gradient,
+  and noisy content by `test_lossy_size_monotonic_in_quality`.
 - [ ] Optional lossy chroma decimation for photographic tiers, reconstructed
   during decode without changing the WIM2 container.
 - [x] Pin down the quality=10 contract: losslessness comes only from the

@@ -28,18 +28,40 @@ Each tile record contains `x:u16`, `y:u16`, `width:u16`, `height:u16`,
 
 Payloads do not overlap semantically and each tile is independently decodable.
 Current modes are Raw (0), Predictive (1), Palette (2), and Wavelet (3);
-entropy IDs are None (0) and Zstandard (1). WIMF 2.2 writes and accepts exactly
-one layer. Other layer counts are reserved and rejected rather than silently
-misdecoded.
+entropy IDs are None (0), Zstandard (1), and Range-coded (2, predictive
+residuals only). WIMF 2.2 writes and accepts exactly one layer. Other layer
+counts are reserved and rejected rather than silently misdecoded.
 
-Readers validate dimensions, tile coverage, mode and entropy IDs, offsets, expanded-size limits, metadata limits, and checksums before decoding. ROI decoding reads only intersecting entries.
+### Why the layers field stays at 1
+
+The `layers` byte reserves room for quality-progressive coding: multiple
+refinement passes per tile that a decoder could stop after to get an early
+coarse image. Multi-layer coding was considered and deferred for WIM2:
+
+- Tiles are already independently decodable; a progressive client gets most
+  of the practical benefit by decoding tiles in priority order rather than
+  by partially decoding each tile.
+- Layer bookkeeping would touch every container invariant at once: per-layer
+  offsets and checksums in the index, AROT shard repair across layers, ROI
+  intersection semantics, and the raw-size validation limits.
+- The adaptive range coder with subband-aware contexts captures the size
+  wins that motivated layered refinement at a fraction of the complexity.
+
+True embedded progressive streams (zerotree or bitplane coding) are tracked
+as a WIMF 3.0 item, where the container break makes layer-native design
+cheaper than retrofitting this format. Until then `layers != 1` is rejected;
+the value survives so old files never need migration if 3.0 changes course.
+
+Readers validate dimensions, tile coverage, mode and entropy IDs, offsets,
+expanded-size limits, metadata limits, and checksums before decoding. ROI
+decoding reads only intersecting entries.
 
 ## Coding modes
 
 - Raw stores pixel bytes when codec overhead would increase size.
-- Predictive selects a spatial predictor per channel row and compresses reversible residuals.
+- Predictive selects a spatial predictor per channel row and compresses reversible residuals; residuals ship Zstandard-compressed or, when smaller, as an adaptive range-coded stream (entropy ID 2).
 - Palette stores up to 256 local colors plus one-byte indices.
-- Wavelet uses reversible CDF 5/3 for lossless data and quantized CDF 9/7 for lossy data. Coefficients use zero runs and zigzag varints before entropy coding.
+- Wavelet uses reversible CDF 5/3 for lossless data and quantized CDF 9/7 for lossy data. Coefficients are packed by an adaptive binary range coder (reversible flags 3/4 single-context, 6 with per-subband contexts); zero-run varint packing remains decodable via flags 0-2.
 
 `auto` classifies each tile to shortlist candidates. Lossless selection uses actual encoded size. Lossy selection combines encoded size and reconstructed distortion. The chosen mode is always recorded; decoders never classify.
 

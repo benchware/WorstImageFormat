@@ -2,6 +2,32 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
+## 2.3.0 - 2026-08-26
+
+- Predictive tiles gain an adaptive range-coded entropy stage (tile entropy
+  byte 2): signed residuals through the shared coefficient models with
+  per-predictor contexts, competing with Zstandard during scoring and stored
+  only when smaller. Noise-heavy content drops about a quarter in size.
+  The pure-Python decoder rejects byte-2 tiles with a clear message; the
+  native decoder reconstructs and validates them fully.
+- Wavelet lossy tiles use per-subband range-coder probability contexts
+  (reversible flag 6), worth about half a percent over flag 4. Lossless
+  stays on the single-context flag 3 stream where banding measured
+  net-negative. Flags 0-5 remain byte-compatible for old files.
+- Fixed a latent MinGW-only heap corruption at worker-thread exit:
+  thread_local Zstandard contexts wrapped in destroying unique_ptr raced
+  emutls teardown during pthread key cleanup. Contexts are now bounded,
+  intentionally leaked allocations. Found via stress hammering and
+  confirmed fixed under Dr.Memory with zero error reports.
+- Hardened range-coder decoding: consumption limits derived from payload
+  sizes turn hostile or desynced streams into clean rejections instead of
+  out-of-bounds reads past the container.
+- Pinned the quality ladder's rate-monotonicity with a regression test;
+  the historical Q1-larger-than-Q2 inversion no longer reproduces after
+  the 2.1/2.2 retunes.
+- Documented the progressive-layer reservation rationale in the WIM2
+  specification: `layers != 1` stays rejected pending the 3.0 container.
+
 ## 2.2.4 - 2026-08-25
 
 - Wavelet tiles now use an adaptive binary range coder (LZMA-style, with
