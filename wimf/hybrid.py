@@ -479,6 +479,13 @@ def encode_v2(
         raise ValueError("width, height, and channels must be positive integers")
     if channels > 16:
         raise ValueError("channels must be between 1 and 16")
+    # Roadmap QoL: accept case-insensitive codec names and Studio-style
+    # display labels such as "Auto (hybrid)"; normalize before validation
+    # so every downstream consumer sees a canonical lowercase value.
+    if isinstance(codec, str):
+        codec = codec.strip().lower()
+        if " (" in codec:
+            codec = codec.split(" (", 1)[0].strip()
     if codec not in NAME_MODES and codec != "auto":
         raise ValueError(f"unknown codec {codec!r}")
     if not 1 <= quality <= 10:
@@ -689,7 +696,14 @@ def decode_v2(data, roi=None, target_layer=2, operation_token=None):
         packed = data[offset : offset + size]
         if zlib.crc32(packed) != crc:
             raise ValueError("WIMF v2 tile checksum mismatch")
-        raw = packed if entropy == ENTROPY_NONE else _decompress(packed, raw_size)
+        if entropy == ENTROPY_NONE:
+            raw = packed
+        elif entropy == ENTROPY_ZSTD:
+            raw = _decompress(packed, raw_size)
+        else:
+            # Entropy byte 2 (range-coded residuals) is produced by the
+            # native encoder only; the pure-Python path cannot decode it.
+            raise ValueError("RC-entropy tiles require the native decoder")
         if len(raw) != raw_size:
             raise ValueError("WIMF v2 tile expansion length mismatch")
         if mode == MODE_RAW:

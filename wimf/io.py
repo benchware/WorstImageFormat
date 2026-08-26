@@ -25,7 +25,7 @@ def stream_load(filename):
         return
 
     magic, w, h, flags, mlen = parse_header(raw)
-    if magic != b"WIMF":
+    if magic not in (b"WIMF", b"WIM3"):
         raise ValueError("Streaming only supported for STILL WIMF files")
 
     meta = json.loads(raw[17 : 17 + mlen].decode("utf-8")) if mlen > 0 else {}

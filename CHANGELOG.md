@@ -2,6 +2,69 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
+## 3.0.0 - 2026-08-26
+
+- WIM3 (oxygen) is now the default container. `wimf.encode` and
+  `wimf.save` write WIM3 unless `format_version=2` is passed; decode
+  auto-detects the magic and reads both formats transparently.
+- Lossy WIM3 at launch: quality 1-10 quantizes wavelet coefficient
+  bitplanes (a power-of-two dead-zone quantizer reusing the embedded
+  coder), with progressive truncation still working on lossy payloads.
+  On the CI synthetic fixture, WIM3 Q5 reaches 7.8x and Q1 reaches 284x
+  versus 4.0x lossless.
+- EXIF round-tripping: camera tags from Pillow sources ride container
+  metadata and rebuild on decode; the Pillow plugin re-attaches them on
+  save to JPEG/TIFF/WebP.
+- The version-3 path validates quality, preset, codec, and threads for
+  consistency. Multi-state history and anti-rot protection remain
+  version-2 features and raise a clear error under version 3.
+- New public surface: `wimf.decode(..., target_planes=N)` performs
+  progressive decoding of WIM3 wavelet tiles; `wimf.inspect` reports
+  WIM3 tile modes, leaf count, and depth enum; `WIMFImage.exif` exposes
+  rebuilt EXIF tags; the Pillow plugin registers the WIM3 magic.
+- CI builds and runs the WIM2 and WIM3 native suites separately on every
+  operating system, and publishes separate WIM2/WIM3 visual codec
+  reports with per-suite job summaries.
+
+## 2.3.0 - 2026-08-26
+
+- Predictive tiles gain an adaptive range-coded entropy stage (tile entropy
+  byte 2): signed residuals through the shared coefficient models with
+  per-predictor contexts, competing with Zstandard during scoring and stored
+  only when smaller. Noise-heavy content drops about a quarter in size.
+  The pure-Python decoder rejects byte-2 tiles with a clear message; the
+  native decoder reconstructs and validates them fully.
+- Wavelet lossy tiles use per-subband range-coder probability contexts
+  (reversible flag 6), worth about half a percent over flag 4. Lossless
+  stays on the single-context flag 3 stream where banding measured
+  net-negative. Flags 0-5 remain byte-compatible for old files.
+- Fixed a latent MinGW-only heap corruption at worker-thread exit:
+  thread_local Zstandard contexts wrapped in destroying unique_ptr raced
+  emutls teardown during pthread key cleanup. Contexts are now bounded,
+  intentionally leaked allocations. Found via stress hammering and
+  confirmed fixed under Dr.Memory with zero error reports.
+- Hardened range-coder decoding: consumption limits derived from payload
+  sizes turn hostile or desynced streams into clean rejections instead of
+  out-of-bounds reads past the container.
+- Pinned the quality ladder's rate-monotonicity with a regression test;
+  the historical Q1-larger-than-Q2 inversion no longer reproduces after
+  the 2.1/2.2 retunes.
+- Documented the progressive-layer reservation rationale in the WIM2
+  specification: `layers != 1` stays rejected pending the 3.0 container.
+
+## 2.2.4 - 2026-08-25
+
+- Wavelet tiles now use an adaptive binary range coder (LZMA-style, with
+  11-bit context-modeled probabilities) instead of varint packing plus
+  container-level zstd. Lossless tiles carry reversible flag 3 and lossy
+  tiles flag 4; older decoders reject these cleanly via the existing
+  reversible range check. The legacy unpackers are kept for reading
+  pre-2.2.4 files.
+- Lossy output improves dramatically at equal quality settings: the
+  photo harness drops from 1.58x @ 25.48 dB to 2.31x @ 45.46 dB at Q5.
+- Magnitude coding emits 16 raw bits once coefficients exceed the eight
+  threshold levels, so large lossy DC values no longer truncate.
+
 ## 2.2.3 - 2026-08-25
 
 - Fixed the root cause of the chroma artifacts reported in 2.2.2:

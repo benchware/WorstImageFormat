@@ -27,7 +27,7 @@ def test_depth_channel_roundtrip_and_access(bit_depth, maximum, dtype):
 def test_streaming_api_yields_complete_wim2(tmp_path):
     image = np.random.default_rng(50).integers(0, 256, (29, 37, 3), dtype=np.uint8)
     path = tmp_path / "stream.wimf"
-    wimf.save(path, image, lossless=True, metadata={"stream": True})
+    wimf.save(path, image, lossless=True, metadata={"stream": True}, format_version=2)
     states = list(stream_load(path))
     assert len(states) == 1
     width, height, pixels, metadata, final = states[0]
@@ -60,7 +60,7 @@ def test_metadata_rewrite_preserves_every_tile_payload_with_history():
     changed = base.copy()
     changed[7:30, 11:80] = [10, 90, 180, 255]
     encoder = wimf.WIMFEncoder(base).set_anti_rot().add_chrono_state(changed)
-    payload = encoder.encode(lossless=True)
+    payload = encoder.encode(lossless=True, format_version=2)
     before = parse_v2(payload)
     tile_payloads = [payload[item[8] : item[8] + item[9]] for item in before["entries"]]
     rewritten = wimf.rewrite_metadata(payload, {"edited": True})
@@ -74,7 +74,9 @@ def test_metadata_rewrite_preserves_every_tile_payload_with_history():
 @pytest.mark.parametrize("area", ["header", "metadata", "index", "payload", "extension", "parity"])
 def test_deterministic_corruption_targets_all_container_areas(area):
     image = np.random.default_rng(53).integers(0, 256, (129, 257, 3), dtype=np.uint8)
-    payload = wimf.encode(image, lossless=True, anti_rot=True, metadata={"purpose": "corruption-target"})
+    payload = wimf.encode(
+        image, lossless=True, anti_rot=True, format_version=2, metadata={"purpose": "corruption-target"}
+    )
     damaged = corrupt(payload, seed=77, area=area)
     assert damaged == corrupt(payload, seed=77, area=area)
     assert damaged != payload
@@ -85,7 +87,7 @@ def test_deterministic_corruption_targets_all_container_areas(area):
 def test_uint16_comparison_and_lossless_bit_depths():
     for bit_depth, maximum in ((10, 1023), (16, 65535)):
         image = np.random.default_rng(bit_depth).integers(0, maximum + 1, (17, 21, 3), dtype=np.uint16)
-        payload = wimf.WIMFEncoder(image).set_metadata(bit_depth=bit_depth).encode(lossless=True)
+        payload = wimf.WIMFEncoder(image).set_metadata(bit_depth=bit_depth).encode(lossless=True, format_version=2)
         raw, info = decode_v2(payload)
         decoded = np.frombuffer(raw, "<u2").reshape(image.shape)
         assert info["bit_depth"] == bit_depth and np.array_equal(decoded, image)
@@ -100,7 +102,7 @@ def test_public_option_validation():
         {"quality": 11},
         {"codec": "unknown"},
         {"threads": 0},
-        {"format_version": 3},
+        {"format_version": 4},
     ):
         with pytest.raises(ValueError):
             wimf.encode(image, **options)
@@ -108,10 +110,23 @@ def test_public_option_validation():
         wimf.encode(image, metadata="not-a-dict")
 
 
+def test_codec_name_case_insensitive():
+    image = np.zeros((16, 16, 3), dtype=np.uint8)
+    reference = wimf.encode(image, lossless=True, codec="auto")
+    for name in ("Auto", "AUTO", "Auto (hybrid)", " auto "):
+        assert wimf.encode(image, lossless=True, codec=name) == reference
+    for name in ("Wavelet", "WAVELET", "PREDICTIVE"):
+        assert wimf.encode(image, lossless=True, codec=name).startswith((b"WIM2", b"WIM3"))
+    with pytest.raises(ValueError):
+        wimf.encode(image, codec="Not A Codec")
+
+
 def test_operation_progress_contract_when_native_available():
     token = wimf.operation_token()
-    payload = wimf.encode(np.zeros((257, 259, 3), dtype=np.uint8), lossless=True, threads=2, operation_token=token)
-    assert payload.startswith(b"WIM2")
+    payload = wimf.encode(
+        np.zeros((257, 259, 3), dtype=np.uint8), lossless=True, threads=2, operation_token=token, format_version=2
+    )
+    assert payload.startswith((b"WIM2", b"WIM3"))
     if wimf.runtime_info()["native"]:
         assert token.total > 0 and token.completed == token.total and not token.cancelled
 

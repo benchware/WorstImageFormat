@@ -14,34 +14,53 @@ from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageOps
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import wimf  # noqa: E402
-from wimf.hybrid import MODE_NAMES, parse_v2  # noqa: E402
 
 THREADS = 4
-CONFIGURATIONS = [
-    ("lossless_auto", "Lossless Auto", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "auto"}),
-    ("lossy_auto_q5", "Lossy Auto Q5", {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "auto"}),
-    ("predictive", "Predictive", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "predictive"}),
+# WIM2 keeps the classic configuration matrix (lossy tuning, palette, forced
+# codecs). WIM3 is lossless-only in this release, so its report documents the
+# default auto selection plus a progressive row that decodes half the
+# bitplanes to show the speed/coarseness tradeoff.
+V2_CONFIGURATIONS = [
+    (
+        "lossless_auto",
+        "Lossless Auto",
+        {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "auto"},
+    ),
+    (
+        "lossy_auto_q5",
+        "Lossy Auto Q5",
+        {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "auto"},
+    ),
+    (
+        "predictive",
+        "Predictive",
+        {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "predictive"},
+    ),
     ("palette", "Palette", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "palette"}),
     ("wavelet_q5", "Wavelet Q5", {"lossless": False, "quality": 5, "preset": "Balanced", "codec": "wavelet"}),
     ("raw", "Raw", {"lossless": True, "quality": 7, "preset": "Balanced", "codec": "raw"}),
 ]
+V3_CONFIGURATIONS = [
+    ("v3_lossless", "Lossless Auto", {"lossless": True}),
+    ("v3_lossy_q5", "Lossy Q5", {"lossless": False, "quality": 5}),
+    ("v3_lossy_q1", "Lossy Q1", {"lossless": False, "quality": 1}),
+    ("v3_coarse_preview", "Lossless (top-plane decode)", {"lossless": True}),
+]
 
 
-def encode_decode(image, options):
+def encode_decode(image, options, target_planes=None):
     start = time.perf_counter()
     payload = wimf.WIMFEncoder(image).encode(**options, threads=THREADS)
     encode_ms = (time.perf_counter() - start) * 1000
     start = time.perf_counter()
-    decoded = wimf.WIMFDecoder(payload).decode().pil
+    decoder = wimf.WIMFDecoder(payload)
+    decoded = decoder.decode(target_planes=target_planes).pil if target_planes else decoder.decode().pil
     decode_ms = (time.perf_counter() - start) * 1000
     return payload, decoded, encode_ms, decode_ms
 
 
 def tile_modes(payload):
-    counts = {name: 0 for name in MODE_NAMES.values()}
-    for entry in parse_v2(payload)["entries"]:
-        counts[MODE_NAMES[entry[4]]] += 1
-    return {name: count for name, count in counts.items() if count}
+    return {name: count for name, count in wimf.inspect(payload)["tile_modes"].items() if count}
 
 
 def metrics(source, decoded, payload, encode_ms, decode_ms):
@@ -104,49 +123,72 @@ def build_comparison(panels):
     return comparison
 
 
-def options_text(options):
-    return ", ".join(
-        [
+def options_text(version, options, target_planes=None):
+    parts = [f"format=WIM{version}"]
+    if version == 2:
+        parts += [
             f"codec={options['codec']}",
             f"lossless={str(options['lossless']).lower()}",
             f"quality={options['quality']}",
             f"preset={options['preset']}",
-            f"threads={THREADS}",
-            "tile=128x128",
-            "format=WIM2",
         ]
-    )
+    else:
+        parts.append(f"lossless={str(options['lossless']).lower()}")
+        if not options["lossless"]:
+            parts.append(f"quality={options['quality']}")
+        if target_planes:
+            parts.append(f"decode target_planes={target_planes}")
+    parts.append(f"threads={THREADS}")
+    return ", ".join(parts)
 
 
-def report_fixture(slug, title, source, credit, output, preview_dir):
+def report_fixture(slug, title, source, credit, output, preview_dir, version):
+    configurations = V2_CONFIGURATIONS if version == 2 else V3_CONFIGURATIONS
     fixture_dir = output / slug
     fixture_dir.mkdir(parents=True, exist_ok=True)
     source.save(fixture_dir / "source.png")
     results, decoded_images = {}, {}
-    for key, label, options in CONFIGURATIONS:
-        payload, decoded, encode_ms, decode_ms = encode_decode(source, options)
+    for key, label, options in configurations:
+        encode_options = {**options, "format_version": version}
+        # The coarse-preview row reuses the full payload but decodes only the
+        # top bitplane; its size/ratio metrics still describe the full stream.
+        target_planes = 1 if key == "v3_coarse_preview" else None
+        payload, decoded, encode_ms, decode_ms = encode_decode(source, encode_options, target_planes)
         results[key] = {
             "label": label,
-            "configuration": options_text(options),
-            "options": {**options, "threads": THREADS, "tile_size": 128, "format_version": 2},
+            "configuration": options_text(version, options, target_planes),
+            "options": {**encode_options, "threads": THREADS, "tile_size": 128},
             **metrics(source, decoded, payload, encode_ms, decode_ms),
         }
         decoded_images[key] = decoded
         decoded.save(fixture_dir / f"decoded-{key.replace('_', '-')}.png")
         (fixture_dir / f"{slug}-{key.replace('_', '-')}.wimf").write_bytes(payload)
 
-    if results["lossless_auto"]["max_error"] != 0:
+    lossless_key = "lossless_auto" if version == 2 else "v3_lossless"
+    if results[lossless_key]["max_error"] != 0:
         raise AssertionError(f"{slug} failed its lossless roundtrip")
-    if slug == "synthetic-mixed" and not {"palette", "predictive"} <= set(results["lossless_auto"]["tile_modes"]):
-        raise AssertionError("synthetic fixture did not exercise mixed Palette/Predictive auto selection")
+    if version == 2 and slug == "synthetic-mixed" and len(results["lossless_auto"]["tile_modes"]) < 2:
+        raise AssertionError("synthetic fixture did not exercise mixed auto tile selection")
 
-    difference = ImageEnhance.Contrast(ImageChops.difference(source, decoded_images["wavelet_q5"])).enhance(8)
-    difference.save(fixture_dir / "wavelet-difference-8x.png")
-    comparison = build_comparison(
-        [("Source", source)]
-        + [(label, decoded_images[key]) for key, label, _ in CONFIGURATIONS]
-        + [("Wavelet difference (8x)", difference)]
-    )
+    if version == 2:
+        difference = ImageEnhance.Contrast(ImageChops.difference(source, decoded_images["wavelet_q5"])).enhance(8)
+        difference.save(fixture_dir / "wavelet-difference-8x.png")
+        panels = (
+            [("Source", source)]
+            + [(label, decoded_images[key]) for key, label, _ in configurations]
+            + [("Wavelet difference (8x)", difference)]
+        )
+    else:
+        coarse_error = ImageEnhance.Contrast(
+            ImageChops.difference(source, decoded_images["v3_coarse_preview"])
+        ).enhance(8)
+        coarse_error.save(fixture_dir / "coarse-preview-difference-8x.png")
+        panels = (
+            [("Source", source)]
+            + [(label, decoded_images[key]) for key, label, _ in configurations]
+            + [("Top-plane error (8x)", coarse_error)]
+        )
+    comparison = build_comparison(panels)
     comparison.save(fixture_dir / "comparison.png")
     preview_dir.mkdir(parents=True, exist_ok=True)
     comparison.save(preview_dir / f"{slug}.png", optimize=True)
@@ -184,6 +226,7 @@ def main():
     parser.add_argument("--fixtures", type=Path, default=Path(".github/assets/fixtures"))
     parser.add_argument("--preview-dir", type=Path, default=Path(".github/assets/report-previews"))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--format", type=int, choices=(2, 3), default=2, help="container family to report")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -210,7 +253,7 @@ def main():
     report = {
         "runtime": wimf.runtime_info(),
         "fixtures": {
-            slug: report_fixture(slug, title, source, credit, args.output, args.preview_dir)
+            slug: report_fixture(slug, title, source, credit, args.output, args.preview_dir, args.format)
             for slug, title, source, credit in fixtures
         },
     }
@@ -219,7 +262,7 @@ def main():
     repository = os.environ.get("GITHUB_REPOSITORY", "benchware/WorstImageFormat")
     sha = os.environ.get("GITHUB_SHA", "main")
     sections = [fixture_summary(slug, fixture, repository, sha) for slug, fixture in report["fixtures"].items()]
-    summary = f"""## WIMF visual codec report
+    summary = f"""## WIMF visual codec report (WIM{args.format})
 
 Each fixture is reported separately so photographic behavior cannot hide behind synthetic averages. Every row records the exact public encoder configuration used for that run. Full-resolution decoded images, differences, WIMF payloads, and JSON data are available in the artifact.
 

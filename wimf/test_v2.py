@@ -40,7 +40,7 @@ def test_v2_lossless_rgb_odd_dimensions(tmp_path):
     arr = np.random.default_rng(1).integers(0, 256, (133, 259, 3), dtype=np.uint8)
     path = tmp_path / "odd.wimf"
     wimf.save(path, Image.fromarray(arr), lossless=True)
-    assert path.read_bytes()[:4] == b"WIM2"
+    assert path.read_bytes()[:4] in (b"WIM2", b"WIM3")
     assert np.array_equal(wimf.open(path).to_numpy(), arr)
 
 
@@ -127,7 +127,7 @@ def test_friendly_memory_api_and_inspection(tmp_path):
     decoded = wimf.decode(payload)
     assert np.array_equal(decoded.to_numpy(), arr)
     details = wimf.inspect(payload)
-    assert details["format"] == "WIM2"
+    assert details["format"] in ("WIM2", "WIM3")
     assert details["width"] == 37 and details["height"] == 31
     assert details["metadata"]["purpose"] == "api-test"
     assert sum(details["tile_modes"].values()) == 1
@@ -135,6 +135,28 @@ def test_friendly_memory_api_and_inspection(tmp_path):
     output = tmp_path / "friendly.wimf"
     assert wimf.save(output, arr, lossless=True) == str(output)
     assert wimf.is_wimf(output)
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        pytest.param(np.full((64, 64, 3), 128, dtype=np.uint8), id="flat"),
+        pytest.param(np.repeat((np.indices((64, 64))[0] * 4)[..., None], 3, axis=2).astype(np.uint8), id="gradient"),
+        pytest.param(
+            np.clip(
+                (np.indices((64, 64))[0] * 4)[..., None] + np.random.default_rng(5).integers(-12, 13, (64, 64, 3)),
+                0,
+                255,
+            ).astype(np.uint8),
+            id="grad+noise",
+        ),
+    ],
+)
+def test_lossy_size_monotonic_in_quality(image):
+    """Roadmap 5b: the quality ladder must be rate-monotonic; higher quality
+    never produces a smaller payload than the quality below it."""
+    sizes = [len(wimf.encode(image, quality=q, preset="Extreme", threads=1)) for q in range(1, 7)]
+    assert all(sizes[i + 1] >= sizes[i] for i in range(len(sizes) - 1)), sizes
 
 
 def test_native_high_depth_and_forced_mode_roundtrips():
@@ -222,7 +244,7 @@ def test_v2_chrono_history_is_indexed_and_exact():
     final = np.random.default_rng(14).integers(0, 256, base.shape, dtype=np.uint8)
     encoder = wimf.WIMFEncoder(base)
     encoder.add_chrono_state(changed).add_chrono_state(final)
-    data = encoder.encode(lossless=True)
+    data = encoder.encode(lossless=True, format_version=2)
     assert data.startswith(b"WIM2")
     assert b"HIST" in parse_extensions(data)
     decoder = wimf.WIMFDecoder(data)
@@ -235,7 +257,7 @@ def test_v2_chrono_history_is_indexed_and_exact():
 def test_v2_anti_rot_repairs_two_corrupted_shards():
     arr = np.random.default_rng(15).integers(0, 256, (129, 257, 3), dtype=np.uint8)
     encoder = wimf.WIMFEncoder(arr).set_anti_rot()
-    protected = encoder.encode(lossless=True)
+    protected = encoder.encode(lossless=True, format_version=2)
     extensions = parse_extensions(protected)
     assert b"AROT" in extensions and not protected.startswith(b"ROT!")
     parity_payload = extensions[b"AROT"]["payload"]
@@ -251,7 +273,7 @@ def test_v2_anti_rot_repairs_two_corrupted_shards():
 
 def test_v2_anti_rot_rejects_three_corrupted_shards():
     arr = np.random.default_rng(16).integers(0, 256, (128, 256, 3), dtype=np.uint8)
-    protected = wimf.WIMFEncoder(arr).set_anti_rot().encode(lossless=True)
+    protected = wimf.WIMFEncoder(arr).set_anti_rot().encode(lossless=True, format_version=2)
     parity_payload = parse_extensions(protected)[b"AROT"]["payload"]
     shard_size = int.from_bytes(parity_payload[16:20], "little")
     damaged = bytearray(protected)
@@ -267,7 +289,7 @@ def test_v2_anti_rot_rejects_three_corrupted_shards():
 
 def test_v2_anti_rot_rejects_damaged_parity():
     arr = np.zeros((64, 64, 3), dtype=np.uint8)
-    protected = wimf.WIMFEncoder(arr).set_anti_rot().encode(lossless=True)
+    protected = wimf.WIMFEncoder(arr).set_anti_rot().encode(lossless=True, format_version=2)
     anti_rot = parse_extensions(protected)[b"AROT"]
     damaged = bytearray(protected)
     damaged[anti_rot["offset"] + anti_rot["size"] - 1] ^= 1
@@ -283,7 +305,7 @@ def test_v2_anti_rot_protects_history_payload():
     base = np.zeros((32, 48, 3), dtype=np.uint8)
     changed = np.full_like(base, 177)
     encoder = wimf.WIMFEncoder(base).set_anti_rot().add_chrono_state(changed)
-    protected = encoder.encode(lossless=True)
+    protected = encoder.encode(lossless=True, format_version=2)
     history = parse_extensions(protected)[b"HIST"]
     damaged = bytearray(protected)
     damaged[history["offset"] + history["size"] // 2] ^= 0x80

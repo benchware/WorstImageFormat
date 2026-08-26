@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wimf"
-version = "2.2.3"
+version = "3.0.0"
 authors = [
   { name="BenchWare", email="ivanm12453@gmail.com" },
 ]

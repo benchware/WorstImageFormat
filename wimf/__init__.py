@@ -18,7 +18,7 @@ from .transport import (
 
 _register_pillow_plugin()
 
-__version__ = "2.2.3"
+__version__ = "3.0.0"
 __all__ = [
     "WIMFImage",
     "WIMFDecoder",
@@ -190,10 +190,19 @@ def rewrite_metadata(source, metadata):
     return append_extensions(base, chunks) if chunks else base
 
 
-def decode(source, *, roi=None, target_layer=2, mip_level=0, operation_token=None):
-    """Decode a path, bytes object, or binary stream into a :class:`WIMFImage`."""
+def decode(source, *, roi=None, target_layer=2, mip_level=0, operation_token=None, target_planes=None):
+    """Decode a path, bytes object, or binary stream into a :class:`WIMFImage`.
+
+    WIM3 containers accept ``target_planes`` (1..N) for progressive decode:
+    fewer planes decode faster into a coarser image. The default decodes
+    every plane.
+    """
     return WIMFDecoder(source).decode(
-        roi=roi, target_layer=target_layer, mip_level=mip_level, operation_token=operation_token
+        roi=roi,
+        target_layer=target_layer,
+        mip_level=mip_level,
+        operation_token=operation_token,
+        target_planes=target_planes,
     )
 
 
@@ -229,14 +238,35 @@ def inspect(source):
         for entry in parsed["entries"]:
             counts[MODE_NAMES[entry[4]]] += 1
         result.update({"tile_size": parsed["tile_size"], "tile_modes": counts})
+    if decoder.magic == b"WIM3":
+        v3_names = {0: "raw", 1: "predictive", 2: "wavelet"}
+        tiles = decoder._v3_info["tiles"]
+        counts = {name: 0 for name in ("raw", "predictive", "wavelet")}
+        for tile in tiles:
+            counts[v3_names[tile["mode"]]] += 1
+        result.update(
+            {
+                "max_tile": int(decoder._v3_info["max_tile"]),
+                "depth_enum": int(decoder._v3_info["depth"]),
+                "tile_count": len(tiles),
+                "tile_modes": counts,
+            }
+        )
     return result
 
 
 def encode(image, **kwargs):
     """Encode a Pillow image, NumPy array, or :class:`WIMFImage` to bytes.
 
-    Common options are ``quality``, ``lossless``, ``preset``, ``codec``, and
-    ``threads``. Pass application metadata through ``metadata={...}``.
+    WIM3 is the default container (``format_version=3``): lossless quadtree
+    tiles with Raw, Predictive-RC, and embedded-wavelet coding. Pass
+    ``format_version=2`` for the classic container with lossy quality
+    tuning, palette mode, animations, and history states. ``quality``,
+    ``preset``, and ``codec`` apply to version 2 only.
+
+    Common options are ``quality``, ``lossless``, ``preset``, ``codec``,
+    ``format_version``, and ``threads``. Pass application metadata through
+    ``metadata={...}``.
     """
     encoder = WIMFEncoder(image)
     encode_keys = {"quality", "preset", "lossless", "format_version", "codec", "threads", "operation_token"}
@@ -275,8 +305,8 @@ def is_wimf(source):
     """Fast check if a file or byte buffer is WIMF."""
     if isinstance(source, (str, os.PathLike)):
         with _builtins.open(source, "rb") as f:
-            return f.read(4) in [b"WIMF", b"WIM2", b"AWIF", b"ROT!"]
-    return source[:4] in [b"WIMF", b"WIM2", b"AWIF", b"ROT!"]
+            return f.read(4) in [b"WIMF", b"WIM2", b"WIM3", b"AWIF", b"ROT!"]
+    return source[:4] in [b"WIMF", b"WIM2", b"WIM3", b"AWIF", b"ROT!"]
 
 
 def runtime_info():

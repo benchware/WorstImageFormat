@@ -40,8 +40,11 @@ section 5b target the largest one - compressed file size - first.
 - [ ] Native Android build support (Termux/NDK): runtime dispatch already
   resolves the inactive-NEON report in issue #31; document the Android Bionic
   Zstandard `qsort_r` build note for native builds.
-- [ ] Resolve progressive-layer design: either implement multi-layer coding or
-  publish the reservation rationale in the WIM2 specification.
+- [x] Resolve progressive-layer design: the reservation rationale is published
+  in `docs/wim2-format.md` (tiles are independently decodable, layer
+  bookkeeping would touch every container invariant at once, and true
+  embedded progressive streams move to the WIMF 3.0 container break).
+  `layers != 1` remains rejected.
 
 ## 3. Web and languages
 
@@ -101,12 +104,18 @@ section 5b target the largest one - compressed file size - first.
   container flags bit 1 for 8-bit RGB/RGBA, with the Python decoder mirror
   added after run #180's failures pinpointed the missing inverse.
 - [ ] YCoCg-with-offsets refinement of the color transform remains open.
-- [ ] Introduce context-modeled entropy coding tuned to prediction residuals
-  and wavelet subbands; generic Zstd payloads are the main structural size gap
-  versus modern image codecs.
-- [ ] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve;
-  today Extreme records 6.89× at Q1 versus 17.31× at Q2 across every tested
-  system, so lower quality currently produces larger files.
+- [x] Context-modeled entropy coding for wavelet subbands: an adaptive binary
+  range coder (LZMA style, 11-bit probability models) replaces varint+zstd
+  payloads behind reversible flags 3/4/6; lossy tiles add per-subband
+  probability contexts (flag 6), worth about half a percent on the bench
+  corpus, while lossless keeps the single-context stream (flag 3) where
+  banding measured net-negative. Legacy unpackers retained for old files.
+- [ ] Extend context-modeled entropy coding to prediction residuals;
+  predictive and palette tiles still use generic Zstd payloads.
+- [x] Rebuild the quality→quantizer ladder as a smooth, rate-monotonic curve.
+  The 2.1/2.2 retunes eliminated the inversion (Extreme Q1 once recorded
+  6.89x versus 17.31x at Q2); verified rate-monotonic across flat, gradient,
+  and noisy content by `test_lossy_size_monotonic_in_quality`.
 - [ ] Optional lossy chroma decimation for photographic tiers, reconstructed
   during decode without changing the WIM2 container.
 - [x] Pin down the quality=10 contract: losslessness comes only from the
@@ -127,8 +136,8 @@ section 5b target the largest one - compressed file size - first.
 
 ## 6. Quality-of-life improvements
 
-- [ ] Accept case-insensitive codec names in the Python API: `auto`, `Auto`,
-  `Auto (hybrid)` and similar variants should map to the same internal path.
+- [x] Accept case-insensitive codec names in the Python API: `auto`, `Auto`,
+  `Auto (hybrid)` and similar variants map to the same internal path.
 - [ ] Implement ROI decode conformance test (currently returns `'encode'` error).
 - [ ] Add `--file` or `--image` flag to the CLI to target a single image rather
   than scanning an entire directory.
@@ -160,5 +169,51 @@ section 5b target the largest one - compressed file size - first.
 Base16, Base32, and Base64 transport support is implemented. These encodings
 help move WIMF through text-only systems but are not compression formats.
 
-GPU acceleration, plugins inside the codec, and another container redesign
-remain deferred until profiling or adopter demand identifies a concrete need.
+## 8. WIMF 3.0 (oxygen) - shipped on the oxygen branch
+
+The breaking container redesign shipped with its launch feature set; each
+item below landed with spec text in `docs/wim3-format.md`, conformance
+vectors, and Python-mirror notes where relevant.
+
+- [x] Remove the 256x256 tile limit via a tagged split tree (vertical,
+  horizontal, quad nodes): leaves range from single pixels to the full
+  image, bounded by a per-image max_tile header field.
+- [x] Embedded bitplane coefficient coding with zerotree-style
+  parent-significance contexts: payloads truncate at plane boundaries into
+  valid coarser images, and decoders accept a target-plane cap, making
+  progressive decode real instead of a reserved layers field.
+- [x] Lossy coding at launch via quantized bitplanes: a per-tile
+  quant_shift byte implements a uniform dead-zone scalar quantizer that
+  reuses the embedded coder; quality 1-10 maps to the shift and quality 10
+  stays exactly lossless. The LL (DC) subband keeps four bitplanes of
+  protection and quantization uses round-to-nearest; lossy mode skips the
+  lossless predictive candidate so quality always has effect; the embedded
+  wavelet candidate is classifier-gated in lossless mode to avoid the
+  full-bitplane cost on predictive-favored content.
+- [x] First-class sample depths: u8, u10, u12, and u16 ride the core path
+  (u10/u12 as little-endian u16 samples); f16 stays reserved pending the
+  HDR phase.
+- [x] CRC32C per payload, 40-byte tile records, and structural validation
+  before any pixel work.
+- [x] EXIF interop: camera tags ride container metadata and rebuild into
+  Pillow Exif objects on decode, re-attaching on save to JPEG/TIFF/WebP.
+- [x] WIM3 becomes the default public container with format_version=2 as
+  the compatibility switch; CI publishes separate WIM2 and WIM3 visual
+  codec reports and native suites per operating system.
+
+## 9. WIMF 3.x candidates
+
+- [ ] Chroma-from-luma decorrelation evaluated against fixed YCoCg-R across
+  the photo corpus before either becomes the default.
+- [ ] Perceptual quantization: contrast-sensitivity-weighted per-subband
+  quantizers replacing the single global quality-to-shift mapping.
+- [ ] Optional learned transform mode with a tiny decoder-side network, always
+  shipped beside a scalar fallback so conformance stays testable.
+- [ ] f16 sample depth and premultiplied-alpha semantics for the HDR phase.
+- [ ] WIM3 in the WebAssembly conformance job, the C ABI, and the JS/Rust
+  bindings once the container settles.
+- [ ] Carry-over wishlist: per-tile quality maps and wider range-coder
+  probability precision.
+
+GPU acceleration and plugins inside the codec remain deferred until profiling
+or adopter demand identifies a concrete need.
