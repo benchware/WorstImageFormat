@@ -141,9 +141,7 @@ def test_friendly_memory_api_and_inspection(tmp_path):
     "image",
     [
         pytest.param(np.full((64, 64, 3), 128, dtype=np.uint8), id="flat"),
-        pytest.param(
-            np.repeat((np.indices((64, 64))[0] * 4)[..., None], 3, axis=2).astype(np.uint8), id="gradient"
-        ),
+        pytest.param(np.repeat((np.indices((64, 64))[0] * 4)[..., None], 3, axis=2).astype(np.uint8), id="gradient"),
         pytest.param(
             np.clip(
                 (np.indices((64, 64))[0] * 4)[..., None] + np.random.default_rng(5).integers(-12, 13, (64, 64, 3)),

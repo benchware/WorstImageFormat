@@ -96,7 +96,8 @@ PYBIND11_MODULE(wimf_v3_cpp, m) {
                                         "height"_a = tile.height, "mode"_a = tile.mode,
                                         "entropy"_a = tile.entropy, "size"_a = tile.packed_size));
               return py::dict("width"_a = info.width, "height"_a = info.height,
-                              "channels"_a = info.channels, "max_tile"_a = info.max_tile,
+                              "depth"_a = info.depth, "channels"_a = info.channels,
+                              "max_tile"_a = info.max_tile,
                               "metadata"_a = py::bytes(info.metadata), "tiles"_a = tiles);
           },
           "data"_a);

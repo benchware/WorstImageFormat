@@ -1,4 +1,5 @@
 """WIMF 3.0 (oxygen) native binding tests: roundtrips, inspection, rejection."""
+
 import numpy as np
 import pytest
 
@@ -43,10 +44,8 @@ def test_v3_metadata_and_inspection():
 
 def test_v3_max_tile_controls_leaf_count():
     image = _image(200, 200, 3, kind="gradient")
-    small = wimf_v3.parse_container(
-        wimf_v3.encode_image(image.tobytes(), 200, 200, 3, max_tile=64))
-    big = wimf_v3.parse_container(
-        wimf_v3.encode_image(image.tobytes(), 200, 200, 3, max_tile=512))
+    small = wimf_v3.parse_container(wimf_v3.encode_image(image.tobytes(), 200, 200, 3, max_tile=64))
+    big = wimf_v3.parse_container(wimf_v3.encode_image(image.tobytes(), 200, 200, 3, max_tile=512))
     assert len(small["tiles"]) > len(big["tiles"])
     assert small["max_tile"] == 64 and big["max_tile"] == 512
 
@@ -95,6 +94,7 @@ def test_v3_progressive_decode_and_16bit():
 
 def test_wim2_files_still_decode_through_v2():
     import wimf
+
     arr = _image(48, 48, 3, kind="gradient")
     payload = wimf.encode(arr, lossless=True)
     decoded = wimf.decode(payload)

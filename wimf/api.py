@@ -228,8 +228,9 @@ class WIMFDecoder:
             dtype = np.uint8 if self.bit_depth == 8 else np.dtype("<u2")
             pix = np.frombuffer(out["pixels"], dtype=dtype)
             pix = pix.reshape(self.height, self.width, self.channels)
-            pil_img = _pixels_to_pil(pix.tobytes(), self.width, self.height,
-                                     self.channels, self.metadata, self.bit_depth)
+            pil_img = _pixels_to_pil(
+                pix.tobytes(), self.width, self.height, self.channels, self.metadata, self.bit_depth
+            )
             return WIMFImage(pil_image=pil_img, metadata=self.metadata, raw_pixels=pix)
 
         if self.magic == V2_MAGIC:
@@ -510,9 +511,7 @@ class WIMFEncoder:
                 raise RuntimeError("WIMF package state is inconsistent") from error
             if not isinstance(quality, int) or isinstance(quality, bool) or not 1 <= quality <= 10:
                 raise ValueError("quality must be an integer between 1 and 10")
-            if threads is not None and (
-                isinstance(threads, bool) or not isinstance(threads, int) or threads < 1
-            ):
+            if threads is not None and (isinstance(threads, bool) or not isinstance(threads, int) or threads < 1):
                 raise ValueError("threads must be None or a positive integer")
             try:
                 from . import wimf_v3_cpp
@@ -523,8 +522,9 @@ class WIMFEncoder:
                 raise ValueError("WIM3 supports bit depths 8, 10, 12, and 16")
             meta_json = json.dumps(meta, separators=(",", ":")).encode("utf-8")
             return bytes(
-                wimf_v3_cpp.encode_image(pixel_states[0], int(w), int(h), channels,
-                                         depth=depth_enum, metadata=meta_json)
+                wimf_v3_cpp.encode_image(
+                    pixel_states[0], int(w), int(h), channels, depth=depth_enum, metadata=meta_json
+                )
             )
 
         if format_version == 2:

@@ -74,7 +74,9 @@ def test_metadata_rewrite_preserves_every_tile_payload_with_history():
 @pytest.mark.parametrize("area", ["header", "metadata", "index", "payload", "extension", "parity"])
 def test_deterministic_corruption_targets_all_container_areas(area):
     image = np.random.default_rng(53).integers(0, 256, (129, 257, 3), dtype=np.uint8)
-    payload = wimf.encode(image, lossless=True, anti_rot=True, format_version=2, metadata={"purpose": "corruption-target"})
+    payload = wimf.encode(
+        image, lossless=True, anti_rot=True, format_version=2, metadata={"purpose": "corruption-target"}
+    )
     damaged = corrupt(payload, seed=77, area=area)
     assert damaged == corrupt(payload, seed=77, area=area)
     assert damaged != payload
@@ -121,7 +123,9 @@ def test_codec_name_case_insensitive():
 
 def test_operation_progress_contract_when_native_available():
     token = wimf.operation_token()
-    payload = wimf.encode(np.zeros((257, 259, 3), dtype=np.uint8), lossless=True, threads=2, operation_token=token, format_version=2)
+    payload = wimf.encode(
+        np.zeros((257, 259, 3), dtype=np.uint8), lossless=True, threads=2, operation_token=token, format_version=2
+    )
     assert payload.startswith((b"WIM2", b"WIM3"))
     if wimf.runtime_info()["native"]:
         assert token.total > 0 and token.completed == token.total and not token.cancelled
