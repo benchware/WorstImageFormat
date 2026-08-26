@@ -251,6 +251,11 @@ CI separates Python quality, cross-platform API/feature tests, legacy decode com
 
 Target performance is at least 10 MP/s Balanced encoding and 50 MP/s decoding on reference hardware; benchmark results are hardware-dependent and are not claimed until measured.
 
+
+## Acknowledgements
+
+- [GoodbyeDPI UI](https://github.com/Storik4pro/goodbyeDPI-UI) by **Storik4pro** (Apache License 2.0) - the WIMF Studio interface follows its Fluent design language: card-based sections, an accent action bar, a rotating tip banner, and a quick-start welcome flow. Go check it out if you need a front-end for GoodbyeDPI, Zapret, ByeDPI or SpoofDPI.
+- [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) by **rdbende** - the dark and light widget themes used by WIMF Studio.
 ## License
 
 WIMF is licensed under GPL-3.0-or-later.

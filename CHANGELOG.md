@@ -2,6 +2,16 @@
 
 All notable WIMF changes are recorded here. The project follows semantic versioning for the Python package; container compatibility is documented separately.
 
+## Unreleased
+
+- WIMF Studio interface overhaul: Fluent-inspired layout (GoodbyeDPI UI design
+  language), centralized design tokens (wimf/studio_theme.py), Sun Valley
+  dark/light themes only, themed menus, hover tooltips, a rotating tip banner,
+  a first-run welcome window, a settings window (appearance, behavior, encoding
+  defaults, Python/C++ core selection), themed dialogs, fade/slide animations,
+  viewport-cropped zoom rendering, and per-monitor DPI awareness with native
+  Windows 10/11 title-bar integration. Design inspiration: GoodbyeDPI UI by
+  Storik4pro (Apache-2.0); widget themes: Sun Valley ttk by rdbende.
 ## 2.2.3 - 2026-08-25
 
 - Fixed the root cause of the chroma artifacts reported in 2.2.2:

@@ -19,3 +19,12 @@ Inspect anti-rot status, attempt bounded repair, browse chrono states, compare s
 Create deterministic corrupted copies, test Base64/data URLs, compare strict decoding with unsafe verified-tile previews, and inspect failed tiles.
 
 The GUI stays responsive by running codec operations in workers. Cancellation is cooperative between tiles and leaves the current document untouched.
+
+## Interface
+
+The interface follows the Fluent design language popularized by
+[GoodbyeDPI UI](https://github.com/Storik4pro/goodbyeDPI-UI) (Storik4pro, Apache-2.0):
+card sections with soft strokes, an accent action bar, a rotating tip banner, and a
+first-run quick-start window. Widgets use the
+[Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) (rdbende) in
+dark or light; spacing, sizes and palettes are centralized in wimf/studio_theme.py.
