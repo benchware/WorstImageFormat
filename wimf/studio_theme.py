@@ -6,6 +6,15 @@ GoodbyeDPI UI are built on): soft card strokes, roomy gutters, one accent color.
 Design-language credit: GoodbyeDPI UI by Storik4pro (Apache-2.0).
 """
 
+try:  # bundled copy ships with the app; the pip package is used when available
+    import sv_ttk
+except ImportError:  # pragma: no cover
+    try:
+        from ._vendor import sv_ttk
+    except ImportError:
+        sv_ttk = None
+
+
 SPACING = {
     "xs": 4,
     "sm": 8,

@@ -31,6 +31,7 @@ dependencies = [
     "numpy",
     "pillow",
     "zstandard>=0.22",
+    "sv-ttk>=2.6",
 ]
 
 [project.scripts]
