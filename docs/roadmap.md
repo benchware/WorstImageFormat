@@ -185,7 +185,11 @@ vectors, and Python-mirror notes where relevant.
 - [x] Lossy coding at launch via quantized bitplanes: a per-tile
   quant_shift byte implements a uniform dead-zone scalar quantizer that
   reuses the embedded coder; quality 1-10 maps to the shift and quality 10
-  stays exactly lossless.
+  stays exactly lossless. The LL (DC) subband keeps four bitplanes of
+  protection and quantization uses round-to-nearest; lossy mode skips the
+  lossless predictive candidate so quality always has effect; the embedded
+  wavelet candidate is classifier-gated in lossless mode to avoid the
+  full-bitplane cost on predictive-favored content.
 - [x] First-class sample depths: u8, u10, u12, and u16 ride the core path
   (u10/u12 as little-endian u16 samples); f16 stays reserved pending the
   HDR phase.

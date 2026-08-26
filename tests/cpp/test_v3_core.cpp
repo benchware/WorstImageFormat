@@ -264,8 +264,8 @@ int main() {
     // Lossy: quantized-bitplane coding trades exactness for size, with
     // monotonic quality behavior and exactness restored at quality 10.
     {
-        auto pixels = make_image(96, 96, 3, 2, 33);
-        ImageView view{pixels.data(), 96, 96, 3, 1, static_cast<size_t>(96) * 3};
+        auto pixels = make_image(128, 128, 3, 0, 33);
+        ImageView view{pixels.data(), 128, 128, 3, 1, static_cast<size_t>(128) * 3};
         size_t previous_bytes = 0;
         double previous_mse = -1.0;
         for (uint8_t quality : {uint8_t{3}, uint8_t{5}, uint8_t{7}, uint8_t{10}}) {

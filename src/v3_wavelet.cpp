@@ -202,10 +202,23 @@ std::vector<uint8_t> encode(const ImageView& tile, uint8_t quant_shift) {
         for (size_t i = begin; i < end; ++i) band_ids[i] = static_cast<uint8_t>(b);
     }
     const auto parents = parent_map(bands, coef_total);
+
+    // Lossy quantization weights subbands: the LL band carries the base
+    // image, so it keeps four bitplanes of protection while detail bands
+    // take the full shift. Round-to-nearest halves the average quantization
+    // error versus truncation. The decoder mirrors this rule exactly.
+    auto band_shift = [&](size_t i) {
+        return band_ids[i] == 0 ? std::max(0, quant_shift - 4) : quant_shift;
+    };
+    auto quantize = [&](size_t i, uint64_t mag) {
+        const unsigned shift = band_shift(i);
+        if (shift == 0) return mag;
+        return (mag + ((uint64_t{1} << shift) >> 1)) >> shift;
+    };
+
     SigModels models{};
     std::vector<std::vector<int64_t>> ordered(tile.channels);
 
-    uint64_t max_magnitude = 0;
     std::vector<uint8_t> plane(static_cast<size_t>(pw) * ph * tile.bytes_per_sample);
     for (uint8_t c = 0; c < tile.channels; ++c) {
         for (uint32_t y = 0; y < ph; ++y)
@@ -223,11 +236,6 @@ std::vector<uint8_t> encode(const ImageView& tile, uint8_t quant_shift) {
         auto coefficients = wimf::v2::wavelet_forward(plane.data(), pw, ph,
                                                       tile.bytes_per_sample, true, levels, 1.0);
         ordered[c] = wimf::v2::reorder_subbands_v2(coefficients, pw, ph, levels);
-        for (const int64_t coef : ordered[c]) {
-            const uint64_t mag =
-                coef < 0 ? static_cast<uint64_t>(-(coef + 1)) + 1 : static_cast<uint64_t>(coef);
-            max_magnitude = std::max(max_magnitude, mag >> quant_shift);
-        }
     }
 
     // Magnitudes drive every bitplane decision; sign rides separately. Using
@@ -235,13 +243,15 @@ std::vector<uint8_t> encode(const ImageView& tile, uint8_t quant_shift) {
     // top plane (their sign-extension sets every high bit). The quantization
     // shift folds away the low bitplanes lossy coding would discard anyway.
     std::vector<std::vector<uint64_t>> magnitudes(tile.channels);
+    uint64_t max_magnitude = 0;
     for (uint8_t c = 0; c < tile.channels; ++c) {
         magnitudes[c].resize(ordered[c].size());
         for (size_t i = 0; i < ordered[c].size(); ++i) {
             const uint64_t mag = ordered[c][i] < 0
                                      ? static_cast<uint64_t>(-(ordered[c][i] + 1)) + 1
                                      : static_cast<uint64_t>(ordered[c][i]);
-            magnitudes[c][i] = mag >> quant_shift;
+            magnitudes[c][i] = quantize(i, mag);
+            max_magnitude = std::max(max_magnitude, magnitudes[c][i]);
         }
     }
 
@@ -418,8 +428,12 @@ std::vector<uint8_t> decode(const uint8_t* data, size_t size, uint32_t width, ui
     for (uint8_t c = 0; c < channels; ++c) {
         ChannelState& state = states[c];
         for (size_t i = 0; i < coef_count; ++i) {
-            // Dequantize: the coded domain was magnitudes >> quant_shift.
-            const int64_t magnitude = state.value[i] << quant_shift;
+            // Dequantize: the coded domain was magnitudes >> shift, where the
+            // LL band keeps four planes of protection exactly like the
+            // encoder's quantize rule.
+            const unsigned shift =
+                band_ids[i] == 0 ? std::max(0, quant_shift - 4) : quant_shift;
+            const int64_t magnitude = state.value[i] << shift;
             ordered[i] = state.significant[i] ? (state.negative[i] ? -magnitude : magnitude) : 0;
         }
         auto raster = wimf::v2::restore_raster_order_v2(ordered, pw, ph, levels);

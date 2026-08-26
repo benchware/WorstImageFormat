@@ -243,7 +243,6 @@ Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
         for (const Node& leaf : leaves) {
             const ImageView view = subview(image, leaf);
             auto rc = wimf::v2::encode_predictive_rc(view);
-            auto embedded = embedded::encode(view, quant_shift);
             const size_t raw_bytes =
                 static_cast<size_t>(leaf.w) * leaf.h * image.channels * bps;
             struct Candidate {
@@ -261,9 +260,17 @@ Status encode_image(const ImageView& image, const EncodeOptionsV3& options,
                                 static_cast<size_t>(leaf.w) * image.channels * bps);
                 best = {kModeRaw, kEntropyNone, raw.size(), std::move(raw)};
             }
-            if (rc.size() < best.size) best = {kModePredictive, kEntropyRC, rc.size(), std::move(rc)};
-            if (embedded.size() < best.size)
-                best = {kModeWavelet, kEntropyNone, embedded.size(), std::move(embedded)};
+            if (quant_shift == 0 && rc.size() < best.size)
+                best = {kModePredictive, kEntropyRC, rc.size(), std::move(rc)};
+            // The embedded wavelet candidate costs full bitplane coding, so it
+            // only runs for leaves the classifier flags as smooth/photographic
+            // - the same shortlist gating the v2 auto path uses. Lossy coding
+            // always offers it: quantization can win on any content.
+            if (quant_shift > 0 || wimf::v2::classify_tile(view) == wimf::v2::TileMode::Wavelet) {
+                auto embedded = embedded::encode(view, quant_shift);
+                if (embedded.size() < best.size)
+                    best = {kModeWavelet, kEntropyNone, embedded.size(), std::move(embedded)};
+            }
             payloads.push_back({best.mode, best.entropy,
                                 crc32c(best.bytes.data(), best.bytes.size()),
                                 std::move(best.bytes)});

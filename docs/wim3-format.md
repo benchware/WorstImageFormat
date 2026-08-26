@@ -81,7 +81,16 @@ Phase 3 (this branch):
   arithmetic right shift by that amount and shifted back on
   reconstruction - a uniform dead-zone scalar quantizer that reuses the
   entire embedded machinery. Quality 1-10 maps to the shift; quality 10 or
-  the lossless flag keeps every plane. Lossy payloads truncate
+  the lossless flag keeps every plane. The LL (DC) subband keeps four
+  extra bitplanes of protection (`max(0, shift - 4)`) so the base image
+  survives aggressive quantization; detail bands take the full shift.
+  Quantization uses round-to-nearest to halve average error versus
+  truncation. In lossy mode only wavelet and raw candidates are
+  considered (predictive RC is inherently lossless and is skipped so the
+  quality setting always has effect). For lossless mode the embedded
+  wavelet candidate is only evaluated when the per-tile classifier
+  selects Wavelet, avoiding the expensive full-bitplane encode on content
+  where predictive RC already dominates. Lossy payloads truncate
   progressively exactly like lossless ones.
 - EXIF interop: camera tags captured from Pillow sources ride the metadata
   JSON under `exif` and rebuild into `PIL.Image.Exif` on decode, so
