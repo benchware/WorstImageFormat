@@ -46,7 +46,7 @@ jobs:
             scale: "3.5"
             divisor: "16.0"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build and sweep
         shell: bash
         run: |
